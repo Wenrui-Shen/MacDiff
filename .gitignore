@@ -4,7 +4,6 @@ __pycache__
 *.zip
 *.7z
 *.pth
-*.txt
 *.skeleton
 *.log
 *.pkl

@@ -13,7 +13,7 @@
 </div>
 
 <div align="center">
-  <img src="assets/overview_macdiff.png" alt="Method Overview" width="100%">
+  <img src="assets/overview_macdiff.png" alt="Method Overview" width="90%">
 </div>
 
 
