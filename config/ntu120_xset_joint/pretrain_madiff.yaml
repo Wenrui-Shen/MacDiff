@@ -1,0 +1,59 @@
+# data
+feeder: feeder.feeder_ntu.Feeder
+train_feeder_args:
+  data_path: data/ntu120/NTU120_XSet.npz
+  split: train
+  window_size: 120
+  p_interval: [0.5, 1]
+  normalization: False
+  #flip: True
+  random_rot: True
+  #source_rot: True
+  motion_noise: 0 # std
+  impulse_noise: 0 # p
+  joint_noise: [1, 0.005] # p, std
+  frame_noise: [0, 0] # p, std
+  vel: False
+  bone: False
+
+# model
+model: model.transformer_macdiff.Transformer
+model_args:
+  dim_in: 3
+  dim_feat: 256
+  dim_t_embed: 64
+  depth: 8
+  decoder_depth: 5
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: None
+  drop_rate: 0. #0.
+  attn_drop_rate: 0. #0.
+  drop_path_rate: 0. #0.
+  diff_prediction: 'noise'
+  diff_steps: 1000 
+  diff_noise_schedule: 'inverse_cosine'
+  lambda_loss_uni: 0.02
+  layer_mask_ratio: 0.15
+  input_mean: [-0.0058, -0.1333, -0.0246]
+  input_var: [0.0206, 0.0805, 0.0218]
+  # new
+  #input_mean: [-0.0024, -0.2132, -0.0446]
+  #input_var: [0.0525, 0.1527, 0.0513]
+  #loss_reweight: ['MinSNR', 5]
+  #one_person: False
+
+# training
+epochs: 400
+warmup_epochs: 20
+batch_size: 32
+lr: 1e-3
+min_lr: 5e-4
+weight_decay: 0.05
+mask_ratio: 0.9
+motion_aware_tau: 0.8
