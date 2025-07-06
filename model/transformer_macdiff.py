@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import warnings
-from ..model_madiff.drop import DropPath
+from .drop import DropPath
 import sys
 import numpy as np
 from functools import partial
@@ -13,7 +13,7 @@ from guided_diffusion.nn import update_ema
 from guided_diffusion.resample import UniformSampler, MaskedDiffusionSampler, SNRSampler
 from guided_diffusion.script_util import create_gaussian_diffusion
 
-from ..model_madiff.util import *
+from .util import *
 
 # ver12
 # no cls token, pool instead
