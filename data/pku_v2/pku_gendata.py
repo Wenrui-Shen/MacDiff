@@ -2,6 +2,7 @@ import os
 import argparse
 import numpy as np
 from tqdm import tqdm
+from pathlib import Path
 
 max_body_true = 2
 max_body_kinect = 4
@@ -83,9 +84,12 @@ def one_hot_vector(labels):
 
 
 if __name__ == '__main__':
+    project_root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description='PKU-MMD-v2 Data Converter.')
-    parser.add_argument('--data_path', default='../pku_raw/v2')
+    parser.add_argument('--data_path', default=str(project_root.parent / 'data' / 'pku_raw' / 'v2'))
+    parser.add_argument('--output_dir', default=str(project_root.parent / 'data' / 'MAMP' / 'pku_v2'))
     arg = parser.parse_args()
+    os.makedirs(arg.output_dir, exist_ok=True)
     
     benchmark = ['XSub','XView']
     for b in benchmark:
@@ -96,6 +100,6 @@ if __name__ == '__main__':
         y_test = one_hot_vector(y_test)
 
         save_name = 'PKUv2_%s.npz' % b
-        np.savez(save_name, x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
+        np.savez(os.path.join(arg.output_dir, save_name), x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
         
         

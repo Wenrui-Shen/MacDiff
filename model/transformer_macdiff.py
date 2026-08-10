@@ -3,6 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import math
 import warnings
+import copy
 from .drop import DropPath
 import sys
 import numpy as np
@@ -14,6 +15,7 @@ from guided_diffusion.resample import UniformSampler, MaskedDiffusionSampler, SN
 from guided_diffusion.script_util import create_gaussian_diffusion
 
 from .util import *
+from .ose_memory import OSEMemory
 
 # ver12
 # no cls token, pool instead
@@ -222,6 +224,44 @@ class SkeleEmbed(nn.Module):
         x = torch.einsum("ncts->ntsc", x)  # [N, T, V, C]
         return x
 
+
+class MomentumSkeletonEncoder(nn.Module):
+    def __init__(self, online_model):
+        super().__init__()
+        self.joints_embed = copy.deepcopy(online_model.joints_embed)
+        self.blocks = copy.deepcopy(online_model.blocks)
+        self.norm = copy.deepcopy(online_model.norm)
+        self.temp_embed = nn.Parameter(online_model.temp_embed.detach().clone())
+        self.pos_embed = nn.Parameter(online_model.pos_embed.detach().clone())
+        for parameter in self.parameters():
+            parameter.requires_grad = False
+
+    @torch.no_grad()
+    def update_from(self, online_model, momentum):
+        online_parameters = list(online_model.joints_embed.parameters())
+        online_parameters += list(online_model.blocks.parameters())
+        online_parameters += list(online_model.norm.parameters())
+        online_parameters += [online_model.temp_embed, online_model.pos_embed]
+        momentum_parameters = list(self.joints_embed.parameters())
+        momentum_parameters += list(self.blocks.parameters())
+        momentum_parameters += list(self.norm.parameters())
+        momentum_parameters += [self.temp_embed, self.pos_embed]
+        for online, target in zip(online_parameters, momentum_parameters):
+            target.data.mul_(momentum).add_(online.data, alpha=1.0 - momentum)
+
+    @torch.no_grad()
+    def forward(self, x, mask_ratio):
+        x = self.joints_embed(x)
+        batch_size, temporal_patches, joint_patches, dim = x.shape
+        x = x + self.pos_embed[:, :, :joint_patches, :] + self.temp_embed[:, :temporal_patches, :, :]
+        x = x.reshape(batch_size, temporal_patches * joint_patches, dim)
+        keep = round(x.shape[1] * (1.0 - mask_ratio))
+        ids = torch.argsort(torch.rand(batch_size, x.shape[1], device=x.device), dim=1)[:, :keep]
+        x = torch.gather(x, 1, ids.unsqueeze(-1).expand(-1, -1, dim))
+        for block in self.blocks:
+            x = block(x)
+        return F.normalize(self.norm(x).mean(dim=1), dim=-1)
+
 class Transformer(nn.Module):
     def __init__(self, dim_in=3, dim_feat=256, dim_t_embed=64,
                  layer_mask_ratio=0.,
@@ -324,6 +364,15 @@ class Transformer(nn.Module):
         self.input_std = [np.sqrt(var) for var in input_var]
         self.self_shift = self_shift
         if self_shift: self.input_mean = [0,0,0]
+        self.ose_memory = None
+        self.ose_momentum_encoder = None
+        self.ose_momentum = None
+        self.ose_start_epoch = None
+        self.lambda_ose = None
+        self.self_prob_start = None
+        self.self_prob_end = None
+        self.peer_prob_start = None
+        self.peer_prob_end = None
 
         print(f'Use self-shift: {self_shift}, input_mean: {self.input_mean}, input_var: {self.input_var}, input_std: {self.input_std}')
         
@@ -368,6 +417,114 @@ class Transformer(nn.Module):
                 nn.init.constant_(m.weight, 1.0)
             except:
                 print('Warning! LayerNorm has no weights!')
+
+    def initialize_ose(
+        self,
+        exemplar_mapping,
+        ose_momentum,
+        ose_queue_size,
+        ose_start_epoch,
+        ose_topk,
+        ose_alpha,
+        ose_tau_s,
+        ose_tau_t,
+        ose_assignment_confidence,
+        lambda_ose,
+        self_prob_start,
+        self_prob_end,
+        peer_prob_start,
+        peer_prob_end,
+    ):
+        class_ids = sorted(int(class_id) for class_id in exemplar_mapping)
+        exemplar_ids = [int(exemplar_mapping[str(class_id)] if str(class_id) in exemplar_mapping else exemplar_mapping[class_id]) for class_id in class_ids]
+        self.ose_memory = OSEMemory(
+            feature_dim=self.dim_feat,
+            class_ids=class_ids,
+            exemplar_ids=exemplar_ids,
+            queue_size=ose_queue_size,
+            topk=ose_topk,
+            alpha=ose_alpha,
+            tau_s=ose_tau_s,
+            tau_t=ose_tau_t,
+            assignment_confidence=ose_assignment_confidence,
+        )
+        self.ose_momentum_encoder = MomentumSkeletonEncoder(self)
+        self.register_buffer('ose_exemplars', torch.empty(0), persistent=False)
+        self.ose_momentum = float(ose_momentum)
+        self.ose_start_epoch = int(ose_start_epoch)
+        self.lambda_ose = float(lambda_ose)
+        self.self_prob_start = float(self_prob_start)
+        self.self_prob_end = float(self_prob_end)
+        self.peer_prob_start = float(peer_prob_start)
+        self.peer_prob_end = float(peer_prob_end)
+
+    def _sequence_layout(self, skeleton):
+        if self.one_person:
+            skeleton = skeleton[..., :1]
+        batch_size, channels, frames, joints, people = skeleton.shape
+        if not self.one_person:
+            raise ValueError('OSE identities are sequence-level; set one_person=True')
+        return skeleton.permute(0, 4, 2, 3, 1).contiguous().view(
+            batch_size * people, frames, joints, channels
+        )
+
+    def _normalize_sequence(self, skeleton, center=None):
+        skeleton = skeleton.clone()
+        if self.self_shift:
+            if center is None:
+                center = skeleton.mean(dim=[1, 2], keepdim=True)
+            skeleton = skeleton - center
+        for channel in range(skeleton.shape[-1]):
+            skeleton[..., channel] = (
+                skeleton[..., channel] - self.input_mean[channel]
+            ) / self.input_std[channel]
+        return skeleton
+
+    @torch.no_grad()
+    def _prepare_source(self, source, source_aug):
+        source = self._sequence_layout(source)
+        source_aug = self._sequence_layout(source_aug)
+        center = source.mean(dim=[1, 2], keepdim=True) if self.self_shift else None
+        return (
+            self._normalize_sequence(source, center=center),
+            self._normalize_sequence(source_aug, center=center),
+        )
+
+    @torch.no_grad()
+    def _prepare_target(self, target):
+        target = self._sequence_layout(target)
+        center = target.mean(dim=[1, 2], keepdim=True) if self.self_shift else None
+        return self._normalize_sequence(target, center=center)
+
+    @torch.no_grad()
+    def update_momentum_encoder(self):
+        self.ose_momentum_encoder.update_from(self, self.ose_momentum)
+
+    @torch.no_grad()
+    def reset_momentum_encoder(self):
+        self.ose_momentum_encoder.update_from(self, 0.0)
+
+    @torch.no_grad()
+    def enqueue_ose(self, features, source_ids):
+        self.ose_memory.enqueue(features, source_ids)
+
+    @torch.no_grad()
+    def set_ose_exemplars(self, exemplar_samples):
+        if exemplar_samples.shape[0] != self.ose_memory.class_ids.numel():
+            raise ValueError(
+                'Exemplar sample count must match the exemplar mapping')
+        self.ose_exemplars = exemplar_samples.detach()
+
+    @torch.no_grad()
+    def refresh_ose(self, exemplar_samples, mask_ratio):
+        exemplar_samples = self._prepare_target(exemplar_samples)
+        self.ose_momentum_encoder.eval()
+        exemplar_features = self.ose_momentum_encoder(exemplar_samples, mask_ratio)
+        return self.ose_memory.refresh(exemplar_features)
+
+    @torch.no_grad()
+    def ose_metrics(self):
+        return self.ose_memory.metrics()
         
     def random_masking(self, x, mask_ratio):
         """
@@ -474,18 +631,25 @@ class Transformer(nn.Module):
 
         return latent, cls_token, mask, ids_restore
 
-    def forward_decoder(self, x, *, latent, cls_token, t, ids_restore):
+    def build_global_local_condition(self, latent, cls_token, ids_restore):
+        temporal_patches = self.joints_embed.t_grid_size
+        joint_patches = self.joints_embed.grid_size
+        dim = latent.shape[-1]
+        condition = torch.cat([
+            latent,
+            cls_token.repeat(1, temporal_patches * joint_patches - latent.shape[1], 1),
+        ], dim=1)
+        return torch.gather(
+            condition,
+            dim=1,
+            index=ids_restore.unsqueeze(-1).expand(-1, -1, dim),
+        )
+
+    def forward_decoder(self, x, *, z, t):
         NM = x.shape[0]
         TP = self.joints_embed.t_grid_size
         VP = self.joints_embed.grid_size
         C = self.dim_feat
-        L = latent.shape[1]
-
-        # embed tokens
-        z = torch.cat([latent, cls_token.repeat(1,TP*VP-L,1)], dim=1)  # no cls token
-        z = torch.gather(
-            z, dim=1, index=ids_restore.unsqueeze(-1).repeat(1, 1, C)
-        )  # unshuffle
 
         uncond_mask = (torch.rand(NM, device=x.device) > self.uncond_ratio).float() # 1 keep 0 drop
         z = z * uncond_mask[:,None,None]
@@ -552,72 +716,129 @@ class Transformer(nn.Module):
 
         return loss.mean()
 
-    def forward(self, x, x_aug, mask_ratio=0.80, motion_stride=1, motion_aware_tau=0.75, **kwargs):
+    def forward(
+        self,
+        source,
+        source_aug,
+        peer,
+        source_ids,
+        has_peer,
+        epoch,
+        total_epochs,
+        mask_ratio=0.90,
+        motion_aware_tau=-1,
+    ):
+        if motion_aware_tau > 0:
+            raise ValueError('OSE peer diffusion requires random masking (motion_aware_tau <= 0)')
+        if self.ose_memory is None:
+            raise RuntimeError('initialize_ose must be called before OSE pretraining')
 
         with torch.no_grad():
-            #only use 1 person
-            if self.one_person:
-                x, x_aug = x[...,0:1], x_aug[...,0:1]
-                #x, x_aug = remove_zero_data(x, x_aug)
+            source, source_aug = self._prepare_source(source, source_aug)
+            peer = self._prepare_target(peer)
+            source_orig = source.clone()
 
-            N, C, T, V, M = x.shape # NTU
+        latent, cls_token, mask, ids_restore = self.forward_encoder(
+            source_aug,
+            x_orig=source_orig,
+            mask_ratio=mask_ratio,
+            motion_aware_tau=motion_aware_tau,
+        )
+        with torch.no_grad():
+            self.ose_momentum_encoder.eval()
+            teacher_features = self.ose_momentum_encoder(source, mask_ratio)
 
-            x = x.permute(0, 4, 2, 3, 1).contiguous().view(N * M, T, V, C)
-            x_orig = x.clone().detach()
-            
-            x_aug = x_aug.permute(0, 4, 2, 3, 1).contiguous().view(N * M, T, V, C)
+        ose_active = int(epoch) >= self.ose_start_epoch
+        zero = cls_token.new_zeros(())
+        confidence = cls_token.new_zeros(source.shape[0])
+        ose_losses = {
+            'proto': zero,
+            'align': zero,
+            'dispersion': zero,
+            'target_entropy': zero,
+            'align_kl': zero,
+        }
+        if ose_active:
+            if self.ose_exemplars.numel() == 0:
+                raise RuntimeError('OSE exemplar samples have not been installed')
+            global_features = F.normalize(cls_token.squeeze(1), dim=-1)
+            exemplar_samples = self._prepare_target(self.ose_exemplars)
+            _, exemplar_cls, _, _ = self.forward_encoder(
+                exemplar_samples,
+                x_orig=exemplar_samples,
+                mask_ratio=mask_ratio,
+                motion_aware_tau=-1,
+            )
+            exemplar_features = F.normalize(exemplar_cls.squeeze(1), dim=-1)
+            ose_losses = self.ose_memory.prototype_loss(
+                global_features, teacher_features, exemplar_features)
+            confidence = ose_losses['confidence']
+            progress = (
+                float(epoch - self.ose_start_epoch)
+                / max(int(total_epochs) - self.ose_start_epoch - 1, 1)
+            )
+            p_peer = self.peer_prob_start + (
+                self.peer_prob_end - self.peer_prob_start) * progress
+            p_self = self.self_prob_start + (
+                self.self_prob_end - self.self_prob_start) * progress
+            requested_peer = (
+                torch.rand(source.shape[0], device=source.device) < p_peer)
+            confident = confidence >= self.ose_memory.assignment_confidence
+            use_peer = requested_peer & has_peer.bool() & confident
+        else:
+            p_peer = 0.0
+            p_self = 1.0
+            confident = torch.zeros_like(has_peer, dtype=torch.bool)
+            use_peer = torch.zeros_like(has_peer, dtype=torch.bool)
 
-            if self.self_shift: 
-                mu = x.mean(dim=[1,2], keepdim=True)
-                x = x - mu
-                x_aug = x_aug - mu
+        with torch.no_grad():
+            target = torch.where(use_peer[:, None, None, None], peer, source)
+            target_gt = target.clone()
+            t, _ = self.schedule_sampler.sample(target.shape[0], target.device)
+            noise = torch.randn_like(target)
+            noisy_target = self.diffusion.q_sample(target, t, noise=noise)
 
-            for i in range(C):
-                x[:,:,:,i] = (x[:,:,:,i] - self.input_mean[i]) / self.input_std[i]
-                x_aug[:,:,:,i] = (x_aug[:,:,:,i] - self.input_mean[i]) / self.input_std[i]
-           
-            x_gt = x.clone().detach()
-
-        # -------------------------------------------------------------------------- 
-        # apply diffusion forward
-            t, _ = self.schedule_sampler.sample(x.shape[0], x.device)
-            noise = torch.randn_like(x)
-            x = self.diffusion.q_sample(x, t, noise=noise)
-
-            if np.random.rand(1)[0] < 0.001:
-                print('x_aug', x_aug[0].reshape(-1, C))
-                print('x_gt', x_gt[0].reshape(-1, C))
-                print('x_noisy', x[0].reshape(-1, C))
-                print('t =', t[0])
-        # -------------------------------------------------------------------------- 
-
-        latent, cls_token, mask, ids_restore = self.forward_encoder(x_aug, x_orig=x_orig, mask_ratio=mask_ratio, motion_aware_tau=motion_aware_tau)
-        
-        loss_uni = token_uniformity_loss(latent.reshape(N, M, -1, latent.shape[-1])[:,0])
-        #loss_uni = token_uniformity_loss(latent.reshape(N, M, -1, latent.shape[-1])[:,0], normalize=False)
-        
-        pred = self.forward_decoder(x, latent=latent, cls_token=cls_token, t=t, ids_restore=ids_restore)  # [NM, TP * VP, C]
-        
-        if torch.any(torch.isnan(pred)): print('Error! Nan in pred.')
+        loss_uniformity = token_uniformity_loss(latent)
+        z_self = self.build_global_local_condition(latent, cls_token, ids_restore)
+        z_peer = cls_token.repeat(1, z_self.shape[1], 1)
+        z = torch.where(use_peer[:, None, None], z_peer, z_self)
+        pred = self.forward_decoder(noisy_target, z=z, t=t)
 
         if self.diff_prediction == 'joint':
-            loss_diff = self.forward_loss(x_gt, pred, mask, t)
+            loss_diff = self.forward_loss(target_gt, pred, mask, t)
         elif self.diff_prediction == 'noise':
             loss_diff = self.forward_loss(noise, pred, mask, t)
         elif self.diff_prediction == 'noise2joint':
-            pred = self.diffusion._predict_xstart_from_eps(self.patchify(x), t, pred)
-            loss_diff = self.forward_loss(x_gt, pred, mask, t)
+            pred = self.diffusion._predict_xstart_from_eps(self.patchify(noisy_target), t, pred)
+            loss_diff = self.forward_loss(target_gt, pred, mask, t)
         elif self.diff_prediction == 'v':
-            v = self.diffusion.get_velocity(x_gt, t, noise=noise)
-            loss_diff = self.forward_loss(v, pred, mask, t)
-        else: 
-            assert 0
+            velocity = self.diffusion.get_velocity(target_gt, t, noise=noise)
+            loss_diff = self.forward_loss(velocity, pred, mask, t)
+        else:
+            raise ValueError('Unsupported diffusion prediction target: %s' % self.diff_prediction)
 
-        loss = loss_diff + self.lambda_loss_uni * loss_uni
-
-        if np.random.rand(1)[0] < 0.01: print(f'loss = {loss.item()}, loss_diff = {loss_diff.item()}, loss_uni = {loss_uni.item()}, lambda = {self.lambda_loss_uni}, mask_ratio = {mask_ratio:.3f}, bs = {N}')
-
-        return loss, pred, mask #mask: 0 is keep, 1 is remove
+        loss = loss_diff + self.lambda_loss_uni * loss_uniformity
+        if ose_active:
+            loss = loss + self.lambda_ose * ose_losses['proto']
+        aux = {
+            'loss_diff': loss_diff.detach(),
+            'loss_uniformity': loss_uniformity.detach(),
+            'loss_ose_proto': ose_losses['proto'].detach(),
+            'loss_ose_align': ose_losses['align'].detach(),
+            'loss_ose_dispersion': ose_losses['dispersion'].detach(),
+            'ose_target_entropy': ose_losses['target_entropy'].detach(),
+            'ose_align_kl': ose_losses['align_kl'].detach(),
+            'ose_active': torch.tensor(float(ose_active), device=source.device),
+            'p_self_planned': torch.tensor(p_self, device=source.device),
+            'p_peer_planned': torch.tensor(p_peer, device=source.device),
+            'self_fraction_effective': (~use_peer).float().mean().detach(),
+            'peer_fraction_effective': use_peer.float().mean().detach(),
+            'ose_confidence': confidence.mean().detach(),
+            'above_confidence_fraction': confident.float().mean().detach(),
+        }
+        # Return the realized routing decision for label-only diagnostics in
+        # the training engine. Ground-truth labels never enter this forward.
+        return loss, pred, mask, aux, teacher_features.detach(), use_peer.detach()
 
     def update_diffusion_sampler(self, epoch, total_epoch):
         print('Not update diffusion sampler')

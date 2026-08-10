@@ -5,13 +5,14 @@ import os.path as osp
 import numpy as np
 import pickle
 import logging
+from pathlib import Path
 
-root_path = './'
+project_root = Path(__file__).resolve().parents[2]
+root_path = str(project_root.parent / 'data' / 'MAMP' / 'ntu')
 raw_data_file = osp.join(root_path, 'raw_data', 'raw_skes_data.pkl')
 save_path = osp.join(root_path, 'denoised_data')
 
-if not osp.exists(save_path):
-    os.mkdir(save_path)
+os.makedirs(save_path, exist_ok=True)
 
 rgb_ske_path = osp.join(save_path, 'rgb+ske')
 if not osp.exists(rgb_ske_path):

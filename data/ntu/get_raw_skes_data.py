@@ -5,6 +5,7 @@ import os
 import numpy as np
 import pickle
 import logging
+from pathlib import Path
 
 
 def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logger):
@@ -132,12 +133,11 @@ def get_raw_skes_data():
         pickle.dump(frames_drop_skes, fw, pickle.HIGHEST_PROTOCOL)
 
 if __name__ == '__main__':
-    save_path = './'
-
-    skes_path = '../nturgbd_raw/nturgb+d_skeletons/'
-    stat_path = osp.join(save_path, 'statistics')
-    if not osp.exists('./raw_data'):
-        os.makedirs('./raw_data')
+    project_root = Path(__file__).resolve().parents[2]
+    save_path = str(project_root.parent / 'data' / 'MAMP' / 'ntu')
+    skes_path = str(project_root.parent / 'data' / 'nturgbd_raw' / 'nturgb+d_skeletons')
+    stat_path = str(Path(__file__).resolve().parent / 'statistics')
+    os.makedirs(osp.join(save_path, 'raw_data'), exist_ok=True)
 
     skes_name_file = osp.join(stat_path, 'skes_available_name.txt')
     save_data_pkl = osp.join(save_path, 'raw_data', 'raw_skes_data.pkl')

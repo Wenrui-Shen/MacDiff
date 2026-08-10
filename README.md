@@ -29,7 +29,76 @@ pip install -r requirements.txt
 
 
 ## Data Preparation
-Please follow the data preparation process of [MAMP](https://github.com/maoyunyao/MAMP).
+
+The processing scripts and split statistics are taken from
+[MAMP](https://github.com/maoyunyao/MAMP). Download the skeleton-only NTU RGB+D
+60/120 archives and the skeleton, label, and split files for PKU-MMD Phase I/II,
+then arrange them outside this repository as follows:
+
+```text
+../data/
+├── nturgbd_raw/
+│   └── nturgb+d_skeletons/        # NTU RGB+D 60, setups S001-S017
+├── nturgbd_raw_120/
+│   └── nturgb+d_skeletons120/     # NTU RGB+D 120 extension, S018-S032
+├── pku_raw/
+│   ├── v1/
+│   │   ├── label/
+│   │   ├── skeleton/
+│   │   ├── cross_subject.txt
+│   │   └── cross_view.txt
+│   └── v2/
+│       ├── label/
+│       ├── skeleton/
+│       ├── cross_subject_v2.txt
+│       └── cross_view_v2.txt
+└── MAMP/                           # generated automatically
+```
+
+Run all commands from the MacDiff repository root:
+
+```bash
+# NTU RGB+D 60
+python data/ntu/get_raw_skes_data.py
+python data/ntu/get_raw_denoised_data.py
+python data/ntu/seq_transformation.py
+
+# NTU RGB+D 120 (also reads the NTU 60 directory above)
+python data/ntu120/get_raw_skes_data.py
+python data/ntu120/get_raw_denoised_data.py
+python data/ntu120/seq_transformation.py
+
+# PKU-MMD Phase I and Phase II
+python data/pku_v1/pku_gendata.py
+python data/pku_v2/pku_gendata.py
+```
+
+The generated datasets are written to `../data/MAMP/ntu/`,
+`../data/MAMP/ntu120/`, `../data/MAMP/pku_v1/`, and
+`../data/MAMP/pku_v2/`. All pretraining, linear-probe, and fine-tuning YAML
+files already read from these locations.
+
+For OSE peer pretraining, create a JSON file containing exactly one immutable
+training-set index for every semantic class, following
+`config/exemplar_indices.example.json`, and set `ose_exemplar_indices` in the
+OSE YAML. The example contains only three illustrative entries and is not a
+complete NTU-60 mapping. The loader verifies the class of every exemplar and
+removes those exemplars from the unlabeled sampler. The OSE configuration uses
+the AimCLR skeleton setting: one shared 32768-entry queue, mutually exclusive
+P1 neighbor pools with four neighbors per class, `alpha=0.75`,
+`tau_s=0.1`, and `tau_t=0.04`. `lambda_ose` weights the complete
+`L_proto = L_align + L_dispersion` objective; prototypes used by this loss are
+rebuilt from online exemplar embeddings on every step, while the epoch-frozen
+prototype snapshot is used only for peer routing. The training log also reports
+ground-truth-label diagnostics for frozen neighbor edges and realized
+cross-sample targets. These labels stay in the feeder/training engine and are
+never passed to the model, routing logic, loss, or backward graph.
+
+Training is split at `ose_start_epoch: 100`. Epochs 0-99 optimize only the
+native MacDiff diffusion and token-uniformity losses while the EMA encoder and
+Queue are warmed without gradients. At epoch 100, OSE prototype loss and
+cross-instance reconstruction are enabled; the peer probability then increases
+linearly from 0.1 at epoch 100 to 0.9 at the final epoch.
 
 ## Training and Testing
 Please refer to the bash scripts. Before running the scripts, you may:

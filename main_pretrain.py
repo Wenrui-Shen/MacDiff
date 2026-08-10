@@ -95,6 +95,23 @@ def get_args_parser():
     parser.add_argument('--feeder', default='feeder.feeder', help='data loader will be used')
     parser.add_argument('--train_feeder_args', default=dict(), help='the arguments of data loader for training')
 
+    # OSE-guided cross-instance diffusion
+    parser.add_argument('--ose_exemplar_indices', default='', type=str)
+    parser.add_argument('--ose_momentum', default=0.999, type=float)
+    parser.add_argument('--ose_queue_size', default=32768, type=int)
+    parser.add_argument('--ose_start_epoch', default=100, type=int)
+    parser.add_argument('--ose_refresh_interval', default=1, type=int)
+    parser.add_argument('--ose_topk', default=4, type=int)
+    parser.add_argument('--ose_alpha', default=0.75, type=float)
+    parser.add_argument('--ose_tau_s', default=0.1, type=float)
+    parser.add_argument('--ose_tau_t', default=0.04, type=float)
+    parser.add_argument('--ose_assignment_confidence', default=0.8, type=float)
+    parser.add_argument('--lambda_ose', default=1.0, type=float)
+    parser.add_argument('--self_prob_start', default=0.9, type=float)
+    parser.add_argument('--self_prob_end', default=0.1, type=float)
+    parser.add_argument('--peer_prob_start', default=0.1, type=float)
+    parser.add_argument('--peer_prob_end', default=0.9, type=float)
+
     parser.add_argument('--output_dir', default='./output_dir',
                         help='path where to save, empty for no saving')
     parser.add_argument('--log_dir', default='./output_dir',
@@ -122,6 +139,89 @@ def get_args_parser():
     return parser
 
 
+def load_exemplar_mapping(path, dataset):
+    if not path:
+        raise ValueError('ose_exemplar_indices must point to a one-exemplar-per-class JSON file')
+    with open(path, 'r', encoding='utf-8') as file:
+        raw_mapping = json.load(file)
+    if not isinstance(raw_mapping, dict):
+        raise ValueError('OSE exemplar mapping must be a JSON object')
+    mapping = {str(int(class_id)): int(dataset_id) for class_id, dataset_id in raw_mapping.items()}
+    if len(mapping) != len(raw_mapping):
+        raise ValueError('OSE class IDs must remain unique after integer normalization')
+    if len(set(mapping.values())) != len(mapping):
+        raise ValueError('Every OSE class must use a distinct exemplar dataset index')
+    if any(dataset_id < 0 or dataset_id >= len(dataset.label) for dataset_id in mapping.values()):
+        raise ValueError('OSE exemplar dataset index is outside the training split')
+    class_ids = sorted(int(class_id) for class_id in mapping)
+    dataset_class_ids = sorted(int(class_id) for class_id in np.unique(dataset.label))
+    if class_ids != dataset_class_ids:
+        missing = sorted(set(dataset_class_ids) - set(class_ids))
+        extra = sorted(set(class_ids) - set(dataset_class_ids))
+        raise ValueError(
+            'OSE mapping must contain exactly one exemplar for every dataset '
+            'class; missing={}, extra={}'.format(missing, extra))
+    for class_id, dataset_id in mapping.items():
+        if int(dataset.label[dataset_id]) != int(class_id):
+            raise ValueError(
+                'OSE exemplar {} has label {}, expected class {}'.format(
+                    dataset_id, int(dataset.label[dataset_id]), class_id))
+    return mapping
+
+
+@torch.no_grad()
+def refresh_ose_state(model, dataset, args, device):
+    distributed = torch.distributed.is_available() and torch.distributed.is_initialized()
+    rank = misc.get_rank()
+    exemplar_ids = model.ose_memory.exemplar_ids.cpu().tolist()
+    exemplar_samples = torch.from_numpy(
+        dataset.get_ose_samples(exemplar_ids)).float().to(device)
+    model.set_ose_exemplars(exemplar_samples)
+
+    neighbor_map = None
+    if int(model.ose_memory.queue_count.item()) > 0 and rank == 0:
+        neighbor_map = model.refresh_ose(exemplar_samples, args.mask_ratio)
+
+    if distributed:
+        for state in (
+            model.ose_memory.prototypes,
+            model.ose_memory.prototype_neighbor_ids,
+            model.ose_memory.prototype_valid,
+            model.ose_memory.snapshot_version,
+            model.ose_memory.neighbor_map_entries,
+        ):
+            torch.distributed.broadcast(state, src=0)
+        # Queue state is kept identical by all-gather before every enqueue, so
+        # the Python routing map can be rebuilt locally from broadcast tensors.
+        neighbor_map = model.ose_memory.build_neighbor_map()
+
+    if neighbor_map is None:
+        neighbor_map = {}
+    dataset.set_neighbor_map(neighbor_map)
+    neighbor_edges = 0
+    correct_neighbor_edges = 0
+    for source_id, peer_ids in neighbor_map.items():
+        source_label = int(dataset.label[int(source_id)])
+        for peer_id in peer_ids:
+            neighbor_edges += 1
+            correct_neighbor_edges += int(
+                source_label == int(dataset.label[int(peer_id)]))
+    neighbor_accuracy = (
+        correct_neighbor_edges / neighbor_edges if neighbor_edges > 0 else 0.0
+    )
+    if rank == 0:
+        print('OSE snapshot {}: {} source samples have valid peers'.format(
+            int(model.ose_memory.snapshot_version.item()), len(neighbor_map)
+        ))
+        print(
+            'Offline neighbor label accuracy: {:.4f} ({}/{})'.format(
+                neighbor_accuracy, correct_neighbor_edges, neighbor_edges))
+    return {
+        'offline_neighbor_label_accuracy': neighbor_accuracy,
+        'offline_neighbor_edge_count': neighbor_edges,
+    }
+
+
 def main(args):
     misc.init_distributed_mode(args)
 
@@ -137,11 +237,43 @@ def main(args):
 
     cudnn.benchmark = True
 
+    if isinstance(args.mask_ratio, list):
+        if len(args.mask_ratio) != 1:
+            raise ValueError('OSE peer diffusion requires one fixed mask_ratio')
+        args.mask_ratio = args.mask_ratio[0]
+    if not 0.0 < args.mask_ratio < 1.0:
+        raise ValueError('OSE peer diffusion requires mask_ratio in (0, 1)')
+    if args.motion_aware_tau > 0:
+        raise ValueError('OSE peer diffusion requires motion_aware_tau <= 0')
+    if args.ose_refresh_interval <= 0:
+        raise ValueError('ose_refresh_interval must be positive')
+    if args.ose_start_epoch < 0 or args.ose_start_epoch >= args.epochs:
+        raise ValueError('ose_start_epoch must be in [0, epochs)')
+    if not 0.0 <= args.ose_momentum < 1.0:
+        raise ValueError('ose_momentum must be in [0, 1)')
+    if args.lambda_ose < 0:
+        raise ValueError('lambda_ose must be non-negative')
+    routing_probabilities = (
+        args.self_prob_start, args.self_prob_end,
+        args.peer_prob_start, args.peer_prob_end)
+    if any(probability < 0.0 or probability > 1.0
+           for probability in routing_probabilities):
+        raise ValueError('Routing probabilities must be in [0, 1]')
+    if not np.isclose(args.self_prob_start + args.peer_prob_start, 1.0):
+        raise ValueError('Initial self/peer routing probabilities must sum to one')
+    if not np.isclose(args.self_prob_end + args.peer_prob_end, 1.0):
+        raise ValueError('Final self/peer routing probabilities must sum to one')
+
     # Load dataset
     Feeder = import_class(args.feeder)
     dataset_train = Feeder(**args.train_feeder_args)
+    if not hasattr(dataset_train, 'set_neighbor_map'):
+        raise TypeError('OSE pretraining requires feeder.feeder_ntu.FeederOSE')
+    exemplar_mapping = load_exemplar_mapping(args.ose_exemplar_indices, dataset_train)
+    dataset_train.exclude_ose_exemplars(exemplar_mapping.values())
     print(dataset_train)
 
+    global_rank = misc.get_rank()
     if args.distributed:
         num_tasks = misc.get_world_size()
         global_rank = misc.get_rank()
@@ -175,6 +307,22 @@ def main(args):
     # define the model
     Model = import_class(args.model)
     model = Model(**args.model_args)
+    model.initialize_ose(
+        exemplar_mapping=exemplar_mapping,
+        ose_momentum=args.ose_momentum,
+        ose_queue_size=args.ose_queue_size,
+        ose_start_epoch=args.ose_start_epoch,
+        ose_topk=args.ose_topk,
+        ose_alpha=args.ose_alpha,
+        ose_tau_s=args.ose_tau_s,
+        ose_tau_t=args.ose_tau_t,
+        ose_assignment_confidence=args.ose_assignment_confidence,
+        lambda_ose=args.lambda_ose,
+        self_prob_start=args.self_prob_start,
+        self_prob_end=args.self_prob_end,
+        peer_prob_start=args.peer_prob_start,
+        peer_prob_end=args.peer_prob_end,
+    )
 
     model.to(device)
 
@@ -196,8 +344,11 @@ def main(args):
     print("effective batch size: %d" % eff_batch_size)
 
     if args.distributed:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu], find_unused_parameters=True)
+        model = torch.nn.parallel.DistributedDataParallel(
+            model, device_ids=[args.gpu], find_unused_parameters=True,
+            broadcast_buffers=False)
         model_without_ddp = model.module
+    model_without_ddp.reset_momentum_encoder()
     
     # following timm: set wd as 0 for bias and norm layers
     param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
@@ -209,10 +360,24 @@ def main(args):
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
-    
+    offline_neighbor_stats = {
+        'offline_neighbor_label_accuracy': 0.0,
+        'offline_neighbor_edge_count': 0,
+    }
+
     for epoch in range(args.start_epoch, args.epochs):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
+        ose_refresh_due = (
+            epoch >= args.ose_start_epoch
+            and (
+                epoch == args.start_epoch
+                or (epoch - args.ose_start_epoch) % args.ose_refresh_interval == 0
+            )
+        )
+        if ose_refresh_due:
+            offline_neighbor_stats = refresh_ose_state(
+                model_without_ddp, dataset_train, args, device)
     
         if args.task == 'recognition':
             train_stats = train_one_epoch(
@@ -223,6 +388,14 @@ def main(args):
             )
         else:
             assert 0
+        train_stats.update(offline_neighbor_stats)
+        if log_writer is not None:
+            for name in (
+                    'offline_neighbor_label_accuracy',
+                    'offline_neighbor_edge_count',
+                    'offline_cross_reconstruction_label_accuracy',
+                    'offline_cross_reconstruction_count'):
+                log_writer.add_scalar(name, train_stats[name], epoch)
         ###
         if args.output_dir and (epoch % 10 == 0 or epoch + 1 == args.epochs):
             misc.save_model(

@@ -5,10 +5,12 @@ import os.path as osp
 import numpy as np
 import pickle
 import logging
+from pathlib import Path
 from sklearn.model_selection import train_test_split
 
-root_path = './'
-stat_path = osp.join(root_path, 'statistics')
+project_root = Path(__file__).resolve().parents[2]
+root_path = str(project_root.parent / 'data' / 'MAMP' / 'ntu')
+stat_path = str(Path(__file__).resolve().parent / 'statistics')
 setup_file = osp.join(stat_path, 'setup.txt')
 camera_file = osp.join(stat_path, 'camera.txt')
 performer_file = osp.join(stat_path, 'performer.txt')
@@ -20,7 +22,7 @@ denoised_path = osp.join(root_path, 'denoised_data')
 raw_skes_joints_pkl = osp.join(denoised_path, 'raw_denoised_joints.pkl')
 frames_file = osp.join(denoised_path, 'frames_cnt.txt')
 
-save_path = './'
+save_path = root_path
 
 
 if not osp.exists(save_path):
@@ -164,7 +166,7 @@ def split_dataset(skes_joints, label, performer, camera, evaluation, save_path):
 
     save_name = 'NTU60_%s.npz' % evaluation
     print('Saving %s' % save_name)
-    np.savez(save_name, x_train=train_x, y_train=train_y, x_test=test_x, y_test=test_y)
+    np.savez(osp.join(save_path, save_name), x_train=train_x, y_train=train_y, x_test=test_x, y_test=test_y)
     print('Done')
 
 def get_indices(performer, camera, evaluation='XSub'):

@@ -1,7 +1,7 @@
 # data
 feeder: feeder.feeder_ntu.Feeder
 train_feeder_args:
-  data_path: data/ntu/NTU60_XSub.npz
+  data_path: ../data/MAMP/ntu/NTU60_XSub.npz
   split: train
   window_size: 120
   p_interval: [0.5, 1]

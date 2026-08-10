@@ -219,7 +219,7 @@ class Feeder(Dataset):
     def __iter__(self):
         return self
 
-    def __getitem__(self, index):
+    def _load_processed(self, index):
         if index < len(self.label):
             data_numpy = self.data[index]
             label = self.label[index]
@@ -238,10 +238,12 @@ class Feeder(Dataset):
 
         if self.random_rot and not self.expanding_dataset:
             data_numpy = tools.random_rot(data_numpy)
-        
+        return data_numpy, label
+
+    def __getitem__(self, index):
+        data_numpy, label = self._load_processed(index)
         # generate noisy data
         data_numpy_aug = self.add_source_aug(data_numpy)
-        
         return data_numpy, data_numpy_aug, label, index
 
     def add_source_aug(self, data_numpy):
@@ -328,6 +330,63 @@ class Feeder(Dataset):
         self.expanding_dataset = False
         print(f'Finished expanding dataset. Expanded data: {len(self.label)}')
         print('#'*100)
+
+
+class FeederOSE(Feeder):
+    """Return a source and an epoch-frozen OSE peer without recursive loading."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if self.split != 'train':
+            raise ValueError('FeederOSE only supports the training split')
+        self.neighbor_map = {}
+        self.sample_indices = np.arange(len(self.label), dtype=np.int64)
+
+    def exclude_ose_exemplars(self, exemplar_ids):
+        excluded = {int(dataset_id) for dataset_id in exemplar_ids}
+        if any(dataset_id < 0 or dataset_id >= len(self.label)
+               for dataset_id in excluded):
+            raise ValueError('OSE exemplar index is outside the training split')
+        self.sample_indices = np.asarray([
+            dataset_id for dataset_id in range(len(self.label))
+            if dataset_id not in excluded
+        ], dtype=np.int64)
+        if self.sample_indices.size == 0:
+            raise ValueError('No unlabeled samples remain after excluding exemplars')
+
+    def __len__(self):
+        return len(self.sample_indices)
+
+    def set_neighbor_map(self, neighbor_map):
+        self.neighbor_map = {
+            int(source_id): [int(peer_id) for peer_id in peer_ids]
+            for source_id, peer_ids in neighbor_map.items()
+        }
+
+    def get_ose_samples(self, dataset_ids):
+        samples = [self._load_processed(int(dataset_id))[0] for dataset_id in dataset_ids]
+        return np.stack(samples)
+
+    def __getitem__(self, index):
+        source_id = int(self.sample_indices[index])
+        source, source_label = self._load_processed(source_id)
+        source_aug = self.add_source_aug(source)
+        candidates = self.neighbor_map.get(source_id, [])
+        if candidates:
+            peer_id = random.choice(candidates)
+            peer, peer_label = self._load_processed(peer_id)
+            has_peer = True
+        else:
+            peer_id = source_id
+            peer = source.copy()
+            peer_label = source_label
+            has_peer = False
+        # Labels are returned only for offline routing diagnostics in the
+        # training engine. They are never passed to the model or a loss.
+        return (
+            source, source_aug, peer, source_id, peer_id, has_peer,
+            source_label, peer_label,
+        )
 
 ### MAMP code ###
 class Feeder_original(Dataset):

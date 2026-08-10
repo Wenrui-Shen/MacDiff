@@ -2,6 +2,7 @@ import os
 import argparse
 import numpy as np
 from tqdm import tqdm
+from pathlib import Path
 
 max_body_true = 2
 max_body_kinect = 4
@@ -24,10 +25,10 @@ def read_data(data_path, name, max_body=4, num_joint=25):  # top 2 body
 
 def gendata(data_path, benchmark='XView', part='test'):
     # Read cross_subject_v1.txt and cross_view_v1.txt to obtain training_views training_subjects
-    with open('{}/cross-view.txt'.format(data_path), 'r') as f:
+    with open('{}/cross_view.txt'.format(data_path), 'r') as f:
         lines = f.readlines()
         training_views = lines[1].strip('\n').split(', ')
-    with open('{}/cross-subject.txt'.format(data_path), 'r') as f:
+    with open('{}/cross_subject.txt'.format(data_path), 'r') as f:
         lines = f.readlines()
         training_subjects = lines[1].strip('\n').split(', ')
 
@@ -83,9 +84,12 @@ def one_hot_vector(labels):
 
 
 if __name__ == '__main__':
+    project_root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description='PKU-MMD-v1 Data Converter.')
-    parser.add_argument('--data_path', default='../pku_raw/v1')
+    parser.add_argument('--data_path', default=str(project_root.parent / 'data' / 'pku_raw' / 'v1'))
+    parser.add_argument('--output_dir', default=str(project_root.parent / 'data' / 'MAMP' / 'pku_v1'))
     arg = parser.parse_args()
+    os.makedirs(arg.output_dir, exist_ok=True)
     
     benchmark = ['XSub','XView']
     for b in benchmark:
@@ -96,6 +100,6 @@ if __name__ == '__main__':
         y_test = one_hot_vector(y_test)
 
         save_name = 'PKUv1_%s.npz' % b
-        np.savez(save_name, x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
+        np.savez(os.path.join(arg.output_dir, save_name), x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
         
         

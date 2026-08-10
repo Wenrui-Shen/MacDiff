@@ -5,6 +5,11 @@ import os
 import numpy as np
 import pickle
 import logging
+from pathlib import Path
+
+
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
+NTU120_SKES_PATH = str(PROJECT_ROOT.parent / 'data' / 'nturgbd_raw_120' / 'nturgb+d_skeletons120')
 
 
 def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logger):
@@ -24,7 +29,7 @@ def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logge
         - num_frames: the number of valid frames.
     """
     if int(ske_name[1:4]) >= 18:
-        skes_path = '../nturgbd_raw/nturgb+d_skeletons_120/'
+        skes_path = NTU120_SKES_PATH
     ske_file = osp.join(skes_path, ske_name + '.skeleton')
     assert osp.exists(ske_file), 'Error: Skeleton file %s not found' % ske_file
     # Read all data from .skeleton file into a list (in string format)
@@ -134,12 +139,10 @@ def get_raw_skes_data():
         pickle.dump(frames_drop_skes, fw, pickle.HIGHEST_PROTOCOL)
 
 if __name__ == '__main__':
-    save_path = './'
-
-    skes_path = '../nturgbd_raw/nturgb+d_skeletons/'
-    stat_path = osp.join(save_path, 'statistics')
-    if not osp.exists('./raw_data'):
-        os.makedirs('./raw_data')
+    save_path = str(PROJECT_ROOT.parent / 'data' / 'MAMP' / 'ntu120')
+    skes_path = str(PROJECT_ROOT.parent / 'data' / 'nturgbd_raw' / 'nturgb+d_skeletons')
+    stat_path = str(Path(__file__).resolve().parent / 'statistics')
+    os.makedirs(osp.join(save_path, 'raw_data'), exist_ok=True)
 
     skes_name_file = osp.join(stat_path, 'skes_available_name.txt')
     save_data_pkl = osp.join(save_path, 'raw_data', 'raw_skes_data.pkl')
