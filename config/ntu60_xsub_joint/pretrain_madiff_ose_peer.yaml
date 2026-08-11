@@ -59,6 +59,8 @@ ose_momentum: 0.999
 ose_queue_size: 32768
 # Epochs 0-99 use only the native MacDiff loss; OSE starts at epoch 100.
 ose_start_epoch: 100
+# Enable from CLI with --ose_exemplar_checkpoint when memory is constrained.
+ose_exemplar_checkpoint: False
 ose_refresh_interval: 1
 # AimCLR OSE P1: each queue slot belongs to one class before classwise Top-K.
 ose_topk: 4

@@ -609,6 +609,7 @@ ose_exemplar_indices: path/to/exemplar_indices.json
 ose_momentum: 0.999
 ose_queue_size: 32768
 ose_start_epoch: 100
+ose_exemplar_checkpoint: false
 
 # Prototype construction and slow routing state
 ose_refresh_interval: 1
@@ -631,6 +632,12 @@ peer_prob_end: 0.9
 ```
 
 Assert at startup that the self and peer probabilities sum to one at both endpoints.
+
+`--ose_exemplar_checkpoint` checkpoints only the online exemplar encoder
+blocks. It must not checkpoint or detach the prototype output, and it must not
+affect the source encoder branch. This preserves alignment and dispersion
+gradients while trading one exemplar encoder recomputation during backward for
+lower activation memory.
 
 Do not add a separate 500-epoch assumption. With the repository default, the
 active schedule covers epochs 100-399. If a future config changes `epochs` or

@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.utils.checkpoint import checkpoint
 import math
 import warnings
 import copy
@@ -368,6 +369,7 @@ class Transformer(nn.Module):
         self.ose_momentum_encoder = None
         self.ose_momentum = None
         self.ose_start_epoch = None
+        self.ose_exemplar_checkpoint = None
         self.lambda_ose = None
         self.self_prob_start = None
         self.self_prob_end = None
@@ -424,6 +426,7 @@ class Transformer(nn.Module):
         ose_momentum,
         ose_queue_size,
         ose_start_epoch,
+        ose_exemplar_checkpoint,
         ose_topk,
         ose_alpha,
         ose_tau_s,
@@ -452,6 +455,7 @@ class Transformer(nn.Module):
         self.register_buffer('ose_exemplars', torch.empty(0), persistent=False)
         self.ose_momentum = float(ose_momentum)
         self.ose_start_epoch = int(ose_start_epoch)
+        self.ose_exemplar_checkpoint = bool(ose_exemplar_checkpoint)
         self.lambda_ose = float(lambda_ose)
         self.self_prob_start = float(self_prob_start)
         self.self_prob_end = float(self_prob_end)
@@ -603,7 +607,15 @@ class Transformer(nn.Module):
 
         return x_keep, mask, ids_restore, ids_keep
 
-    def forward_encoder(self, x, *, x_orig, mask_ratio, motion_aware_tau):
+    def forward_encoder(
+        self,
+        x,
+        *,
+        x_orig,
+        mask_ratio,
+        motion_aware_tau,
+        checkpoint_blocks=False,
+    ):
         # embed skeletons
         x = self.joints_embed(x)
 
@@ -622,8 +634,21 @@ class Transformer(nn.Module):
             x, mask, ids_restore, _ = self.motion_aware_random_masking(x, x_orig=x_orig, mask_ratio=mask_ratio, tau=motion_aware_tau)
 
         # apply Transformer blocks
-        for idx, blk in enumerate(self.blocks):
-            x = blk(x)
+        for blk in self.blocks:
+            if checkpoint_blocks and self.training:
+                # The repository pins PyTorch 1.8, whose checkpoint API is
+                # reentrant-only. x requires grad through the patch embedding,
+                # so encoder parameters retain their normal gradients. Bind
+                # the module in the closure for the backward recomputation.
+                amp_enabled = torch.is_autocast_enabled()
+
+                def run_block(tensor, module=blk, use_amp=amp_enabled):
+                    with torch.cuda.amp.autocast(enabled=use_amp):
+                        return module(tensor)
+
+                x = checkpoint(run_block, x)
+            else:
+                x = blk(x)
 
         latent = self.norm(x)
 
@@ -768,6 +793,7 @@ class Transformer(nn.Module):
                 x_orig=exemplar_samples,
                 mask_ratio=mask_ratio,
                 motion_aware_tau=-1,
+                checkpoint_blocks=self.ose_exemplar_checkpoint,
             )
             exemplar_features = F.normalize(exemplar_cls.squeeze(1), dim=-1)
             ose_losses = self.ose_memory.prototype_loss(
@@ -829,6 +855,8 @@ class Transformer(nn.Module):
             'ose_target_entropy': ose_losses['target_entropy'].detach(),
             'ose_align_kl': ose_losses['align_kl'].detach(),
             'ose_active': torch.tensor(float(ose_active), device=source.device),
+            'ose_exemplar_checkpoint': torch.tensor(
+                float(self.ose_exemplar_checkpoint), device=source.device),
             'p_self_planned': torch.tensor(p_self, device=source.device),
             'p_peer_planned': torch.tensor(p_peer, device=source.device),
             'self_fraction_effective': (~use_peer).float().mean().detach(),

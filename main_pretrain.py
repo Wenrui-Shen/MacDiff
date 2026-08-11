@@ -50,6 +50,9 @@ def get_args_parser():
     parser.add_argument('--start_epoch', default=0, type=int, metavar='N', help='start epoch')
     parser.add_argument('--accum_iter', default=1, type=int,
                         help='Accumulate gradient iterations (for increasing the effective batch size under memory constraints)')
+    parser.add_argument(
+        '--max_train_steps', default=0, type=int,
+        help='Limit iterations per epoch for diagnostics; 0 runs the full epoch')
 
     ###
     parser.add_argument('--task', default='recognition', type=str, help='recognition / 2dto3d')
@@ -99,7 +102,12 @@ def get_args_parser():
     parser.add_argument('--ose_exemplar_indices', default='', type=str)
     parser.add_argument('--ose_momentum', default=0.999, type=float)
     parser.add_argument('--ose_queue_size', default=32768, type=int)
-    parser.add_argument('--ose_start_epoch', default=100, type=int)
+    parser.add_argument(
+        '--ose_start_epoch', default=100, type=int,
+        help='First epoch that enables OSE loss and peer reconstruction')
+    parser.add_argument(
+        '--ose_exemplar_checkpoint', action='store_true', default=False,
+        help='Checkpoint online exemplar encoder blocks to trade compute for memory')
     parser.add_argument('--ose_refresh_interval', default=1, type=int)
     parser.add_argument('--ose_topk', default=4, type=int)
     parser.add_argument('--ose_alpha', default=0.75, type=float)
@@ -247,6 +255,8 @@ def main(args):
         raise ValueError('OSE peer diffusion requires motion_aware_tau <= 0')
     if args.ose_refresh_interval <= 0:
         raise ValueError('ose_refresh_interval must be positive')
+    if args.max_train_steps < 0:
+        raise ValueError('max_train_steps must be non-negative')
     if args.ose_start_epoch < 0 or args.ose_start_epoch >= args.epochs:
         raise ValueError('ose_start_epoch must be in [0, epochs)')
     if not 0.0 <= args.ose_momentum < 1.0:
@@ -312,6 +322,7 @@ def main(args):
         ose_momentum=args.ose_momentum,
         ose_queue_size=args.ose_queue_size,
         ose_start_epoch=args.ose_start_epoch,
+        ose_exemplar_checkpoint=args.ose_exemplar_checkpoint,
         ose_topk=args.ose_topk,
         ose_alpha=args.ose_alpha,
         ose_tau_s=args.ose_tau_s,
@@ -345,7 +356,7 @@ def main(args):
 
     if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(
-            model, device_ids=[args.gpu], find_unused_parameters=True,
+            model, device_ids=[args.gpu], find_unused_parameters=False,
             broadcast_buffers=False)
         model_without_ddp = model.module
     model_without_ddp.reset_momentum_encoder()
@@ -394,7 +405,9 @@ def main(args):
                     'offline_neighbor_label_accuracy',
                     'offline_neighbor_edge_count',
                     'offline_cross_reconstruction_label_accuracy',
-                    'offline_cross_reconstruction_count'):
+                    'offline_cross_reconstruction_count',
+                    'cuda_peak_allocated_mb',
+                    'cuda_peak_reserved_mb'):
                 log_writer.add_scalar(name, train_stats[name], epoch)
         ###
         if args.output_dir and (epoch % 10 == 0 or epoch + 1 == args.epochs):

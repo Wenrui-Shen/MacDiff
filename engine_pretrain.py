@@ -43,17 +43,24 @@ def train_one_epoch(model: torch.nn.Module,
     print_freq = 40 #20
 
     accum_iter = args.accum_iter
+    steps_this_epoch = len(data_loader)
+    if args.max_train_steps > 0:
+        steps_this_epoch = min(steps_this_epoch, args.max_train_steps)
 
     optimizer.zero_grad()
     pending_teacher_features = []
     pending_source_ids = []
     offline_cross_correct = torch.zeros((), dtype=torch.long, device=device)
     offline_cross_total = torch.zeros((), dtype=torch.long, device=device)
+    if device.type == 'cuda':
+        torch.cuda.reset_peak_memory_stats(device)
 
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
     for data_iter_step, batch in enumerate(metric_logger.log_every(data_loader, print_freq, header)):
+        if data_iter_step >= steps_this_epoch:
+            break
         (
             samples, samples_aug, peers, source_ids, _, has_peer,
             source_labels, peer_labels,
@@ -107,11 +114,11 @@ def train_one_epoch(model: torch.nn.Module,
             sys.exit(11)
 
         window_start = (data_iter_step // accum_iter) * accum_iter
-        window_size = min(accum_iter, len(data_loader) - window_start)
+        window_size = min(accum_iter, steps_this_epoch - window_start)
         loss /= window_size
         accumulation_boundary = (
             (data_iter_step + 1) % accum_iter == 0
-            or data_iter_step + 1 == len(data_loader))
+            or data_iter_step + 1 == steps_this_epoch)
         pending_teacher_features.append(teacher_features.detach())
         pending_source_ids.append(source_ids.detach())
         scale_before = loss_scaler._scaler.get_scale()
@@ -168,14 +175,30 @@ def train_one_epoch(model: torch.nn.Module,
     offline_cross_accuracy = (
         offline_correct / offline_total if offline_total > 0 else 0.0
     )
+    if device.type == 'cuda':
+        memory_peak = torch.tensor([
+            torch.cuda.max_memory_allocated(device) / (1024 ** 2),
+            torch.cuda.max_memory_reserved(device) / (1024 ** 2),
+        ], dtype=torch.float64, device=device)
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(memory_peak, op=dist.ReduceOp.MAX)
+        peak_allocated_mb, peak_reserved_mb = memory_peak.tolist()
+    else:
+        peak_allocated_mb = 0.0
+        peak_reserved_mb = 0.0
     print("Averaged stats:", metric_logger)
     print(
         'Offline cross-reconstruction label accuracy: '
         '{:.4f} ({}/{})'.format(
             offline_cross_accuracy, int(offline_correct), int(offline_total)))
+    print(
+        'CUDA peak memory: allocated={:.1f} MiB, reserved={:.1f} MiB'.format(
+            peak_allocated_mb, peak_reserved_mb))
     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
     stats.update({
         'offline_cross_reconstruction_label_accuracy': offline_cross_accuracy,
         'offline_cross_reconstruction_count': int(offline_total),
+        'cuda_peak_allocated_mb': peak_allocated_mb,
+        'cuda_peak_reserved_mb': peak_reserved_mb,
     })
     return stats

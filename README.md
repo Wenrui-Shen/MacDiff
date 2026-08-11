@@ -100,6 +100,28 @@ Queue are warmed without gradients. At epoch 100, OSE prototype loss and
 cross-instance reconstruction are enabled; the peer probability then increases
 linearly from 0.1 at epoch 100 to 0.9 at the final epoch.
 
+`ose_start_epoch` can be overridden directly on the command line. Exemplar-only
+gradient checkpointing is disabled by default and can be enabled with
+`--ose_exemplar_checkpoint`; it preserves OSE gradients while recomputing the
+eight exemplar encoder blocks during backward. To compare CUDA peaks on one
+GPU, run from the repository root:
+
+```bash
+bash script_profile_ose_memory.sh \
+  config/ntu60_xsub_joint/exemplar_indices.json
+```
+
+The script sets `ose_start_epoch=0`, runs both checkpoint modes sequentially,
+and reports PyTorch's peak allocated/reserved memory. It defaults to two epochs
+and 20 iterations per epoch so the second epoch also measures a non-empty
+Queue. Override these without editing files, for example:
+
+```bash
+PROFILE_STEPS=50 PROFILE_BATCH_SIZE=16 CUDA_VISIBLE_DEVICES=0 \
+  bash script_profile_ose_memory.sh \
+  config/ntu60_xsub_joint/exemplar_indices.json
+```
+
 ## Training and Testing
 Please refer to the bash scripts. Before running the scripts, you may:
 
