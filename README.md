@@ -94,6 +94,22 @@ ground-truth-label diagnostics for frozen neighbor edges and realized
 cross-sample targets. These labels stay in the feeder/training engine and are
 never passed to the model, routing logic, loss, or backward graph.
 
+Generate a reproducible complete NTU60 XSub mapping with seed 0:
+
+```bash
+python generate_ose_exemplar_indices.py
+```
+
+For another archive or split, provide explicit paths and keep the generated
+JSON with the experiment:
+
+```bash
+python generate_ose_exemplar_indices.py \
+  --data_path ../data/MAMP/ntu120/NTU120_XSub.npz \
+  --output_path config/ntu120_xsub_joint/exemplar_indices.json \
+  --seed 0
+```
+
 Training is split at `ose_start_epoch: 100`. Epochs 0-99 optimize only the
 native MacDiff diffusion and token-uniformity losses while the EMA encoder and
 Queue are warmed without gradients. At epoch 100, OSE prototype loss and

@@ -470,6 +470,10 @@ pretrain YAML 继续走同一入口而悄悄加 try/except 兼容分支；若以
   `PROFILE_NUM_WORKERS` 和 `CUDA_VISIBLE_DEVICES` 调整测试；
 - checkpoint 不减少 EMA/Queue/相似度矩阵的常驻或临时显存，只减少 exemplar
   encoder 反向图中保存的 block 内部 activation，并会增加一次 backward 重算。
+- 新增 `generate_ose_exemplar_indices.py`。它不依赖 PyTorch，默认从
+  `../data/MAMP/ntu/NTU60_XSub.npz` 的 `y_train` 以 seed 0 为每类选择一个不可变
+  训练索引，并写入 `config/ntu60_xsub_joint/exemplar_indices.json`。脚本严格检查
+  one-hot 标签、x/y 样本数、连续类 ID、索引唯一性和索引标签一致性。
 
 ## 9. 当前工作树提示
 
