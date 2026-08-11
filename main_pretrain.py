@@ -99,6 +99,9 @@ def get_args_parser():
     parser.add_argument('--train_feeder_args', default=dict(), help='the arguments of data loader for training')
 
     # OSE-guided cross-instance diffusion
+    parser.add_argument(
+        '--enable_ose', action='store_true', default=False,
+        help='Enable OSE prototypes and cross-instance reconstruction')
     parser.add_argument('--ose_exemplar_indices', default='', type=str)
     parser.add_argument('--ose_momentum', default=0.999, type=float)
     parser.add_argument('--ose_queue_size', default=32768, type=int)
@@ -245,42 +248,46 @@ def main(args):
 
     cudnn.benchmark = True
 
-    if isinstance(args.mask_ratio, list):
-        if len(args.mask_ratio) != 1:
-            raise ValueError('OSE peer diffusion requires one fixed mask_ratio')
-        args.mask_ratio = args.mask_ratio[0]
-    if not 0.0 < args.mask_ratio < 1.0:
-        raise ValueError('OSE peer diffusion requires mask_ratio in (0, 1)')
-    if args.motion_aware_tau > 0:
-        raise ValueError('OSE peer diffusion requires motion_aware_tau <= 0')
-    if args.ose_refresh_interval <= 0:
-        raise ValueError('ose_refresh_interval must be positive')
     if args.max_train_steps < 0:
         raise ValueError('max_train_steps must be non-negative')
-    if args.ose_start_epoch < 0 or args.ose_start_epoch >= args.epochs:
-        raise ValueError('ose_start_epoch must be in [0, epochs)')
-    if not 0.0 <= args.ose_momentum < 1.0:
-        raise ValueError('ose_momentum must be in [0, 1)')
-    if args.lambda_ose < 0:
-        raise ValueError('lambda_ose must be non-negative')
-    routing_probabilities = (
-        args.self_prob_start, args.self_prob_end,
-        args.peer_prob_start, args.peer_prob_end)
-    if any(probability < 0.0 or probability > 1.0
-           for probability in routing_probabilities):
-        raise ValueError('Routing probabilities must be in [0, 1]')
-    if not np.isclose(args.self_prob_start + args.peer_prob_start, 1.0):
-        raise ValueError('Initial self/peer routing probabilities must sum to one')
-    if not np.isclose(args.self_prob_end + args.peer_prob_end, 1.0):
-        raise ValueError('Final self/peer routing probabilities must sum to one')
+    if args.enable_ose:
+        if isinstance(args.mask_ratio, list):
+            if len(args.mask_ratio) != 1:
+                raise ValueError('OSE peer diffusion requires one fixed mask_ratio')
+            args.mask_ratio = args.mask_ratio[0]
+        if not 0.0 < args.mask_ratio < 1.0:
+            raise ValueError('OSE peer diffusion requires mask_ratio in (0, 1)')
+        if args.motion_aware_tau > 0:
+            raise ValueError('OSE peer diffusion requires motion_aware_tau <= 0')
+        if args.ose_refresh_interval <= 0:
+            raise ValueError('ose_refresh_interval must be positive')
+        if args.ose_start_epoch < 0 or args.ose_start_epoch >= args.epochs:
+            raise ValueError('ose_start_epoch must be in [0, epochs)')
+        if not 0.0 <= args.ose_momentum < 1.0:
+            raise ValueError('ose_momentum must be in [0, 1)')
+        if args.lambda_ose < 0:
+            raise ValueError('lambda_ose must be non-negative')
+        routing_probabilities = (
+            args.self_prob_start, args.self_prob_end,
+            args.peer_prob_start, args.peer_prob_end)
+        if any(probability < 0.0 or probability > 1.0
+               for probability in routing_probabilities):
+            raise ValueError('Routing probabilities must be in [0, 1]')
+        if not np.isclose(args.self_prob_start + args.peer_prob_start, 1.0):
+            raise ValueError('Initial self/peer routing probabilities must sum to one')
+        if not np.isclose(args.self_prob_end + args.peer_prob_end, 1.0):
+            raise ValueError('Final self/peer routing probabilities must sum to one')
 
     # Load dataset
     Feeder = import_class(args.feeder)
     dataset_train = Feeder(**args.train_feeder_args)
-    if not hasattr(dataset_train, 'set_neighbor_map'):
-        raise TypeError('OSE pretraining requires feeder.feeder_ntu.FeederOSE')
-    exemplar_mapping = load_exemplar_mapping(args.ose_exemplar_indices, dataset_train)
-    dataset_train.exclude_ose_exemplars(exemplar_mapping.values())
+    exemplar_mapping = None
+    if args.enable_ose:
+        if not hasattr(dataset_train, 'set_neighbor_map'):
+            raise TypeError('OSE pretraining requires feeder.feeder_ntu.FeederOSE')
+        exemplar_mapping = load_exemplar_mapping(
+            args.ose_exemplar_indices, dataset_train)
+        dataset_train.exclude_ose_exemplars(exemplar_mapping.values())
     print(dataset_train)
 
     global_rank = misc.get_rank()
@@ -317,23 +324,24 @@ def main(args):
     # define the model
     Model = import_class(args.model)
     model = Model(**args.model_args)
-    model.initialize_ose(
-        exemplar_mapping=exemplar_mapping,
-        ose_momentum=args.ose_momentum,
-        ose_queue_size=args.ose_queue_size,
-        ose_start_epoch=args.ose_start_epoch,
-        ose_exemplar_checkpoint=args.ose_exemplar_checkpoint,
-        ose_topk=args.ose_topk,
-        ose_alpha=args.ose_alpha,
-        ose_tau_s=args.ose_tau_s,
-        ose_tau_t=args.ose_tau_t,
-        ose_assignment_confidence=args.ose_assignment_confidence,
-        lambda_ose=args.lambda_ose,
-        self_prob_start=args.self_prob_start,
-        self_prob_end=args.self_prob_end,
-        peer_prob_start=args.peer_prob_start,
-        peer_prob_end=args.peer_prob_end,
-    )
+    if args.enable_ose:
+        model.initialize_ose(
+            exemplar_mapping=exemplar_mapping,
+            ose_momentum=args.ose_momentum,
+            ose_queue_size=args.ose_queue_size,
+            ose_start_epoch=args.ose_start_epoch,
+            ose_exemplar_checkpoint=args.ose_exemplar_checkpoint,
+            ose_topk=args.ose_topk,
+            ose_alpha=args.ose_alpha,
+            ose_tau_s=args.ose_tau_s,
+            ose_tau_t=args.ose_tau_t,
+            ose_assignment_confidence=args.ose_assignment_confidence,
+            lambda_ose=args.lambda_ose,
+            self_prob_start=args.self_prob_start,
+            self_prob_end=args.self_prob_end,
+            peer_prob_start=args.peer_prob_start,
+            peer_prob_end=args.peer_prob_end,
+        )
 
     model.to(device)
 
@@ -359,7 +367,8 @@ def main(args):
             model, device_ids=[args.gpu], find_unused_parameters=False,
             broadcast_buffers=False)
         model_without_ddp = model.module
-    model_without_ddp.reset_momentum_encoder()
+    if args.enable_ose:
+        model_without_ddp.reset_momentum_encoder()
     
     # following timm: set wd as 0 for bias and norm layers
     param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
@@ -380,7 +389,8 @@ def main(args):
         if args.distributed:
             data_loader_train.sampler.set_epoch(epoch)
         ose_refresh_due = (
-            epoch >= args.ose_start_epoch
+            args.enable_ose
+            and epoch >= args.ose_start_epoch
             and (
                 epoch == args.start_epoch
                 or (epoch - args.ose_start_epoch) % args.ose_refresh_interval == 0
@@ -399,15 +409,21 @@ def main(args):
             )
         else:
             assert 0
-        train_stats.update(offline_neighbor_stats)
+        if args.enable_ose:
+            train_stats.update(offline_neighbor_stats)
         if log_writer is not None:
-            for name in (
+            scalar_names = [
+                'cuda_peak_allocated_mb',
+                'cuda_peak_reserved_mb',
+            ]
+            if args.enable_ose:
+                scalar_names.extend([
                     'offline_neighbor_label_accuracy',
                     'offline_neighbor_edge_count',
                     'offline_cross_reconstruction_label_accuracy',
                     'offline_cross_reconstruction_count',
-                    'cuda_peak_allocated_mb',
-                    'cuda_peak_reserved_mb'):
+                ])
+            for name in scalar_names:
                 log_writer.add_scalar(name, train_stats[name], epoch)
         ###
         if args.output_dir and (epoch % 10 == 0 or epoch + 1 == args.epochs):

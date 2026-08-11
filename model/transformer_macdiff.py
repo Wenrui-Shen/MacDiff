@@ -741,7 +741,125 @@ class Transformer(nn.Module):
 
         return loss.mean()
 
+    def forward_macdiff(
+        self,
+        x,
+        x_aug,
+        mask_ratio=0.80,
+        motion_stride=1,
+        motion_aware_tau=0.75,
+    ):
+        """Native MacDiff forward with no OSE teacher, Queue, or exemplars."""
+        with torch.no_grad():
+            if self.one_person:
+                x, x_aug = x[..., 0:1], x_aug[..., 0:1]
+
+            batch_size, channels, frames, joints, people = x.shape
+            x = x.permute(0, 4, 2, 3, 1).contiguous().view(
+                batch_size * people, frames, joints, channels)
+            x_orig = x.clone().detach()
+            x_aug = x_aug.permute(0, 4, 2, 3, 1).contiguous().view(
+                batch_size * people, frames, joints, channels)
+
+            if self.self_shift:
+                center = x.mean(dim=[1, 2], keepdim=True)
+                x = x - center
+                x_aug = x_aug - center
+
+            for channel in range(channels):
+                x[:, :, :, channel] = (
+                    x[:, :, :, channel] - self.input_mean[channel]
+                ) / self.input_std[channel]
+                x_aug[:, :, :, channel] = (
+                    x_aug[:, :, :, channel] - self.input_mean[channel]
+                ) / self.input_std[channel]
+
+            x_gt = x.clone().detach()
+            t, _ = self.schedule_sampler.sample(x.shape[0], x.device)
+            noise = torch.randn_like(x)
+            x = self.diffusion.q_sample(x, t, noise=noise)
+
+            if np.random.rand(1)[0] < 0.001:
+                print('x_aug', x_aug[0].reshape(-1, channels))
+                print('x_gt', x_gt[0].reshape(-1, channels))
+                print('x_noisy', x[0].reshape(-1, channels))
+                print('t =', t[0])
+
+        latent, cls_token, mask, ids_restore = self.forward_encoder(
+            x_aug,
+            x_orig=x_orig,
+            mask_ratio=mask_ratio,
+            motion_aware_tau=motion_aware_tau,
+        )
+        loss_uniformity = token_uniformity_loss(
+            latent.reshape(
+                batch_size, people, -1, latent.shape[-1])[:, 0])
+        z = self.build_global_local_condition(latent, cls_token, ids_restore)
+        pred = self.forward_decoder(x, z=z, t=t)
+
+        if torch.any(torch.isnan(pred)):
+            print('Error! Nan in pred.')
+
+        if self.diff_prediction == 'joint':
+            loss_diff = self.forward_loss(x_gt, pred, mask, t)
+        elif self.diff_prediction == 'noise':
+            loss_diff = self.forward_loss(noise, pred, mask, t)
+        elif self.diff_prediction == 'noise2joint':
+            pred = self.diffusion._predict_xstart_from_eps(
+                self.patchify(x), t, pred)
+            loss_diff = self.forward_loss(x_gt, pred, mask, t)
+        elif self.diff_prediction == 'v':
+            velocity = self.diffusion.get_velocity(x_gt, t, noise=noise)
+            loss_diff = self.forward_loss(velocity, pred, mask, t)
+        else:
+            raise ValueError(
+                'Unsupported diffusion prediction target: %s'
+                % self.diff_prediction)
+
+        loss = loss_diff + self.lambda_loss_uni * loss_uniformity
+        if np.random.rand(1)[0] < 0.01:
+            print(
+                'loss = {}, loss_diff = {}, loss_uni = {}, lambda = {}, '
+                'mask_ratio = {:.3f}, bs = {}'.format(
+                    loss.item(), loss_diff.item(), loss_uniformity.item(),
+                    self.lambda_loss_uni, mask_ratio, batch_size))
+        return loss, pred, mask
+
     def forward(
+        self,
+        source,
+        source_aug,
+        peer=None,
+        source_ids=None,
+        has_peer=None,
+        epoch=None,
+        total_epochs=None,
+        mask_ratio=0.90,
+        motion_stride=1,
+        motion_aware_tau=-1,
+        enable_ose=False,
+    ):
+        if not enable_ose:
+            return self.forward_macdiff(
+                source,
+                source_aug,
+                mask_ratio=mask_ratio,
+                motion_stride=motion_stride,
+                motion_aware_tau=motion_aware_tau,
+            )
+        return self.forward_ose(
+            source,
+            source_aug,
+            peer,
+            source_ids,
+            has_peer,
+            epoch,
+            total_epochs,
+            mask_ratio=mask_ratio,
+            motion_aware_tau=motion_aware_tau,
+        )
+
+    def forward_ose(
         self,
         source,
         source_aug,

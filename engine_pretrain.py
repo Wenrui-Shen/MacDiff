@@ -28,11 +28,136 @@ def concat_all_gather(tensor):
     dist.all_gather(gathered, tensor)
     return torch.cat(gathered, dim=0)
 
+
+def _cuda_peak_memory(device):
+    if device.type != 'cuda':
+        return 0.0, 0.0
+    memory_peak = torch.tensor([
+        torch.cuda.max_memory_allocated(device) / (1024 ** 2),
+        torch.cuda.max_memory_reserved(device) / (1024 ** 2),
+    ], dtype=torch.float64, device=device)
+    if dist.is_available() and dist.is_initialized():
+        dist.all_reduce(memory_peak, op=dist.ReduceOp.MAX)
+    return memory_peak.tolist()
+
+
 def train_one_epoch(model: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler,
-                    log_writer=None,
-                    args=None):
+                    log_writer=None, args=None):
+    if args.enable_ose:
+        return train_one_epoch_ose(
+            model, data_loader, optimizer, device, epoch, loss_scaler,
+            log_writer=log_writer, args=args)
+    return train_one_epoch_macdiff(
+        model, data_loader, optimizer, device, epoch, loss_scaler,
+        log_writer=log_writer, args=args)
+
+
+def train_one_epoch_macdiff(model: torch.nn.Module,
+                            data_loader: Iterable,
+                            optimizer: torch.optim.Optimizer,
+                            device: torch.device, epoch: int, loss_scaler,
+                            log_writer=None, args=None):
+    """Run the native MacDiff path without OSE state or extra forwards."""
+    model.train(True)
+    model_without_ddp = model.module if hasattr(model, 'module') else model
+    model_without_ddp.update_diffusion_sampler(epoch, args.epochs)
+
+    metric_logger = misc.MetricLogger(delimiter="  ")
+    metric_logger.add_meter(
+        'lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
+    header = 'Epoch: [{}]'.format(epoch)
+    print_freq = 40
+    accum_iter = args.accum_iter
+    steps_this_epoch = len(data_loader)
+    if args.max_train_steps > 0:
+        steps_this_epoch = min(steps_this_epoch, args.max_train_steps)
+
+    optimizer.zero_grad()
+    if device.type == 'cuda':
+        torch.cuda.reset_peak_memory_stats(device)
+    if log_writer is not None:
+        print('log_dir: {}'.format(log_writer.log_dir))
+
+    for data_iter_step, batch in enumerate(
+            metric_logger.log_every(data_loader, print_freq, header)):
+        if data_iter_step >= steps_this_epoch:
+            break
+        samples, samples_aug, _, _ = batch
+
+        if data_iter_step % accum_iter == 0:
+            lr_sched.adjust_learning_rate(
+                optimizer, data_iter_step / len(data_loader) + epoch, args)
+
+        samples = samples.float().to(device, non_blocking=True)
+        samples_aug = samples_aug.float().to(device, non_blocking=True)
+        mask_ratio = args.mask_ratio
+        if isinstance(mask_ratio, list):
+            if len(mask_ratio) == 1:
+                mask_ratio = mask_ratio[0]
+            elif len(mask_ratio) == 2:
+                mask_ratio = np.random.uniform(mask_ratio[0], mask_ratio[1])
+
+        with torch.cuda.amp.autocast(enabled=args.enable_amp):
+            loss, _, _ = model(
+                samples,
+                samples_aug,
+                mask_ratio=mask_ratio,
+                motion_stride=args.motion_stride,
+                motion_aware_tau=args.motion_aware_tau,
+                enable_ose=False,
+            )
+
+        loss_value = loss.item()
+        if not math.isfinite(loss_value):
+            print("Loss is {}, stopping training".format(loss_value))
+            sys.exit(11)
+
+        window_start = (data_iter_step // accum_iter) * accum_iter
+        window_size = min(accum_iter, steps_this_epoch - window_start)
+        loss /= window_size
+        accumulation_boundary = (
+            (data_iter_step + 1) % accum_iter == 0
+            or data_iter_step + 1 == steps_this_epoch)
+        loss_scaler(
+            loss, optimizer, parameters=model.parameters(),
+            update_grad=accumulation_boundary)
+        if accumulation_boundary:
+            optimizer.zero_grad()
+
+        if device.type == 'cuda':
+            torch.cuda.synchronize()
+        metric_logger.update(loss=loss_value)
+        lr = optimizer.param_groups[0]["lr"]
+        metric_logger.update(lr=lr)
+
+        loss_value_reduce = misc.all_reduce_mean(loss_value)
+        if log_writer is not None and accumulation_boundary:
+            epoch_1000x = int(
+                (data_iter_step / len(data_loader) + epoch) * 1000)
+            log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
+            log_writer.add_scalar('lr', lr, epoch_1000x)
+
+    metric_logger.synchronize_between_processes()
+    peak_allocated_mb, peak_reserved_mb = _cuda_peak_memory(device)
+    print("Averaged stats:", metric_logger)
+    print(
+        'CUDA peak memory: allocated={:.1f} MiB, reserved={:.1f} MiB'.format(
+            peak_allocated_mb, peak_reserved_mb))
+    stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
+    stats.update({
+        'cuda_peak_allocated_mb': peak_allocated_mb,
+        'cuda_peak_reserved_mb': peak_reserved_mb,
+    })
+    return stats
+
+
+def train_one_epoch_ose(model: torch.nn.Module,
+                        data_loader: Iterable,
+                        optimizer: torch.optim.Optimizer,
+                        device: torch.device, epoch: int, loss_scaler,
+                        log_writer=None, args=None):
     model.train(True)
     model_without_ddp = model.module if hasattr(model, 'module') else model
     model_without_ddp.update_diffusion_sampler(epoch, args.epochs)
@@ -96,6 +221,7 @@ def train_one_epoch(model: torch.nn.Module,
                 args.epochs,
                 mask_ratio=mask_ratio,
                 motion_aware_tau=args.motion_aware_tau,
+                enable_ose=True,
             )
 
         # Offline diagnostic only: labels never enter the model, routing
@@ -175,17 +301,7 @@ def train_one_epoch(model: torch.nn.Module,
     offline_cross_accuracy = (
         offline_correct / offline_total if offline_total > 0 else 0.0
     )
-    if device.type == 'cuda':
-        memory_peak = torch.tensor([
-            torch.cuda.max_memory_allocated(device) / (1024 ** 2),
-            torch.cuda.max_memory_reserved(device) / (1024 ** 2),
-        ], dtype=torch.float64, device=device)
-        if dist.is_available() and dist.is_initialized():
-            dist.all_reduce(memory_peak, op=dist.ReduceOp.MAX)
-        peak_allocated_mb, peak_reserved_mb = memory_peak.tolist()
-    else:
-        peak_allocated_mb = 0.0
-        peak_reserved_mb = 0.0
+    peak_allocated_mb, peak_reserved_mb = _cuda_peak_memory(device)
     print("Averaged stats:", metric_logger)
     print(
         'Offline cross-reconstruction label accuracy: '

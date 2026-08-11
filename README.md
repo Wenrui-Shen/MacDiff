@@ -138,6 +138,32 @@ PROFILE_STEPS=50 PROFILE_BATCH_SIZE=16 CUDA_VISIBLE_DEVICES=0 \
   config/ntu60_xsub_joint/exemplar_indices.json
 ```
 
+### Native MacDiff and OSE pretraining
+
+`enable_ose` selects two independent pretraining paths. It defaults to `False`,
+so the original `pretrain_madiff.yaml` files use the native four-item feeder,
+native MacDiff forward, and no momentum encoder, Queue, exemplar exclusion, or
+peer reconstruction. The OSE YAML sets `enable_ose: True` explicitly.
+
+For two GPUs, run the native NTU60 XSub baseline with:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 \
+  OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff \
+  bash script_pretrain_madiff.sh
+```
+
+Run the OSE experiment with:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch \
+  --nproc_per_node=2 --master_port=10235 main_pretrain.py \
+  --config ./config/ntu60_xsub_joint/pretrain_madiff_ose_peer.yaml \
+  --ose_exemplar_indices config/ntu60_xsub_joint/exemplar_indices.json \
+  --output_dir ./output_dir/ntu60_xsub_ose \
+  --log_dir ./output_dir/ntu60_xsub_ose/tensorboard
+```
+
 ## Training and Testing
 Please refer to the bash scripts. Before running the scripts, you may:
 

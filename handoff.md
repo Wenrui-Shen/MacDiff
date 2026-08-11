@@ -497,3 +497,24 @@ git diff --check
 
 随后只检查和补充，不要回滚任何现有修改。若需要提交，先逐文件确认 scope，再由用户
 明确授权/要求 commit 或 push。
+
+## 10. 2026-08-11 原版 MacDiff 复现入口补充
+
+前面的工作树状态已经过时：此前 OSE 与显存测试修改已经进入当前 `main`，本节之后
+新增的 baseline 分流尚未提交。当前正在恢复严格的原版 MacDiff 预训练入口：
+
+- 新增显式参数 `--enable_ose`，默认 `False`；专用 OSE YAML 显式设置
+  `enable_ose: True`。
+- 原始 `config/*/pretrain_madiff.yaml` 不初始化 momentum encoder、Queue 或
+  exemplar，不排除 exemplar 样本，使用普通 `Feeder` 的四项 batch。
+- `engine_pretrain.py` 分成原版 MacDiff 与 OSE 两条训练路径。
+- `Transformer.forward_macdiff` 按 OSE 改造前提交 `692888f` 的逻辑恢复；
+  `Transformer.forward_ose` 保留当前 OSE 实现，`forward` 根据显式参数分流。
+- `script_pretrain_madiff.sh` 已恢复为两卡原版 NTU60 XSub baseline 启动脚本；
+  `README.md` 同时记录原版和 OSE 的两卡命令。
+- 已通过 Python AST、配置路由文本和 `git diff --check` 检查；本地没有项目
+  PyTorch/CUDA 环境，仍需在服务器运行双卡短程 smoke test。
+
+不要把 `lambda_ose=0` 或把 `ose_start_epoch` 推迟来冒充原版 baseline；这仍会创建
+teacher/Queue、排除 exemplar，并执行额外前向。原版基线必须保持
+`enable_ose=False` 且使用普通 `Feeder`。

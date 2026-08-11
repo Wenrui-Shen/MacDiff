@@ -53,6 +53,7 @@ mask_ratio: 0.9
 motion_aware_tau: -1
 
 # OSE-guided cross-instance diffusion
+enable_ose: True
 # Create this JSON with one immutable training-set index for every semantic class.
 ose_exemplar_indices: config/ntu60_xsub_joint/exemplar_indices.json
 ose_momentum: 0.999
