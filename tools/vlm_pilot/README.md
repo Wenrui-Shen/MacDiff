@@ -22,7 +22,8 @@ axes while deliberately removing the primary actor's global translation. For a
 two-person sample, both actors are translated by person 1's root, so their
 relative position remains visible. Person 1 is uniformly red and person 2 is
 uniformly blue. Joint circles are deliberately larger than the thinner bone
-lines so that the VLM can distinguish joints from connections.
+lines so that the VLM can distinguish joints from connections. Joints have no
+outline, and the root joint uses the same marker size as every other joint.
 
 The rendering code can be checked without a dataset:
 

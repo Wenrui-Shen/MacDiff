@@ -7,7 +7,7 @@ Panel layout:
 - middle: side Z-Y view after the same per-frame root centering
 - right: top X-Z view after the same per-frame root centering
 
-The complete red skeleton is person 1 and the complete blue skeleton is person 2. Color identifies the person only; it does not identify body parts. Large circles are joints and thinner lines are bones. The white cross marks person 1's SpineMid coordinate origin. It is a visualization aid, not a physical object.
+The complete red skeleton is person 1 and the complete blue skeleton is person 2. Color identifies the person only; it does not identify body parts. Circles are joints and thinner lines are bones. No joint has a special visual meaning.
 
 The sequence contains no visible object, clothing, scene, identity, or ground-truth action label.
 Absolute global translation has been removed by per-frame root centering. Therefore, the sequence cannot prove whether the primary actor walks toward a world direction or changes absolute location. Relative movement between person 2 and person 1 is still visible.

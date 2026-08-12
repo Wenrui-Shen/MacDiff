@@ -35,8 +35,7 @@ PERSON_COLORS = (
     (66, 145, 255),  # person 2: blue
 )
 BONE_WIDTH = 4
-JOINT_RADIUS = 6
-ROOT_RADIUS = 8
+JOINT_RADIUS = 4
 
 
 def parse_args():
@@ -248,15 +247,13 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font):
                 if not active[person, joint]:
                     continue
                 x, y = panel.map_point(pose[person, joint])
-                radius = ROOT_RADIUS if joint == ROOT_JOINT else JOINT_RADIUS
-                draw.ellipse((x - radius, y - radius, x + radius, y + radius),
-                             fill=color, outline=TEXT, width=2)
+                draw.ellipse(
+                    (x - JOINT_RADIUS, y - JOINT_RADIUS,
+                     x + JOINT_RADIUS, y + JOINT_RADIUS),
+                    fill=color,
+                )
 
-        cx, cy = panel.map_point(np.zeros(3, dtype=np.float32))
-        draw.line((cx - 7, cy, cx + 7, cy), fill=MUTED_TEXT, width=2)
-        draw.line((cx, cy - 7, cx, cy + 7), fill=MUTED_TEXT, width=2)
-
-    draw.text((12, height - 22), "Red: person 1; blue: person 2; white cross: person 1 SpineMid origin.",
+    draw.text((12, height - 22), "Red: person 1; blue: person 2; global translation is removed.",
               font=font, fill=MUTED_TEXT)
     return image
 
@@ -313,7 +310,6 @@ def main():
         "person_colors": {"person_1": "red", "person_2": "blue"},
         "bone_width_px": BONE_WIDTH,
         "joint_radius_px": JOINT_RADIUS,
-        "root_radius_px": ROOT_RADIUS,
         "render_size": [args.width, args.height],
     }
     (args.output_dir / "render_metadata.json").write_text(
