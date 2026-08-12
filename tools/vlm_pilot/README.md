@@ -16,9 +16,11 @@ python tools/vlm_pilot/render_skeleton_sample.py \
   --output_dir vlm_pilot/sample_000000
 ```
 
-Inspect `preview.gif` and `preview_middle.png`. The six panels contain three
-fixed-world orthographic views, two per-frame root-centered views, and one
-fixed-camera oblique 3D view.
+Inspect `preview.gif` and `preview_middle.png`. The three panels are per-frame
+root-centered X-Y, Z-Y, and X-Z projections. Together they retain all three XYZ
+axes while deliberately removing the primary actor's global translation. For a
+two-person sample, both actors are translated by person 1's root, so their
+relative position remains visible.
 
 The rendering code can be checked without a dataset:
 

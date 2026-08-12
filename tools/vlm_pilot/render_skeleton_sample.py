@@ -47,7 +47,7 @@ def parse_args():
     parser.add_argument("--output_dir", type=Path, required=True)
     parser.add_argument("--num_frames", type=int, default=16)
     parser.add_argument("--width", type=int, default=960)
-    parser.add_argument("--height", type=int, default=640)
+    parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--gif_duration_ms", type=int, default=180)
     parser.add_argument(
         "--demo",
@@ -138,28 +138,22 @@ def primary_root(sequence):
     return root
 
 
-def robust_xyz_bounds(sequence):
+def root_centered_span(sequence):
     mask = active_joint_mask(sequence)
     points = sequence[mask]
-    lo = np.percentile(points, 1, axis=0)
-    hi = np.percentile(points, 99, axis=0)
-    center = (lo + hi) / 2
-    span = float(max(np.max(hi - lo), 1e-3)) * 1.15
-    return center, span
+    extent = np.percentile(np.abs(points), 99, axis=0)
+    return float(max(np.max(extent) * 2.3, 1e-3))
 
 
-def projected(point, view, azimuth=-math.pi / 4, elevation=math.radians(20)):
+def projected(point, view):
     x, y, z = point
     if view.endswith("xy"):
         return np.array([x, y])
     if view.endswith("zy"):
         return np.array([z, y])
-    if view == "world_xz":
+    if view.endswith("xz"):
         return np.array([x, z])
-    horizontal = math.cos(azimuth) * x - math.sin(azimuth) * z
-    depth_axis = math.sin(azimuth) * x + math.cos(azimuth) * z
-    vertical = math.cos(elevation) * y + math.sin(elevation) * depth_axis
-    return np.array([horizontal, vertical])
+    raise ValueError("Unsupported projection: %s" % view)
 
 
 def joint_group(index):
@@ -206,27 +200,22 @@ class Panel:
         )
 
 
-def make_panels(width, height, world_center, world_span, local_center, local_span):
-    cols, rows = 3, 2
+def make_panels(width, height, local_span):
+    cols = 3
     panels = []
     specs = (
-        ("FRONT: X-Y WORLD", "world_xy", world_center, world_span),
-        ("SIDE: Z-Y WORLD", "world_zy", world_center, world_span),
-        ("TOP: X-Z WORLD", "world_xz", world_center, world_span),
-        ("FRONT: ROOT-CENTERED", "local_xy", local_center, local_span),
-        ("SIDE: ROOT-CENTERED", "local_zy", local_center, local_span),
-        ("FIXED OBLIQUE 3D", "world_xyz", world_center, world_span),
+        ("FRONT: ROOT-CENTERED X-Y", "local_xy", np.zeros(3), local_span),
+        ("SIDE: ROOT-CENTERED Z-Y", "local_zy", np.zeros(3), local_span),
+        ("TOP: ROOT-CENTERED X-Z", "local_xz", np.zeros(3), local_span),
     )
-    for row in range(rows):
-        for col in range(cols):
-            index = row * cols + col
-            box = (
-                col * width // cols,
-                row * height // rows,
-                (col + 1) * width // cols,
-                (row + 1) * height // rows,
-            )
-            panels.append(Panel(box, *specs[index]))
+    for col in range(cols):
+        box = (
+            col * width // cols,
+            0,
+            (col + 1) * width // cols,
+            height,
+        )
+        panels.append(Panel(box, *specs[col]))
     return panels
 
 
@@ -240,42 +229,17 @@ def draw_grid(draw, panel):
         draw.line((left, y, right, y), fill=GRID, width=1)
 
 
-def draw_dashed_polyline(draw, points, fill, width=3, dash=8):
-    if len(points) < 2:
-        return
-    for a, b in zip(points[:-1], points[1:]):
-        dx, dy = b[0] - a[0], b[1] - a[1]
-        length = math.hypot(dx, dy)
-        if length < 1e-6:
-            continue
-        ux, uy = dx / length, dy / length
-        position = 0.0
-        visible = True
-        while position < length:
-            end = min(position + dash, length)
-            if visible:
-                draw.line((a[0] + ux * position, a[1] + uy * position,
-                           a[0] + ux * end, a[1] + uy * end), fill=fill, width=width)
-            visible = not visible
-            position = end
-
-
 def render_frame(sequence, roots, frame_index, panels, width, height, font):
     image = Image.new("RGB", (width, height), BACKGROUND)
     draw = ImageDraw.Draw(image)
-    world_pose = sequence[frame_index]
-    local_pose = world_pose - roots[frame_index][None, None, :]
+    local_pose = sequence[frame_index] - roots[frame_index][None, None, :]
     active = active_joint_mask(sequence)[frame_index]
 
     for panel in panels:
         draw_grid(draw, panel)
         left, top, right, _ = panel.box
         draw.text((left + 10, top + 9), panel.title, font=font, fill=TEXT)
-        pose = local_pose if panel.view.startswith("local") else world_pose
-
-        if panel.view == "world_xz":
-            trace = [panel.map_point(root) for root in roots[:frame_index + 1]]
-            draw_dashed_polyline(draw, trace, ROOT_TRACE)
+        pose = local_pose
 
         for person in range(pose.shape[0]):
             colors = PERSON_COLORS[min(person, len(PERSON_COLORS) - 1)]
@@ -298,12 +262,11 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font):
                 draw.ellipse((x - radius, y - radius, x + radius, y + radius),
                              fill=color, outline=BACKGROUND, width=1)
 
-        if panel.view.startswith("local"):
-            cx, cy = panel.map_point(np.zeros(3, dtype=np.float32))
-            draw.line((cx - 7, cy, cx + 7, cy), fill=ROOT_TRACE, width=2)
-            draw.line((cx, cy - 7, cx, cy + 7), fill=ROOT_TRACE, width=2)
+        cx, cy = panel.map_point(np.zeros(3, dtype=np.float32))
+        draw.line((cx - 7, cy, cx + 7, cy), fill=ROOT_TRACE, width=2)
+        draw.line((cx, cy - 7, cx, cy + 7), fill=ROOT_TRACE, width=2)
 
-    draw.text((12, height - 22), "Purple: primary SpineMid / trajectory; no objects or scene are shown.",
+    draw.text((12, height - 22), "Purple: primary SpineMid fixed at the origin; global translation is removed.",
               font=font, fill=MUTED_TEXT)
     return image
 
@@ -312,16 +275,15 @@ def main():
     args = parse_args()
     if args.num_frames < 2:
         raise ValueError("--num_frames must be at least 2")
-    if args.width % 3 or args.height % 2:
-        raise ValueError("--width must be divisible by 3 and --height by 2")
+    if args.width % 3:
+        raise ValueError("--width must be divisible by 3")
 
     source = make_demo_sample() if args.demo else load_npz_sample(args.data_path, args.split, args.sample_index)
     sampled, frame_indices = uniformly_sample(source, args.num_frames)
     roots = primary_root(sampled)
-    world_center, world_span = robust_xyz_bounds(sampled)
     local = sampled - roots[:, None, None, :]
-    local_center, local_span = robust_xyz_bounds(local)
-    panels = make_panels(args.width, args.height, world_center, world_span, local_center, local_span)
+    local_span = root_centered_span(local)
+    panels = make_panels(args.width, args.height, local_span)
     font = load_font(14)
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
@@ -352,10 +314,12 @@ def main():
         "num_rendered_frames": int(args.num_frames),
         "source_frame_indices": frame_indices.tolist(),
         "layout": [
-            "front_xy_world", "side_zy_world", "top_xz_world",
-            "front_xy_root_centered", "side_zy_root_centered", "fixed_oblique_3d",
+            "front_xy_root_centered",
+            "side_zy_root_centered",
+            "top_xz_root_centered",
         ],
         "root_centering": "subtract primary actor NTU joint 2 (SpineMid) independently at every frame",
+        "global_translation_available": False,
         "render_size": [args.width, args.height],
     }
     (args.output_dir / "render_metadata.json").write_text(
