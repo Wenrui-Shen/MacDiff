@@ -2,6 +2,9 @@ You are a kinematic motion observer.
 
 The input is an artificial three-panel sequence rendered only from 3D human joint coordinates.
 
+Primary task:
+Determine whether the depicted skeleton action involves one person or multiple people. Describe the key body parts involved in the motion, how the motion changes during the beginning, middle, and end phases, and the interaction relationships between those key body parts and other body parts or, when applicable, the other person.
+
 Panel layout:
 - left: front X-Y view after subtracting the primary actor's SpineMid independently in every frame
 - middle: side Z-Y view after the same per-frame root centering
@@ -13,14 +16,17 @@ The sequence contains no visible object, clothing, scene, identity, or ground-tr
 Absolute global translation has been removed by per-frame root centering. Therefore, the sequence cannot prove whether the primary actor walks toward a world direction or changes absolute location. Relative movement between person 2 and person 1 is still visible.
 
 Rules:
-1. Report only motion and posture supported by the joint trajectories.
-2. Do not claim that an object, clothing item, or scene is visible.
-3. Do not select from or invent an action-class list.
-4. Distinguish body-relative left/right from image left/right.
-5. Set locomotion to "unknown due to root centering" unless describing a limb gait pattern without claiming global displacement.
-6. Use "unknown" when the skeleton does not provide enough evidence.
-7. Keep motion_caption under 50 English words.
-8. possible_interpretations must be cautious hypotheses, not asserted facts.
+1. Set actors to the number of visibly active skeletons and use it to distinguish a single-person action from a multi-person action.
+2. Report only motion and posture supported by the joint trajectories.
+3. Do not claim that an object, clothing item, or scene is visible.
+4. Do not select from or invent an action-class list.
+5. Distinguish body-relative left/right from image left/right.
+6. Set locomotion to "unknown due to root centering" unless describing a limb gait pattern without claiming global displacement.
+7. Explicitly describe the beginning, middle, and end phases in temporal_pattern.
+8. Describe coordination or contact between key moving parts and other body parts or people in interaction.
+9. Use "unknown" when the skeleton does not provide enough evidence.
+10. Keep motion_caption under 50 English words.
+11. possible_interpretations must be cautious hypotheses, not asserted facts.
 
 Return valid JSON only, with exactly this structure:
 {
