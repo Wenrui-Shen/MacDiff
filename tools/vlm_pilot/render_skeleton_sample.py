@@ -23,8 +23,6 @@ NTU_EDGES = (
 )
 NTU_EDGES = tuple((a - 1, b - 1) for a, b in NTU_EDGES)
 
-LEFT_JOINTS = {4, 5, 6, 7, 12, 13, 14, 15, 21, 22}
-RIGHT_JOINTS = {8, 9, 10, 11, 16, 17, 18, 19, 23, 24}
 ROOT_JOINT = 1  # NTU joint 2: SpineMid
 
 BACKGROUND = (18, 20, 24)
@@ -32,11 +30,13 @@ PANEL_BACKGROUND = (25, 28, 34)
 GRID = (62, 68, 78)
 TEXT = (232, 235, 240)
 MUTED_TEXT = (164, 170, 182)
-ROOT_TRACE = (185, 112, 255)
 PERSON_COLORS = (
-    {"left": (255, 151, 67), "right": (62, 207, 232), "torso": (238, 240, 244)},
-    {"left": (245, 106, 164), "right": (116, 221, 128), "torso": (190, 194, 204)},
+    (239, 76, 76),   # person 1: red
+    (66, 145, 255),  # person 2: blue
 )
+BONE_WIDTH = 4
+JOINT_RADIUS = 6
+ROOT_RADIUS = 8
 
 
 def parse_args():
@@ -110,7 +110,11 @@ def make_demo_sample(num_frames=72):
         set_joint(14, -0.18, -0.98, -stride); set_joint(15, -0.18, -1.03, 0.15 - stride)
         set_joint(16, 0.17, -0.18); set_joint(17, 0.18, -0.58, -stride)
         set_joint(18, 0.18, -0.98, stride); set_joint(19, 0.18, -1.03, 0.15 + stride)
-        frames.append(np.stack([pose, np.zeros_like(pose)], axis=0))
+        local_pose = pose - root[None]
+        pose2 = local_pose.copy()
+        pose2[:, 0] *= -1
+        pose2 += root[None] + np.array([1.0 - 0.35 * u, 0.0, 0.55])[None]
+        frames.append(np.stack([pose, pose2], axis=0))
     return np.asarray(frames, dtype=np.float32)
 
 
@@ -154,14 +158,6 @@ def projected(point, view):
     if view.endswith("xz"):
         return np.array([x, z])
     raise ValueError("Unsupported projection: %s" % view)
-
-
-def joint_group(index):
-    if index in LEFT_JOINTS:
-        return "left"
-    if index in RIGHT_JOINTS:
-        return "right"
-    return "torso"
 
 
 def load_font(size):
@@ -242,31 +238,25 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font):
         pose = local_pose
 
         for person in range(pose.shape[0]):
-            colors = PERSON_COLORS[min(person, len(PERSON_COLORS) - 1)]
+            color = PERSON_COLORS[min(person, len(PERSON_COLORS) - 1)]
             for a, b in NTU_EDGES:
                 if not active[person, a] or not active[person, b]:
                     continue
-                group_a, group_b = joint_group(a), joint_group(b)
-                group = group_a if group_a == group_b else (
-                    "left" if "left" in (group_a, group_b) else
-                    "right" if "right" in (group_a, group_b) else "torso"
-                )
                 draw.line((*panel.map_point(pose[person, a]), *panel.map_point(pose[person, b])),
-                          fill=colors[group], width=5)
+                          fill=color, width=BONE_WIDTH)
             for joint in range(25):
                 if not active[person, joint]:
                     continue
                 x, y = panel.map_point(pose[person, joint])
-                radius = 5 if joint == ROOT_JOINT else 3
-                color = ROOT_TRACE if joint == ROOT_JOINT else colors[joint_group(joint)]
+                radius = ROOT_RADIUS if joint == ROOT_JOINT else JOINT_RADIUS
                 draw.ellipse((x - radius, y - radius, x + radius, y + radius),
-                             fill=color, outline=BACKGROUND, width=1)
+                             fill=color, outline=TEXT, width=2)
 
         cx, cy = panel.map_point(np.zeros(3, dtype=np.float32))
-        draw.line((cx - 7, cy, cx + 7, cy), fill=ROOT_TRACE, width=2)
-        draw.line((cx, cy - 7, cx, cy + 7), fill=ROOT_TRACE, width=2)
+        draw.line((cx - 7, cy, cx + 7, cy), fill=MUTED_TEXT, width=2)
+        draw.line((cx, cy - 7, cx, cy + 7), fill=MUTED_TEXT, width=2)
 
-    draw.text((12, height - 22), "Purple: primary SpineMid fixed at the origin; global translation is removed.",
+    draw.text((12, height - 22), "Red: person 1; blue: person 2; white cross: person 1 SpineMid origin.",
               font=font, fill=MUTED_TEXT)
     return image
 
@@ -320,6 +310,10 @@ def main():
         ],
         "root_centering": "subtract primary actor NTU joint 2 (SpineMid) independently at every frame",
         "global_translation_available": False,
+        "person_colors": {"person_1": "red", "person_2": "blue"},
+        "bone_width_px": BONE_WIDTH,
+        "joint_radius_px": JOINT_RADIUS,
+        "root_radius_px": ROOT_RADIUS,
         "render_size": [args.width, args.height],
     }
     (args.output_dir / "render_metadata.json").write_text(

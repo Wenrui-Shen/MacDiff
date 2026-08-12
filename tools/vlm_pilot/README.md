@@ -20,7 +20,9 @@ Inspect `preview.gif` and `preview_middle.png`. The three panels are per-frame
 root-centered X-Y, Z-Y, and X-Z projections. Together they retain all three XYZ
 axes while deliberately removing the primary actor's global translation. For a
 two-person sample, both actors are translated by person 1's root, so their
-relative position remains visible.
+relative position remains visible. Person 1 is uniformly red and person 2 is
+uniformly blue. Joint circles are deliberately larger than the thinner bone
+lines so that the VLM can distinguish joints from connections.
 
 The rendering code can be checked without a dataset:
 

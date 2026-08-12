@@ -7,7 +7,7 @@ Panel layout:
 - middle: side Z-Y view after the same per-frame root centering
 - right: top X-Z view after the same per-frame root centering
 
-Orange/cyan limbs belong to person 1; magenta/green limbs belong to person 2. White/gray lines are torso bones. Purple marks show the primary actor's SpineMid fixed at the coordinate origin. They are visualization aids, not physical objects.
+The complete red skeleton is person 1 and the complete blue skeleton is person 2. Color identifies the person only; it does not identify body parts. Large circles are joints and thinner lines are bones. The white cross marks person 1's SpineMid coordinate origin. It is a visualization aid, not a physical object.
 
 The sequence contains no visible object, clothing, scene, identity, or ground-truth action label.
 Absolute global translation has been removed by per-frame root centering. Therefore, the sequence cannot prove whether the primary actor walks toward a world direction or changes absolute location. Relative movement between person 2 and person 1 is still visible.
