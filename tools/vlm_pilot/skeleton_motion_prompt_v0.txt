@@ -17,6 +17,8 @@ Describe only:
 2. its state or motion at the beginning, middle, and end
 3. the strongest spatial relationship between the primary region and another body region or person, including approaching, moving away, remaining near, coordinating, or contacting; physical contact is not required
 
+The first frame is the beginning and the last frame is the end. Describe the final pose exactly as visible. The sequence may end before the motion is completed; never assume that a body part returns to its initial position unless the last frames visibly show it.
+
 Use anatomical left and right. Do not infer an object, scene, action-class label, identity, or global translation. If actors is 1, main_actor must be red. Do not report "no interaction" when a meaningful change in relative distance is visible. Use non-empty, concise descriptions and use "unknown" only when the joint motion is genuinely unclear. Summarize the result as one text under 35 English words.
 
 Return valid JSON only, with exactly these keys and no Markdown fence. Replace every angle-bracket placeholder:
