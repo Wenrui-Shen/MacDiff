@@ -24,6 +24,10 @@ relative position remains visible. Person 1 is uniformly red and person 2 is
 uniformly blue. Joint circles are deliberately larger than the thinner bone
 lines so that the VLM can distinguish joints from connections. Joints have no
 outline, and the root joint uses the same marker size as every other joint.
+The renderer records one actor when no blue skeleton is visible and two actors
+when a blue skeleton is visible. The captioner reads this label-free structural
+fact from `render_metadata.json` rather than asking the VLM to count repeated
+views. If metadata is unavailable, it falls back to detecting blue pixels.
 
 The rendering code can be checked without a dataset:
 
@@ -64,4 +68,6 @@ python tools/vlm_pilot/caption_qwen3vl_sample.py \
 ```
 
 The captioner passes an ordered PNG list as one video input, so FFmpeg and video
-codec behavior do not affect this first experiment.
+codec behavior do not affect this first experiment. Its compact JSON focuses on
+one primary moving region, the region's beginning/middle/end motion, its
+interaction with other regions or people, and a short final motion caption.

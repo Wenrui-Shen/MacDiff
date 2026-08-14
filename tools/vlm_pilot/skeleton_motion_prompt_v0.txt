@@ -1,52 +1,33 @@
-You are a kinematic motion observer.
+You observe a three-panel skeleton video rendered from 3D human joints.
 
-The input is an artificial three-panel sequence rendered only from 3D human joint coordinates.
+The left, middle, and right panels are front, side, and top views of the same person or people. Never count the panels as different people.
 
-Primary task:
-Determine whether the depicted skeleton action involves one person or multiple people. Describe the key body parts involved in the motion, how the motion changes during the beginning, middle, and end phases, and the interaction relationships between those key body parts and other body parts or, when applicable, the other person.
+Actor rule:
+- red skeleton only means one person
+- red and blue skeletons mean two people
+- this sample has {ACTOR_DESCRIPTION}; set actors to exactly {ACTOR_COUNT}
 
-Panel layout:
-- left: front X-Y view after subtracting the primary actor's SpineMid independently in every frame
-- middle: side Z-Y view after the same per-frame root centering
-- right: top X-Z view after the same per-frame root centering
+Choose exactly one primary moving body region from:
+head, torso, left_arm, right_arm, left_leg, right_leg.
+left_arm and right_arm include the shoulder, elbow, wrist, and hand.
+Choose the region with the clearest and most distinctive change across the sequence.
 
-The complete red skeleton is person 1 and the complete blue skeleton is person 2. Color identifies the person only; it does not identify body parts. Circles are joints and thinner lines are bones. No joint has a special visual meaning.
+Describe only:
+1. the concrete motion of the primary region
+2. its state or motion at the beginning, middle, and end
+3. how it coordinates, approaches, contacts, or otherwise relates to other body regions or the other person
 
-The sequence contains no visible object, clothing, scene, identity, or ground-truth action label.
-Absolute global translation has been removed by per-frame root centering. Therefore, the sequence cannot prove whether the primary actor walks toward a world direction or changes absolute location. Relative movement between person 2 and person 1 is still visible.
+Use anatomical left and right. Do not infer an object, scene, action-class label, identity, or global translation. If actors is 1, main_actor must be red. Use non-empty, concise descriptions and use "unknown" only when the joint motion is genuinely unclear. Keep motion_caption under 35 English words.
 
-Rules:
-1. Set actors to the number of visibly active skeletons and use it to distinguish a single-person action from a multi-person action.
-2. Report only motion and posture supported by the joint trajectories.
-3. Do not claim that an object, clothing item, or scene is visible.
-4. Do not select from or invent an action-class list.
-5. Distinguish body-relative left/right from image left/right.
-6. Set locomotion to "unknown due to root centering" unless describing a limb gait pattern without claiming global displacement.
-7. Explicitly describe the beginning, middle, and end phases in temporal_pattern.
-8. Describe coordination or contact between key moving parts and other body parts or people in interaction.
-9. Use "unknown" when the skeleton does not provide enough evidence.
-10. Keep motion_caption under 50 English words.
-11. possible_interpretations must be cautious hypotheses, not asserted facts.
-12. Every string field must be non-empty. Never return an empty string. Use "unknown" when evidence is insufficient.
-13. The structure below is a schema, not an answer. Replace every angle-bracket placeholder with an observed value and never copy a placeholder into the output.
-14. Before producing the JSON, internally compare the first, middle, and last frames. Do not print this internal analysis.
-
-Return valid JSON only, with exactly this structure and no Markdown fence:
+Return valid JSON only, with exactly these keys and no Markdown fence. Replace every angle-bracket placeholder:
 {
-  "actors": <integer 1 or 2>,
-  "posture": "<non-empty observed posture or unknown>",
-  "locomotion": "<non-empty description or unknown due to root centering>",
-  "body_motion": {
-    "head_torso": "<non-empty motion description or unknown>",
-    "left_arm": "<non-empty motion description or unknown>",
-    "right_arm": "<non-empty motion description or unknown>",
-    "left_leg": "<non-empty motion description or unknown>",
-    "right_leg": "<non-empty motion description or unknown>"
-  },
-  "interaction": "<non-empty description of coordination/contact or unknown>",
-  "temporal_pattern": "<non-empty beginning, middle, and end description>",
-  "motion_caption": "<non-empty caption under 50 English words>",
-  "possible_interpretations": ["<at least one cautious interpretation>"],
-  "uncertainty": ["<at least one limitation, or none apparent>"],
-  "confidence": <number from 0.0 to 1.0>
+  "actors": {ACTOR_COUNT},
+  "main_actor": "<red, blue, or both>",
+  "main_part": "<one of: head, torso, left_arm, right_arm, left_leg, right_leg>",
+  "motion": "<specific motion of the main part>",
+  "beginning": "<initial state or motion>",
+  "middle": "<middle-stage change>",
+  "end": "<final state or motion>",
+  "interaction": "<relationship with other body regions or the other person>",
+  "motion_caption": "<concise summary under 35 English words>"
 }

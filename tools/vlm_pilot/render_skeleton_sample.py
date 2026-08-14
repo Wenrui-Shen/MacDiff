@@ -224,7 +224,7 @@ def draw_grid(draw, panel):
         draw.line((left, y, right, y), fill=GRID, width=1)
 
 
-def render_frame(sequence, roots, frame_index, panels, width, height, font):
+def render_frame(sequence, roots, frame_index, panels, width, height, font, actor_count):
     image = Image.new("RGB", (width, height), BACKGROUND)
     draw = ImageDraw.Draw(image)
     local_pose = sequence[frame_index] - roots[frame_index][None, None, :]
@@ -253,8 +253,11 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font):
                     fill=color,
                 )
 
-    draw.text((12, height - 22), "Red: person 1; blue: person 2; global translation is removed.",
-              font=font, fill=MUTED_TEXT)
+    if actor_count == 1:
+        footer = "ONE PERSON: the red skeleton is repeated in all three views."
+    else:
+        footer = "TWO PEOPLE: red is person 1 and blue is person 2; views repeat them."
+    draw.text((12, height - 22), footer, font=font, fill=MUTED_TEXT)
     return image
 
 
@@ -267,6 +270,10 @@ def main():
 
     source = make_demo_sample() if args.demo else load_npz_sample(args.data_path, args.split, args.sample_index)
     sampled, frame_indices = uniformly_sample(source, args.num_frames)
+    sampled_active = active_joint_mask(sampled)
+    person_active_frames = sampled_active.any(axis=2).sum(axis=0)
+    blue_skeleton_visible = bool(len(person_active_frames) > 1 and person_active_frames[1] > 0)
+    visible_actor_count = 2 if blue_skeleton_visible else 1
     roots = primary_root(sampled)
     local = sampled - roots[:, None, None, :]
     local_span = root_centered_span(local)
@@ -282,7 +289,10 @@ def main():
         stale_frame.unlink()
     frames = []
     for index in range(args.num_frames):
-        image = render_frame(sampled, roots, index, panels, args.width, args.height, font)
+        image = render_frame(
+            sampled, roots, index, panels, args.width, args.height, font,
+            visible_actor_count,
+        )
         image.save(frames_dir / ("frame_%03d.png" % index), optimize=True)
         frames.append(image)
     frames[0].save(
@@ -312,6 +322,10 @@ def main():
         "root_centering": "subtract primary actor NTU joint 2 (SpineMid) independently at every frame",
         "global_translation_available": False,
         "person_colors": {"person_1": "red", "person_2": "blue"},
+        "actor_count_rule": "one if no blue skeleton is rendered; two if a blue skeleton is rendered",
+        "visible_actor_count": visible_actor_count,
+        "blue_skeleton_visible": blue_skeleton_visible,
+        "active_rendered_frames_per_person": person_active_frames.astype(int).tolist(),
         "bone_width_px": BONE_WIDTH,
         "joint_radius_px": JOINT_RADIUS,
         "render_size": [args.width, args.height],
