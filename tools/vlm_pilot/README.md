@@ -70,4 +70,5 @@ python tools/vlm_pilot/caption_qwen3vl_sample.py \
 The captioner passes an ordered PNG list as one video input, so FFmpeg and video
 codec behavior do not affect this first experiment. Its compact JSON focuses on
 one primary moving region, the region's beginning/middle/end motion, its
-interaction with other regions or people, and a short final motion caption.
+spatial relationship with other regions or people, and a short final `text`
+paragraph for downstream conditioning.

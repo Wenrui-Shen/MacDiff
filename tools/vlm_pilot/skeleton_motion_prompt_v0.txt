@@ -15,9 +15,9 @@ Choose the region with the clearest and most distinctive change across the seque
 Describe only:
 1. the concrete motion of the primary region
 2. its state or motion at the beginning, middle, and end
-3. how it coordinates, approaches, contacts, or otherwise relates to other body regions or the other person
+3. the strongest spatial relationship between the primary region and another body region or person, including approaching, moving away, remaining near, coordinating, or contacting; physical contact is not required
 
-Use anatomical left and right. Do not infer an object, scene, action-class label, identity, or global translation. If actors is 1, main_actor must be red. Use non-empty, concise descriptions and use "unknown" only when the joint motion is genuinely unclear. Keep motion_caption under 35 English words.
+Use anatomical left and right. Do not infer an object, scene, action-class label, identity, or global translation. If actors is 1, main_actor must be red. Do not report "no interaction" when a meaningful change in relative distance is visible. Use non-empty, concise descriptions and use "unknown" only when the joint motion is genuinely unclear. Summarize the result as one text under 35 English words.
 
 Return valid JSON only, with exactly these keys and no Markdown fence. Replace every angle-bracket placeholder:
 {
@@ -28,6 +28,6 @@ Return valid JSON only, with exactly these keys and no Markdown fence. Replace e
   "beginning": "<initial state or motion>",
   "middle": "<middle-stage change>",
   "end": "<final state or motion>",
-  "interaction": "<relationship with other body regions or the other person>",
-  "motion_caption": "<concise summary under 35 English words>"
+  "interaction": "<how the main part approaches, moves away from, remains near, coordinates with, or contacts another body region or person>",
+  "text": "<one concise summary paragraph under 35 English words>"
 }

@@ -72,7 +72,7 @@ def validate_caption(caption, expected_actors):
 
     for key in (
         "main_actor", "main_part", "motion", "beginning", "middle", "end",
-        "interaction", "motion_caption",
+        "interaction", "text",
     ):
         value = caption.get(key)
         if not isinstance(value, str) or not value.strip():
@@ -85,9 +85,9 @@ def validate_caption(caption, expected_actors):
     if caption.get("main_actor") not in allowed_actors:
         errors.append("main_actor must be one of: %s" % ", ".join(sorted(allowed_actors)))
 
-    motion_caption = caption.get("motion_caption")
-    if isinstance(motion_caption, str) and len(motion_caption.split()) > 35:
-        errors.append("motion_caption must contain at most 35 English words")
+    summary_text = caption.get("text")
+    if isinstance(summary_text, str) and len(summary_text.split()) > 35:
+        errors.append("text must contain at most 35 English words")
     return errors
 
 
@@ -187,6 +187,7 @@ def main():
         caption = extract_json(raw_response)
         semantic_errors = validate_caption(caption, actor_count)
         result["caption"] = caption
+        result["text"] = caption.get("text")
         if semantic_errors:
             result["status"] = "invalid_content"
             result["errors"] = semantic_errors
