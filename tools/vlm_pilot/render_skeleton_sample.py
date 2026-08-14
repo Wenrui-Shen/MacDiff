@@ -276,6 +276,10 @@ def main():
     args.output_dir.mkdir(parents=True, exist_ok=True)
     frames_dir = args.output_dir / "frames"
     frames_dir.mkdir(parents=True, exist_ok=True)
+    # Reusing an output directory must not leave frames from an earlier,
+    # longer render (for example, frame_016.png through frame_063.png).
+    for stale_frame in frames_dir.glob("frame_*.png"):
+        stale_frame.unlink()
     frames = []
     for index in range(args.num_frames):
         image = render_frame(sampled, roots, index, panels, args.width, args.height, font)

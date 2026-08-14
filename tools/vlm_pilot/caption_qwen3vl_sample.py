@@ -38,6 +38,43 @@ def extract_json(text):
     return json.loads(cleaned[start:end + 1])
 
 
+def validate_caption(caption):
+    """Return semantic errors that JSON parsing alone cannot detect."""
+    errors = []
+    if not isinstance(caption, dict):
+        return ["caption must be a JSON object"]
+
+    if caption.get("actors") not in (1, 2):
+        errors.append("actors must be 1 or 2")
+
+    for key in ("posture", "locomotion", "interaction", "temporal_pattern", "motion_caption"):
+        value = caption.get(key)
+        if not isinstance(value, str) or not value.strip():
+            errors.append("%s must be a non-empty string" % key)
+
+    body_motion = caption.get("body_motion")
+    if not isinstance(body_motion, dict):
+        errors.append("body_motion must be an object")
+    else:
+        for key in ("head_torso", "left_arm", "right_arm", "left_leg", "right_leg"):
+            value = body_motion.get(key)
+            if not isinstance(value, str) or not value.strip():
+                errors.append("body_motion.%s must be a non-empty string" % key)
+
+    for key in ("possible_interpretations", "uncertainty"):
+        value = caption.get(key)
+        if not isinstance(value, list) or not value:
+            errors.append("%s must be a non-empty list" % key)
+        elif any(not isinstance(item, str) or not item.strip() for item in value):
+            errors.append("%s must contain only non-empty strings" % key)
+
+    confidence = caption.get("confidence")
+    if (not isinstance(confidence, (int, float)) or isinstance(confidence, bool)
+            or not 0.0 <= confidence <= 1.0):
+        errors.append("confidence must be a number from 0.0 to 1.0")
+    return errors
+
+
 def main():
     args = parse_args()
     try:
@@ -121,8 +158,14 @@ def main():
         "raw_response": raw_response,
     }
     try:
-        result["caption"] = extract_json(raw_response)
-        result["status"] = "accepted"
+        caption = extract_json(raw_response)
+        semantic_errors = validate_caption(caption)
+        result["caption"] = caption
+        if semantic_errors:
+            result["status"] = "invalid_content"
+            result["errors"] = semantic_errors
+        else:
+            result["status"] = "accepted"
     except (ValueError, json.JSONDecodeError) as exc:
         result["caption"] = None
         result["status"] = "invalid_json"
