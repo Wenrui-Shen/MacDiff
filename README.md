@@ -184,17 +184,20 @@ its online Joint anchor; the two normalized JMB embeddings are then averaged
 and normalized again to form the Q0 prototype.
 
 The diffusion decoder, Stage1 OSE memory/teacher, optimizer, scheduler and RNG
-state are not transferred. The MacDiff adapter keeps `one_person=True`, but
-Stage2 sets `mask_ratio=0.0`: ReSA, OSE, mixed samples and all six K=2 J/M/B
-embeddings use all 750 tokens, matching downstream LP. Stage2 runs the encoder
-directly on each complete batch without transformer-block activation
-checkpointing or encoder chunking, and distributed training uses standard DDP.
+state are not transferred. The MacDiff adapter keeps `one_person=True` and
+`mask_ratio=0.9`, so every Stage2 branch uses 75 of 750 tokens. Each unlabeled
+view shares its visible indices across online/EMA paths; Joint/Motion/Bone in
+one K=2 group also share aligned indices, while the two augmented groups use
+independent masks. Visible temporal tokens are averaged within their original
+joint positions and flattened to `25 x 256`, matching downstream `linprobe2`.
+Stage2 uses no activation checkpointing or encoder chunking, and distributed
+training uses standard DDP.
 Run the formal migration with a completed Stage1 checkpoint:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 \
 NPROC_PER_NODE=2 \
-BATCH_SIZE=8 \
+BATCH_SIZE=64 \
 OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff_stage2_seed0 \
 bash script_pretrain_stage2.sh \
   ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
@@ -203,8 +206,8 @@ bash script_pretrain_stage2.sh \
 The launcher runs `tests.test_stage2` before training. A fresh run removes and
 recreates its named run directory when that directory already exists; automatic
 replacement is restricted to a concrete child of `./output_dir/`. Resume runs
-never remove it. `batch_size` is per GPU; the full-input default uses `8 x 2`
-for a global relation batch of 16. ReSA/Sinkhorn relations, mixed-sample
+never remove it. `batch_size` is per GPU; `64 x 2` gives a global relation
+batch of 128. ReSA/Sinkhorn relations, mixed-sample
 permutations and instance keys are gathered across ranks. The formal outputs
 are:
 

@@ -87,7 +87,7 @@ def get_args_parser():
     parser.add_argument('--model_args', default=dict())
 
     parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--batch_size', default=8, type=int)
+    parser.add_argument('--batch_size', default=64, type=int)
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--pin_mem', type=str2bool, default=True)
     parser.add_argument('--max_train_steps', default=0, type=int)
@@ -101,8 +101,8 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://')
     parser.add_argument('--dist_on_itp', action='store_true')
 
-    parser.add_argument('--lr', default=0.03125, type=float)
-    parser.add_argument('--head_lr', default=0.03125, type=float)
+    parser.add_argument('--lr', default=0.25, type=float)
+    parser.add_argument('--head_lr', default=0.25, type=float)
     parser.add_argument('--final_lr', default=0.0, type=float)
     parser.add_argument('--head_final_lr', default=0.0, type=float)
     parser.add_argument('--weight_decay', default=1e-5, type=float)
@@ -122,7 +122,7 @@ def get_args_parser():
     parser.add_argument('--ose_tau_s', default=0.1, type=float)
     parser.add_argument('--ose_tau_t', default=0.04, type=float)
     parser.add_argument(
-        '--mask_protocol', default='full_input_v1', type=str)
+        '--mask_protocol', default='shared_qk_jmb_v1', type=str)
 
     return parser
 
@@ -178,12 +178,12 @@ def validate_args(args):
         raise ValueError('num_classes must be positive')
     if args.ose_exemplar_views < 1:
         raise ValueError('ose_exemplar_views must be at least 1')
-    if args.mask_protocol != 'full_input_v1':
+    if args.mask_protocol != 'shared_qk_jmb_v1':
         raise ValueError(
-            'Stage2 requires mask_protocol=full_input_v1')
-    if float(args.model_args.get('mask_ratio', -1.0)) != 0.0:
+            'Stage2 requires mask_protocol=shared_qk_jmb_v1')
+    if float(args.model_args.get('mask_ratio', -1.0)) != 0.9:
         raise ValueError(
-            'full_input_v1 requires model_args.mask_ratio=0.0')
+            'shared_qk_jmb_v1 requires model_args.mask_ratio=0.9')
     if not args.exemplar_index_path:
         raise ValueError('exemplar_index_path must be set')
     if not args.output_dir:

@@ -121,6 +121,19 @@ class MacDiffStage2Test(unittest.TestCase):
             not parameter.requires_grad
             for parameter in model.ose_projector_k.parameters()))
 
+    def test_joint_aware_pooling_preserves_joint_positions(self):
+        model = self._model()
+        tokens = torch.tensor([[[1.0], [3.0], [2.0], [4.0]]])
+        # Flattening is temporal-major, so ids modulo five recover joints.
+        visible_indices = torch.tensor([[0, 5, 1, 6]])
+        pooled = model.encoder_q._joint_pool(
+            tokens, visible_indices, joint_patches=5)
+        expected = torch.tensor([[[2.0], [3.0], [0.0], [0.0], [0.0]]])
+        self.assertTrue(torch.equal(pooled, expected))
+        sample = torch.randn(2, 3, 8, 5, 1)
+        features = model.encoder_q.forward_features(sample)
+        self.assertEqual(tuple(features.shape), (2, 5 * 8))
+
     def test_exported_online_encoder_matches_downstream_keys(self):
         model = self._model()
         downstream = DownstreamTransformer(

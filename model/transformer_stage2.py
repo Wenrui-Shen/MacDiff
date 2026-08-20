@@ -81,10 +81,11 @@ def _build_predictor(input_dim, hidden_dim):
 
 
 class MacDiffStage2Encoder(nn.Module):
-    """MacDiff skeleton encoder with a global feature adapter.
+    """MacDiff skeleton encoder with a joint-aware feature adapter.
 
-    The formal Stage2 protocol feeds all skeleton tokens, matching downstream
-    LP. The output is the mean of encoded tokens and people.
+    Stage2 keeps 10% of skeleton tokens, pools visible temporal tokens within
+    each joint, and flattens the joint grid as downstream ``linprobe2`` does.
+    Explicit mask indices align related online/EMA and J/M/B paths.
     """
 
     def __init__(
@@ -103,7 +104,7 @@ class MacDiffStage2Encoder(nn.Module):
         drop_rate=0.0,
         attn_drop_rate=0.0,
         drop_path_rate=0.0,
-        mask_ratio=0.0,
+        mask_ratio=0.9,
         one_person=True,
         input_mean=(-0.0058, -0.1333, -0.0246),
         input_var=(0.0206, 0.0805, 0.0218),
@@ -123,9 +124,11 @@ class MacDiffStage2Encoder(nn.Module):
         self.input_mean = tuple(float(value) for value in input_mean)
         self.input_std = tuple(math.sqrt(float(value)) for value in input_var)
         self.self_shift = bool(self_shift)
+        self.num_joint_patches = int(num_joints) // int(patch_size)
+        self.output_dim = self.num_joint_patches * self.dim_feat
         self.num_tokens = (
             (int(num_frames) // int(t_patch_size))
-            * (int(num_joints) // int(patch_size)))
+            * self.num_joint_patches)
 
         self.joints_embed = SkeleEmbed(
             dim_in, dim_feat, num_frames, num_joints, patch_size,
@@ -173,7 +176,10 @@ class MacDiffStage2Encoder(nn.Module):
 
     def _random_mask(self, tokens, mask_indices=None):
         if self.mask_ratio <= 0.0:
-            return tokens
+            ids = torch.arange(
+                tokens.shape[1], device=tokens.device, dtype=torch.long
+            ).unsqueeze(0).expand(tokens.shape[0], -1)
+            return tokens, ids
         batch_size, length, dim = tokens.shape
         keep = round(length * (1.0 - self.mask_ratio))
         if keep <= 0:
@@ -187,8 +193,29 @@ class MacDiffStage2Encoder(nn.Module):
                 'Stage2 mask indices must have shape [{},{}]'.format(
                     batch_size, keep))
         ids = mask_indices.to(device=tokens.device, dtype=torch.long)
-        return torch.gather(
+        visible = torch.gather(
             tokens, 1, ids.unsqueeze(-1).expand(-1, -1, dim))
+        return visible, ids
+
+    @staticmethod
+    def _joint_pool(tokens, visible_indices, joint_patches):
+        """Average visible temporal tokens per original joint position."""
+        if tokens.ndim != 3 or visible_indices.ndim != 2:
+            raise ValueError('Joint pooling expects [N,L,D] tokens and [N,L] ids')
+        if tokens.shape[:2] != visible_indices.shape:
+            raise ValueError('Joint pooling token and index shapes must align')
+        batch_size, _, dim = tokens.shape
+        joint_ids = visible_indices.remainder(joint_patches)
+        expanded_ids = joint_ids.unsqueeze(-1).expand(-1, -1, dim)
+        joint_sums = tokens.new_zeros(
+            batch_size, joint_patches, dim
+        ).scatter_add(1, expanded_ids, tokens)
+        joint_counts = tokens.new_zeros(
+            batch_size, joint_patches, 1
+        ).scatter_add(
+            1, joint_ids.unsqueeze(-1),
+            tokens.new_ones(batch_size, tokens.shape[1], 1))
+        return joint_sums / joint_counts.clamp_min(1.0)
 
     def forward_features(self, skeleton, mask_indices=None):
         if skeleton.ndim != 5:
@@ -215,12 +242,16 @@ class MacDiffStage2Encoder(nn.Module):
             + self.pos_embed[:, :, :joint_patches]
             + self.temp_embed[:, :temporal_patches]
         ).reshape(batch_size * people, temporal_patches * joint_patches, dim)
-        tokens = self._random_mask(tokens, mask_indices=mask_indices)
+        tokens, visible_indices = self._random_mask(
+            tokens, mask_indices=mask_indices)
 
         for block in self.blocks:
             tokens = block(tokens)
-        features = self.norm(tokens).mean(dim=1)
-        return features.view(batch_size, people, dim).mean(dim=1)
+        joint_features = self._joint_pool(
+            self.norm(tokens), visible_indices, joint_patches)
+        features = joint_features.reshape(
+            batch_size, people, joint_patches * dim)
+        return features.mean(dim=1)
 
     def forward(self, skeleton):
         return self.forward_features(skeleton)
@@ -249,7 +280,7 @@ class MacDiffStage2(nn.Module):
 
         self.encoder_q = MacDiffStage2Encoder(**encoder_args)
         self.encoder_k = copy.deepcopy(self.encoder_q)
-        input_dim = self.encoder_q.dim_feat
+        input_dim = self.encoder_q.output_dim
         self.projector_q = _build_projector(
             input_dim, projector_hidden_dim, feature_dim, projector_layers)
         self.projector_k = copy.deepcopy(self.projector_q)
@@ -456,10 +487,9 @@ class MacDiffStage2(nn.Module):
         if mixed_view is None or mix_index is None or mix_beta is None:
             raise ValueError('Stage2 mixed losses require mixed inputs')
 
-        # The formal full-input protocol returns ``None`` masks here. Keeping
-        # the explicit mask plumbing makes any future masked ablation share a
-        # view's visible tokens across online and EMA instead of flattening the
-        # ReSA target with unrelated subsets.
+        # Each view reuses one visible-token set across online and EMA. Drawing
+        # unrelated 10%-visible subsets would leave only 7.5 common tokens in
+        # expectation and flatten the ReSA relation target.
         view_masks = [
             self.encoder_q.sample_mask_indices(view_a),
             self.encoder_q.sample_mask_indices(view_b),
@@ -484,9 +514,9 @@ class MacDiffStage2(nn.Module):
             online_ose_z = online_z
 
         with _fixed_rng(exemplar_mask_seed, view_a.device):
-            # Full input returns ``None`` for every group. In a masked
-            # ablation, Joint/Motion/Bone within one K=2 augmentation reuse a
-            # single aligned visible-token set.
+            # Joint/Motion/Bone within one K=2 augmentation reuse a single
+            # aligned visible-token set; the two augmentations remain
+            # independently masked.
             exemplar_group_masks = [
                 self.encoder_q.sample_mask_indices(group[0])
                 for group in exemplar_groups
