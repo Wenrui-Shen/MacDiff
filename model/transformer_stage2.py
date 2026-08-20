@@ -16,7 +16,6 @@ import torch
 import torch.distributed as dist
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.checkpoint import checkpoint
 
 from .transformer_downstream import Block, SkeleEmbed, trunc_normal_
 
@@ -84,9 +83,8 @@ def _build_predictor(input_dim, hidden_dim):
 class MacDiffStage2Encoder(nn.Module):
     """MacDiff skeleton encoder with a global feature adapter.
 
-    Random masking remains active in Stage2 because it is part of the learned
-    MacDiff encoder contract and keeps the eight Stage2 backbone forwards
-    tractable.  The output is the mean of visible tokens and people.
+    The formal Stage2 protocol feeds all skeleton tokens, matching downstream
+    LP. The output is the mean of encoded tokens and people.
     """
 
     def __init__(
@@ -105,12 +103,11 @@ class MacDiffStage2Encoder(nn.Module):
         drop_rate=0.0,
         attn_drop_rate=0.0,
         drop_path_rate=0.0,
-        mask_ratio=0.9,
+        mask_ratio=0.0,
         one_person=True,
         input_mean=(-0.0058, -0.1333, -0.0246),
         input_var=(0.0206, 0.0805, 0.0218),
         self_shift=False,
-        checkpoint_blocks=False,
     ):
         super().__init__()
         if not 0.0 <= float(mask_ratio) < 1.0:
@@ -126,7 +123,6 @@ class MacDiffStage2Encoder(nn.Module):
         self.input_mean = tuple(float(value) for value in input_mean)
         self.input_std = tuple(math.sqrt(float(value)) for value in input_var)
         self.self_shift = bool(self_shift)
-        self.checkpoint_blocks = bool(checkpoint_blocks)
         self.num_tokens = (
             (int(num_frames) // int(t_patch_size))
             * (int(num_joints) // int(patch_size)))
@@ -222,11 +218,7 @@ class MacDiffStage2Encoder(nn.Module):
         tokens = self._random_mask(tokens, mask_indices=mask_indices)
 
         for block in self.blocks:
-            if (self.checkpoint_blocks and self.training and
-                    torch.is_grad_enabled()):
-                tokens = checkpoint(block, tokens)
-            else:
-                tokens = block(tokens)
+            tokens = block(tokens)
         features = self.norm(tokens).mean(dim=1)
         return features.view(batch_size, people, dim).mean(dim=1)
 
@@ -243,15 +235,12 @@ class MacDiffStage2(nn.Module):
         projector_hidden_dim=2048,
         projector_layers=3,
         ose_separate_projector=True,
-        queue_size=8192,
         cluster_temperature=0.4,
         sinkhorn_temperature=0.05,
         sinkhorn_iterations=3,
         **encoder_args
     ):
         super().__init__()
-        if queue_size <= 0:
-            raise ValueError('Stage2 queue_size must be positive')
         self.feature_dim = int(feature_dim)
         self.ose_separate_projector = bool(ose_separate_projector)
         self.cluster_temperature = float(cluster_temperature)
@@ -268,17 +257,6 @@ class MacDiffStage2(nn.Module):
         if self.ose_separate_projector:
             self.ose_projector_q = copy.deepcopy(self.projector_q)
             self.ose_projector_k = copy.deepcopy(self.projector_q)
-
-        self.queue_size = int(queue_size)
-        self.register_buffer(
-            'queue', torch.zeros(feature_dim, self.queue_size))
-        self.register_buffer(
-            'queue_ptr', torch.zeros(1, dtype=torch.long))
-        self.register_buffer(
-            'queue_filled', torch.zeros(1, dtype=torch.long))
-        self.register_buffer(
-            'queue_sample_indices',
-            torch.full((self.queue_size,), -1, dtype=torch.long))
 
         # Keep the reference Stage2 head initialization: every Linear/BN uses
         # PyTorch's native constructor defaults.  The Dual OSE head is then an
@@ -449,30 +427,6 @@ class MacDiffStage2(nn.Module):
                 if count is not None:
                     child.num_batches_tracked.copy_(count)
 
-    @torch.no_grad()
-    def enqueue(self, features, sample_indices):
-        features = F.normalize(features.detach(), dim=1)
-        sample_indices = sample_indices.detach().long().view(-1)
-        if features.shape[0] != sample_indices.shape[0]:
-            raise ValueError('Queue features and sample indices must align')
-        if features.shape[0] >= self.queue_size:
-            features = features[-self.queue_size:]
-            sample_indices = sample_indices[-self.queue_size:]
-        count = features.shape[0]
-        ptr = int(self.queue_ptr.item())
-        first = min(count, self.queue_size - ptr)
-        self.queue[:, ptr:ptr + first].copy_(features[:first].t())
-        self.queue_sample_indices[ptr:ptr + first].copy_(
-            sample_indices[:first])
-        remaining = count - first
-        if remaining:
-            self.queue[:, :remaining].copy_(features[first:].t())
-            self.queue_sample_indices[:remaining].copy_(
-                sample_indices[first:])
-        self.queue_ptr[0] = (ptr + count) % self.queue_size
-        self.queue_filled[0] = min(
-            self.queue_size, int(self.queue_filled.item()) + count)
-
     def forward(
         self,
         view_a,
@@ -502,10 +456,10 @@ class MacDiffStage2(nn.Module):
         if mixed_view is None or mix_index is None or mix_beta is None:
             raise ValueError('Stage2 mixed losses require mixed inputs')
 
-        # A view uses one explicit visible-token set in both online and EMA
-        # branches. With MacDiff's 90% masking, independently drawing q/k
-        # masks would leave only 7.5 shared tokens in expectation and flatten
-        # the ReSA relation target toward the log(global_batch) entropy floor.
+        # The formal full-input protocol returns ``None`` masks here. Keeping
+        # the explicit mask plumbing makes any future masked ablation share a
+        # view's visible tokens across online and EMA instead of flattening the
+        # ReSA target with unrelated subsets.
         view_masks = [
             self.encoder_q.sample_mask_indices(view_a),
             self.encoder_q.sample_mask_indices(view_b),
@@ -530,9 +484,9 @@ class MacDiffStage2(nn.Module):
             online_ose_z = online_z
 
         with _fixed_rng(exemplar_mask_seed, view_a.device):
-            # Each K=2 augmentation owns one visible-token set. Joint, motion
-            # and bone within that group reuse it so structural fusion is not
-            # confounded by three unrelated 10%-visible subsets.
+            # Full input returns ``None`` for every group. In a masked
+            # ablation, Joint/Motion/Bone within one K=2 augmentation reuse a
+            # single aligned visible-token set.
             exemplar_group_masks = [
                 self.encoder_q.sample_mask_indices(group[0])
                 for group in exemplar_groups
@@ -673,7 +627,6 @@ class MacDiffStage2(nn.Module):
             'disp': dispersion_loss.detach(),
             'mix_proto': mix_proto_loss,
             'mix_ins': mix_ins_loss,
-            'queue_features': teacher_ose_z[0].detach(),
         }
 
 

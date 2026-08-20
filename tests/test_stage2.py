@@ -60,7 +60,6 @@ class MacDiffStage2Test(unittest.TestCase):
             projector_hidden_dim=8,
             projector_layers=2,
             ose_separate_projector=True,
-            queue_size=8,
             cluster_temperature=0.4,
             sinkhorn_temperature=0.05,
             sinkhorn_iterations=3,
@@ -146,7 +145,7 @@ class MacDiffStage2Test(unittest.TestCase):
         self.assertTrue(all(
             name.startswith('head.') for name in message.missing_keys))
 
-    def test_q0_jmb_forward_gradient_isolation_and_queue_timing(self):
+    def test_q0_jmb_forward_and_gradient_isolation(self):
         torch.manual_seed(7)
         model = self._model()
         model.train()
@@ -208,8 +207,7 @@ class MacDiffStage2Test(unittest.TestCase):
         self.assertTrue(torch.equal(online_masks[3], teacher_masks[4]))
         self.assertTrue(torch.equal(online_masks[3], teacher_masks[5]))
 
-        self.assertEqual(model.queue_filled.item(), 0)
-        self.assertFalse(losses['queue_features'].requires_grad)
+        self.assertNotIn('queue_features', losses)
         self.assertTrue(torch.isfinite(losses['proto']))
         self.assertTrue(torch.allclose(
             losses['cluster'],
@@ -251,11 +249,6 @@ class MacDiffStage2Test(unittest.TestCase):
             retain_graph=True, allow_unused=True)
         self.assertTrue(any(value is not None for value in encoder_resa))
         self.assertTrue(any(value is not None for value in encoder_ose))
-
-        model.enqueue(losses['queue_features'], torch.arange(4))
-        self.assertEqual(model.queue_filled.item(), 4)
-        self.assertTrue(torch.equal(
-            model.queue_sample_indices[:4], torch.arange(4)))
 
     def test_teacher_exemplar_forward_preserves_batch_norm_buffers(self):
         model = self._model()

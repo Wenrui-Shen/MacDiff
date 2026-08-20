@@ -172,8 +172,7 @@ MacDiff encoder:
 
 - load only the Stage1 online skeleton encoder;
 - randomly initialize independent ReSA/OSE projectors and a ReSA predictor;
-- reset the EMA encoder/projectors and start with an empty Q0 compatibility
-  queue;
+- reset the EMA encoder/projectors;
 - use two independently augmented views, a label-only Joint/Motion/Bone
   prototype, and both mixed losses;
 - optimize with the fixed 100-epoch Stage2 cosine LR and EMA schedules.
@@ -185,31 +184,29 @@ its online Joint anchor; the two normalized JMB embeddings are then averaged
 and normalized again to form the Q0 prototype.
 
 The diffusion decoder, Stage1 OSE memory/teacher, optimizer, scheduler and RNG
-state are not transferred. The MacDiff adapter keeps `one_person=True` and the
-Stage1 `mask_ratio=0.9`; its global `H` is the mean visible-token feature. A
-given unlabeled view reuses one visible-token set in the online and EMA
-branches. Likewise, Joint/Motion/Bone within one K=2 exemplar group share one
-aligned mask, while the two independently augmented groups use different
-masks. This avoids flattening the ReSA target through unrelated 10%-visible
-subsets without increasing memory. Run the formal migration with a completed
-Stage1 checkpoint:
+state are not transferred. The MacDiff adapter keeps `one_person=True`, but
+Stage2 sets `mask_ratio=0.0`: ReSA, OSE, mixed samples and all six K=2 J/M/B
+embeddings use all 750 tokens, matching downstream LP. Stage2 runs the encoder
+directly on each complete batch without transformer-block activation
+checkpointing or encoder chunking, and distributed training uses standard DDP.
+Run the formal migration with a completed Stage1 checkpoint:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 \
 NPROC_PER_NODE=2 \
-BATCH_SIZE=64 \
+BATCH_SIZE=8 \
 OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff_stage2_seed0 \
 bash script_pretrain_stage2.sh \
-  ./output_dir/ntu60_xsub_ose/checkpoint-399.pth
+  ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
 ```
 
 The launcher runs `tests.test_stage2` before training. A fresh run removes and
 recreates its named run directory when that directory already exists; automatic
 replacement is restricted to a concrete child of `./output_dir/`. Resume runs
-never remove it. `batch_size` is per GPU; `64 x 2` preserves the original
-global batch size of 128. ReSA/Sinkhorn relations, mixed-sample
-permutations, instance keys and the Q0 queue are all gathered across ranks;
-the queue then performs the same enqueue on every rank. The formal outputs are:
+never remove it. `batch_size` is per GPU; the full-input default uses `8 x 2`
+for a global relation batch of 16. ReSA/Sinkhorn relations, mixed-sample
+permutations and instance keys are gathered across ranks. The formal outputs
+are:
 
 ```text
 checkpoint-100.pth             # complete, strictly resumable Stage2 state

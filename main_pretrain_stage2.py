@@ -2,7 +2,7 @@
 
 This is intentionally separate from ``main_pretrain.py``.  A fresh run loads
 only the Stage1 MacDiff skeleton encoder and creates new ReSA/OSE heads, EMA
-branches, queue, optimizer and schedule state.
+branches, optimizer and schedule state.
 """
 
 import argparse
@@ -40,7 +40,7 @@ NTU_BONE_PAIRS = (
 
 TRAIN_METRICS = (
     'loss', 'cluster', 'cluster_entropy', 'cluster_kl', 'proto', 'align',
-    'disp', 'mix_proto', 'mix_ins', 'queue_fill', 'ema_momentum',
+    'disp', 'mix_proto', 'mix_ins', 'ema_momentum',
 )
 
 RESUME_CONTRACT_FIELDS = (
@@ -87,7 +87,7 @@ def get_args_parser():
     parser.add_argument('--model_args', default=dict())
 
     parser.add_argument('--epochs', default=100, type=int)
-    parser.add_argument('--batch_size', default=128, type=int)
+    parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--pin_mem', type=str2bool, default=True)
     parser.add_argument('--max_train_steps', default=0, type=int)
@@ -101,8 +101,8 @@ def get_args_parser():
     parser.add_argument('--dist_url', default='env://')
     parser.add_argument('--dist_on_itp', action='store_true')
 
-    parser.add_argument('--lr', default=0.25, type=float)
-    parser.add_argument('--head_lr', default=0.25, type=float)
+    parser.add_argument('--lr', default=0.03125, type=float)
+    parser.add_argument('--head_lr', default=0.03125, type=float)
     parser.add_argument('--final_lr', default=0.0, type=float)
     parser.add_argument('--head_final_lr', default=0.0, type=float)
     parser.add_argument('--weight_decay', default=1e-5, type=float)
@@ -122,7 +122,7 @@ def get_args_parser():
     parser.add_argument('--ose_tau_s', default=0.1, type=float)
     parser.add_argument('--ose_tau_t', default=0.04, type=float)
     parser.add_argument(
-        '--mask_protocol', default='shared_qk_jmb_v1', type=str)
+        '--mask_protocol', default='full_input_v1', type=str)
 
     return parser
 
@@ -178,9 +178,12 @@ def validate_args(args):
         raise ValueError('num_classes must be positive')
     if args.ose_exemplar_views < 1:
         raise ValueError('ose_exemplar_views must be at least 1')
-    if args.mask_protocol != 'shared_qk_jmb_v1':
+    if args.mask_protocol != 'full_input_v1':
         raise ValueError(
-            'Stage2 requires mask_protocol=shared_qk_jmb_v1')
+            'Stage2 requires mask_protocol=full_input_v1')
+    if float(args.model_args.get('mask_ratio', -1.0)) != 0.0:
+        raise ValueError(
+            'full_input_v1 requires model_args.mask_ratio=0.0')
     if not args.exemplar_index_path:
         raise ValueError('exemplar_index_path must be set')
     if not args.output_dir:
@@ -495,11 +498,9 @@ def train_one_epoch(model, loader, exemplar_provider, optimizer, scaler,
     for step, batch in enumerate(loader):
         if step >= steps:
             break
-        view_a, view_b, _, sample_indices = batch
+        view_a, view_b, _, _ = batch
         view_a = view_a.float().to(device, non_blocking=True)
         view_b = view_b.float().to(device, non_blocking=True)
-        sample_indices = sample_indices.long().to(
-            device, non_blocking=True)
         global_view_a = concat_all_gather(view_a)
         global_batch = global_view_a.shape[0]
         expected_global_batch = view_a.shape[0] * misc.get_world_size()
@@ -563,11 +564,6 @@ def train_one_epoch(model, loader, exemplar_provider, optimizer, scaler,
                 'Non-finite Stage2 loss at epoch {}, step {}'.format(
                     epoch + 1, step))
 
-        # Queue mutation happens only after every loss/target has been built.
-        queue_features = concat_all_gather(losses['queue_features'])
-        queue_indices = concat_all_gather(sample_indices)
-        model_without_ddp.enqueue(queue_features, queue_indices)
-
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
@@ -582,7 +578,6 @@ def train_one_epoch(model, loader, exemplar_provider, optimizer, scaler,
             'disp': float(losses['disp'].item()),
             'mix_proto': float(losses['mix_proto'].item()),
             'mix_ins': float(losses['mix_ins'].item()),
-            'queue_fill': float(model_without_ddp.queue_filled.item()),
             'ema_momentum': float(momentum),
         }
         for name, value in values.items():
@@ -629,7 +624,7 @@ def main(args):
         raise RuntimeError('CUDA was requested but is unavailable')
     rank = misc.get_rank()
     # Exemplar augmentation and Beta mixing stay identical across ranks;
-    # torch randomness is rank-specific for masks, permutations and workers.
+    # torch randomness is rank-specific for permutations and workers.
     random.seed(args.seed)
     np.random.seed(args.seed)
     torch.manual_seed(args.seed + rank)
@@ -750,11 +745,10 @@ def main(args):
                 handle.write(json.dumps(row) + '\n')
             print(
                 'Epoch {:03d} mean loss {:.4f} | ReSA {:.4f} | '
-                'H {:.4f} | KL {:.4f} | prototype {:.4f} | queue {}'.format(
+                'H {:.4f} | KL {:.4f} | prototype {:.4f}'.format(
                     epoch + 1, means['loss'], means['cluster'],
                     means['cluster_entropy'], means['cluster_kl'],
-                    means['proto'],
-                    int(model_without_ddp.queue_filled.item())))
+                    means['proto']))
         completed = epoch + 1
         if completed % args.save_interval == 0 or completed == args.epochs:
             checkpoint_path, backbone_path = save_checkpoint(

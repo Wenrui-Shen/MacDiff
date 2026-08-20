@@ -1,5 +1,5 @@
 # Independent RSDG Stage2 initialized from a completed MacDiff Stage1 run.
-stage1_weights: ./output_dir/ntu60_xsub_ose/checkpoint-399.pth
+stage1_weights: ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
 output_dir: ./output_dir/ntu60_xsub_macdiff_stage2_seed0
 log_dir: ./output_dir/ntu60_xsub_macdiff_stage2_seed0/tensorboard
 
@@ -30,27 +30,23 @@ model_args:
   drop_rate: 0.0
   attn_drop_rate: 0.0
   drop_path_rate: 0.0
-  # Keep the representation contract learned by MacDiff Stage1. Stage2
-  # explicitly shares each view's 75 visible token indices across online/EMA;
-  # J/M/B inside one exemplar augmentation also share those indices.
-  mask_ratio: 0.9
+  # ReSA/OSE Stage2 uses all 750 tokens, matching the downstream LP input.
+  mask_ratio: 0.0
   one_person: True
   input_mean: [-0.0058, -0.1333, -0.0246]
   input_var: [0.0206, 0.0805, 0.0218]
   self_shift: False
-  checkpoint_blocks: False
   feature_dim: 256
   projector_hidden_dim: 2048
   projector_layers: 3
   ose_separate_projector: True
-  queue_size: 8192
   cluster_temperature: 0.4
   sinkhorn_temperature: 0.05
   sinkhorn_iterations: 3
 
 # Fixed AimCLR Stage2 optimization protocol.
 epochs: 100
-batch_size: 128
+batch_size: 8
 num_workers: 8
 pin_mem: True
 enable_amp: False
@@ -59,8 +55,9 @@ save_interval: 10
 device: cuda
 seed: 0
 
-lr: 0.25
-head_lr: 0.25
+# Reference Stage2 uses 0.25 at global batch 128. Scale linearly for 8 x 2.
+lr: 0.03125
+head_lr: 0.03125
 final_lr: 0.0
 head_final_lr: 0.0
 weight_decay: 1e-5
@@ -84,4 +81,4 @@ ose_mix_ins_weight: 1.0
 ose_mix_alpha: 1.0
 ose_tau_s: 0.1
 ose_tau_t: 0.04
-mask_protocol: shared_qk_jmb_v1
+mask_protocol: full_input_v1
