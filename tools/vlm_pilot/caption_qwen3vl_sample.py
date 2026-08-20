@@ -11,6 +11,11 @@ from PIL import Image
 
 PERSON2_BLUE = np.asarray((66, 145, 255), dtype=np.uint8)
 MAIN_PARTS = {"head", "torso", "left_arm", "right_arm", "left_leg", "right_leg"}
+PERSON_KEYS = {
+    "person_index", "color", "main_part", "motion", "beginning", "middle",
+    "end", "interaction", "text",
+}
+TEXT_KEYS = {"motion", "beginning", "middle", "end", "interaction", "text"}
 
 
 def parse_args():
@@ -23,7 +28,7 @@ def parse_args():
     )
     parser.add_argument("--output_path", type=Path, required=True)
     parser.add_argument("--model", default="Qwen/Qwen3-VL-2B-Instruct")
-    parser.add_argument("--sample_fps", type=float, default=4.0)
+    parser.add_argument("--sample_fps", type=float, default=8.0)
     parser.add_argument("--max_new_tokens", type=int, default=512)
     parser.add_argument(
         "--attn_implementation",
@@ -61,33 +66,84 @@ def determine_actor_count(frames_dir, frame_paths):
     return 1, "blue_pixel_fallback"
 
 
+def render_prompt(prompt_template, actor_count):
+    if actor_count not in (1, 2):
+        raise ValueError("actor_count must be 1 or 2")
+    actor_description = (
+        "one person (red only; no blue skeleton is visible)"
+        if actor_count == 1
+        else "two people (both red and blue skeletons are visible)"
+    )
+    persons = []
+    for person_index, color in enumerate(("red", "blue")[:actor_count]):
+        persons.append({
+            "person_index": person_index,
+            "color": color,
+            "main_part": "<one of: head, torso, left_arm, right_arm, left_leg, right_leg>",
+            "motion": "<specific motion of this person's main part>",
+            "beginning": "<this person's initial state or motion>",
+            "middle": "<this person's middle-stage change>",
+            "end": "<this person's final state or motion>",
+            "interaction": "<this person's visible spatial relationship or coordination>",
+            "text": "<one concise self-contained description of this person under 35 English words>",
+        })
+    return (
+        prompt_template.replace("{ACTOR_COUNT}", str(actor_count))
+        .replace("{ACTOR_DESCRIPTION}", actor_description)
+        .replace("{PERSON_ENTRIES}", json.dumps(persons, ensure_ascii=False, indent=2))
+    )
+
+
 def validate_caption(caption, expected_actors):
     """Return semantic errors that JSON parsing alone cannot detect."""
     errors = []
     if not isinstance(caption, dict):
         return ["caption must be a JSON object"]
 
-    if caption.get("actors") != expected_actors:
+    if set(caption) != {"actors", "persons"}:
+        errors.append("caption must contain exactly the keys: actors, persons")
+    if (
+        not isinstance(caption.get("actors"), int)
+        or isinstance(caption.get("actors"), bool)
+        or caption.get("actors") != expected_actors
+    ):
         errors.append("actors must equal the color-derived count %d" % expected_actors)
 
-    for key in (
-        "main_actor", "main_part", "motion", "beginning", "middle", "end",
-        "interaction", "text",
-    ):
-        value = caption.get(key)
-        if not isinstance(value, str) or not value.strip():
-            errors.append("%s must be a non-empty string" % key)
+    persons = caption.get("persons")
+    if not isinstance(persons, list):
+        return errors + ["persons must be a JSON array"]
+    if len(persons) != expected_actors:
+        errors.append("persons must contain exactly %d entries" % expected_actors)
 
-    if caption.get("main_part") not in MAIN_PARTS:
-        errors.append("main_part must be one of: %s" % ", ".join(sorted(MAIN_PARTS)))
-
-    allowed_actors = {"red"} if expected_actors == 1 else {"red", "blue", "both"}
-    if caption.get("main_actor") not in allowed_actors:
-        errors.append("main_actor must be one of: %s" % ", ".join(sorted(allowed_actors)))
-
-    summary_text = caption.get("text")
-    if isinstance(summary_text, str) and len(summary_text.split()) > 35:
-        errors.append("text must contain at most 35 English words")
+    expected_colors = ("red",) if expected_actors == 1 else ("red", "blue")
+    for position, person in enumerate(persons):
+        prefix = "persons[%d]" % position
+        if not isinstance(person, dict):
+            errors.append("%s must be a JSON object" % prefix)
+            continue
+        if set(person) != PERSON_KEYS:
+            errors.append("%s must contain exactly: %s" % (
+                prefix, ", ".join(sorted(PERSON_KEYS))))
+        if (
+            not isinstance(person.get("person_index"), int)
+            or isinstance(person.get("person_index"), bool)
+            or person.get("person_index") != position
+        ):
+            errors.append("%s.person_index must equal %d" % (prefix, position))
+        if position < len(expected_colors) and person.get("color") != expected_colors[position]:
+            errors.append("%s.color must equal %s" % (prefix, expected_colors[position]))
+        if person.get("main_part") not in MAIN_PARTS:
+            errors.append("%s.main_part must be one of: %s" % (
+                prefix, ", ".join(sorted(MAIN_PARTS))))
+        for key in TEXT_KEYS:
+            value = person.get(key)
+            if not isinstance(value, str) or not value.strip():
+                errors.append("%s.%s must be a non-empty string" % (prefix, key))
+            elif "<" in value or ">" in value:
+                errors.append("%s.%s contains an unreplaced placeholder" % (prefix, key))
+        summary_text = person.get("text")
+        if isinstance(summary_text, str) and len(summary_text.split()) > 35:
+            errors.append("%s.text must contain at most 35 English words" % prefix)
     return errors
 
 
@@ -108,14 +164,8 @@ def main():
         raise ValueError("Expected at least two frame_*.png files in %s" % args.frames_dir)
     frame_urls = [path.resolve().as_uri() for path in frame_paths]
     actor_count, actor_count_source = determine_actor_count(args.frames_dir, frame_paths)
-    actor_description = (
-        "one person (red only; no blue skeleton is visible)"
-        if actor_count == 1
-        else "two people (both red and blue skeletons are visible)"
-    )
-    prompt = args.prompt_path.read_text(encoding="utf-8")
-    prompt = prompt.replace("{ACTOR_COUNT}", str(actor_count))
-    prompt = prompt.replace("{ACTOR_DESCRIPTION}", actor_description)
+    prompt_template = args.prompt_path.read_text(encoding="utf-8")
+    prompt = render_prompt(prompt_template, actor_count)
 
     load_kwargs = {"dtype": "auto", "device_map": "auto"}
     if args.attn_implementation:
@@ -187,14 +237,23 @@ def main():
         caption = extract_json(raw_response)
         semantic_errors = validate_caption(caption, actor_count)
         result["caption"] = caption
-        result["text"] = caption.get("text")
         if semantic_errors:
             result["status"] = "invalid_content"
             result["errors"] = semantic_errors
+            result["texts"] = []
         else:
             result["status"] = "accepted"
+            result["texts"] = [
+                {
+                    "person_index": person["person_index"],
+                    "color": person["color"],
+                    "text": person["text"],
+                }
+                for person in caption["persons"]
+            ]
     except (ValueError, json.JSONDecodeError) as exc:
         result["caption"] = None
+        result["texts"] = []
         result["status"] = "invalid_json"
         result["error"] = str(exc)
 

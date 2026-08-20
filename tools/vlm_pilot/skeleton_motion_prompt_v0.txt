@@ -1,35 +1,34 @@
-You observe a three-panel skeleton video rendered from 3D human joints.
+You observe a temporally ordered three-panel video rendered from 3D human joints.
 
 The left, middle, and right panels are front, side, and top views of the same person or people. Never count the panels as different people.
 
-Actor rule:
-- red skeleton only means one person
-- red and blue skeletons mean two people
+Actor and skeleton-slot rules:
+- the red skeleton is person_index 0
+- the blue skeleton is person_index 1
+- red only means one person
+- red and blue mean two people
 - this sample has {ACTOR_DESCRIPTION}; set actors to exactly {ACTOR_COUNT}
+- return exactly one persons entry per visible skeleton, ordered by person_index
+- for one person, return only the red person_index 0 entry
+- for two people, return red person_index 0 first and blue person_index 1 second
 
-Choose exactly one primary moving body region from:
+For each visible person, independently choose exactly one primary moving body region from:
 head, torso, left_arm, right_arm, left_leg, right_leg.
-left_arm and right_arm include the shoulder, elbow, wrist, and hand.
-Choose the region with the clearest and most distinctive change across the sequence.
+left_arm and right_arm include the shoulder, elbow, wrist, and hand. Choose the region with the clearest and most distinctive change across the sequence for that person.
 
-Describe only:
-1. the concrete motion of the primary region
+For each person, describe only visible evidence:
+1. the concrete motion of that person's primary region
 2. its state or motion at the beginning, middle, and end
-3. the strongest spatial relationship between the primary region and another body region or person, including approaching, moving away, remaining near, coordinating, or contacting; physical contact is not required
+3. the strongest spatial relationship between that person's primary region and another body region or person, including approaching, moving away, remaining near, coordinating, or contacting; physical contact is not required
 
-The first frame is the beginning and the last frame is the end. Describe the final pose exactly as visible. The sequence may end before the motion is completed; never assume that a body part returns to its initial position unless the last frames visibly show it.
+Each person's text must be a self-contained description of that matching skeleton's own observable motion. In a two-person sample, do not copy one overall caption into both entries. You may mention the other color only to clarify a visible interaction, but keep the matching person's motion as the subject.
 
-Use anatomical left and right. Do not infer an object, scene, action-class label, identity, or global translation. If actors is 1, main_actor must be red. Do not report "no interaction" when a meaningful change in relative distance is visible. Use non-empty, concise descriptions and use "unknown" only when the joint motion is genuinely unclear. Summarize the result as one text under 35 English words.
+The first frame is the beginning and the last frame is the end. Describe the final pose exactly as visible. The sequence may end before the motion is completed; never assume that a body part returns to its initial position unless the last frames visibly show it. Do not invent repetition or a completed action outside the observed frames.
 
-Return valid JSON only, with exactly these keys and no Markdown fence. Replace every angle-bracket placeholder:
+Use anatomical left and right. Do not infer an object, scene, action-class label, identity, intent, or global translation. Do not report "no interaction" when a meaningful change in relative distance is visible. Use non-empty, concrete, concise descriptions and use "unknown" only when the joint motion is genuinely unclear. Each text must contain at most 35 English words.
+
+Return valid JSON only, with exactly the top-level keys shown below and no Markdown fence. Replace every angle-bracket placeholder. The persons array length must equal actors.
 {
   "actors": {ACTOR_COUNT},
-  "main_actor": "<red, blue, or both>",
-  "main_part": "<one of: head, torso, left_arm, right_arm, left_leg, right_leg>",
-  "motion": "<specific motion of the main part>",
-  "beginning": "<initial state or motion>",
-  "middle": "<middle-stage change>",
-  "end": "<final state or motion>",
-  "interaction": "<how the main part approaches, moves away from, remains near, coordinates with, or contacts another body region or person>",
-  "text": "<one concise summary paragraph under 35 English words>"
+  "persons": {PERSON_ENTRIES}
 }

@@ -65,6 +65,13 @@ def load_npz_sample(path, split, sample_index):
             raise KeyError("%s does not contain %s" % (path, key))
         data = np.asarray(archive[key][sample_index], dtype=np.float32)
 
+    return normalize_sample(data)
+
+
+def normalize_sample(data):
+    """Convert one processed sample to valid-frame ``[T, M, 25, 3]`` form."""
+    data = np.asarray(data, dtype=np.float32)
+
     if data.ndim == 2 and data.shape[-1] == 150:
         data = data.reshape(data.shape[0], 2, 25, 3)
     elif data.ndim == 4 and data.shape == (3, data.shape[1], 25, 2):
@@ -261,24 +268,58 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font, acto
     return image
 
 
-def main():
-    args = parse_args()
-    if args.num_frames < 2:
-        raise ValueError("--num_frames must be at least 2")
-    if args.width % 3:
-        raise ValueError("--width must be divisible by 3")
+def render_sample_frames(source, num_frames=32, width=960, height=360, font=None):
+    """Render one normalized or raw sample to an in-memory PIL frame list."""
+    if num_frames < 2:
+        raise ValueError("num_frames must be at least 2")
+    if width % 3:
+        raise ValueError("width must be divisible by 3")
 
-    source = make_demo_sample() if args.demo else load_npz_sample(args.data_path, args.split, args.sample_index)
-    sampled, frame_indices = uniformly_sample(source, args.num_frames)
+    source = normalize_sample(source)
+    sampled, frame_indices = uniformly_sample(source, num_frames)
     sampled_active = active_joint_mask(sampled)
     person_active_frames = sampled_active.any(axis=2).sum(axis=0)
-    blue_skeleton_visible = bool(len(person_active_frames) > 1 and person_active_frames[1] > 0)
+    blue_skeleton_visible = bool(
+        len(person_active_frames) > 1 and person_active_frames[1] > 0
+    )
     visible_actor_count = 2 if blue_skeleton_visible else 1
     roots = primary_root(sampled)
     local = sampled - roots[:, None, None, :]
+    # Keep missing all-zero joints missing after centering; otherwise subtracting
+    # the red root would turn an absent blue skeleton into phantom span points.
+    local[~sampled_active] = 0
     local_span = root_centered_span(local)
-    panels = make_panels(args.width, args.height, local_span)
-    font = load_font(14)
+    panels = make_panels(width, height, local_span)
+    font = load_font(14) if font is None else font
+    frames = [
+        render_frame(
+            sampled, roots, index, panels, width, height, font,
+            visible_actor_count,
+        )
+        for index in range(num_frames)
+    ]
+    render_info = {
+        "num_valid_frames": int(len(source)),
+        "num_rendered_frames": int(num_frames),
+        "source_frame_indices": frame_indices.tolist(),
+        "visible_actor_count": visible_actor_count,
+        "blue_skeleton_visible": blue_skeleton_visible,
+        "active_rendered_frames_per_person": person_active_frames.astype(int).tolist(),
+        "local_span": local_span,
+    }
+    return frames, render_info
+
+
+def main():
+    args = parse_args()
+    source = make_demo_sample() if args.demo else load_npz_sample(args.data_path, args.split, args.sample_index)
+    frames, render_info = render_sample_frames(
+        source,
+        num_frames=args.num_frames,
+        width=args.width,
+        height=args.height,
+    )
+    visible_actor_count = render_info["visible_actor_count"]
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
     frames_dir = args.output_dir / "frames"
@@ -287,14 +328,8 @@ def main():
     # longer render (for example, frame_016.png through frame_063.png).
     for stale_frame in frames_dir.glob("frame_*.png"):
         stale_frame.unlink()
-    frames = []
-    for index in range(args.num_frames):
-        image = render_frame(
-            sampled, roots, index, panels, args.width, args.height, font,
-            visible_actor_count,
-        )
+    for index, image in enumerate(frames):
         image.save(frames_dir / ("frame_%03d.png" % index), optimize=True)
-        frames.append(image)
     frames[0].save(
         args.output_dir / "preview.gif",
         save_all=True,
@@ -311,9 +346,9 @@ def main():
         "sample_index": None if args.demo else args.sample_index,
         "labels_read": False,
         "input_stage": "processed_npz_before_feeder_augmentation",
-        "num_valid_frames": int(len(source)),
-        "num_rendered_frames": int(args.num_frames),
-        "source_frame_indices": frame_indices.tolist(),
+        "num_valid_frames": render_info["num_valid_frames"],
+        "num_rendered_frames": render_info["num_rendered_frames"],
+        "source_frame_indices": render_info["source_frame_indices"],
         "layout": [
             "front_xy_root_centered",
             "side_zy_root_centered",
@@ -324,8 +359,8 @@ def main():
         "person_colors": {"person_1": "red", "person_2": "blue"},
         "actor_count_rule": "one if no blue skeleton is rendered; two if a blue skeleton is rendered",
         "visible_actor_count": visible_actor_count,
-        "blue_skeleton_visible": blue_skeleton_visible,
-        "active_rendered_frames_per_person": person_active_frames.astype(int).tolist(),
+        "blue_skeleton_visible": render_info["blue_skeleton_visible"],
+        "active_rendered_frames_per_person": render_info["active_rendered_frames_per_person"],
         "bone_width_px": BONE_WIDTH,
         "joint_radius_px": JOINT_RADIUS,
         "render_size": [args.width, args.height],

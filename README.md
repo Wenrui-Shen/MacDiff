@@ -164,6 +164,57 @@ CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch \
   --log_dir ./output_dir/ntu60_xsub_ose/tensorboard
 ```
 
+### Independent RSDG Stage2
+
+The OSE peer run above remains a Stage1 pretraining method. A separate
+100-epoch Stage2 entry now adapts the current AimCLR RSDG protocol to the
+MacDiff encoder:
+
+- load only the Stage1 online skeleton encoder;
+- randomly initialize independent ReSA/OSE projectors and a ReSA predictor;
+- reset the EMA encoder/projectors and start with an empty Q0 compatibility
+  queue;
+- use two independently augmented views, a label-only Joint/Motion/Bone
+  prototype, and both mixed losses;
+- optimize with the fixed 100-epoch Stage2 cosine LR and EMA schedules.
+
+Every class exemplar is independently augmented twice on every iteration.
+Each augmentation deterministically produces one complete Joint/Motion/Bone
+group, for six embeddings per class. Each group is cosine-softmax fused around
+its online Joint anchor; the two normalized JMB embeddings are then averaged
+and normalized again to form the Q0 prototype.
+
+The diffusion decoder, Stage1 OSE memory/teacher, optimizer, scheduler and RNG
+state are not transferred. The MacDiff adapter keeps `one_person=True` and the
+Stage1 `mask_ratio=0.9`; its global `H` is the mean visible-token feature. Run
+the formal single-GPU migration with a completed Stage1 checkpoint:
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 \
+NPROC_PER_NODE=2 \
+BATCH_SIZE=64 \
+OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff_stage2_seed0 \
+bash script_pretrain_stage2.sh \
+  ./output_dir/ntu60_xsub_ose/checkpoint-399.pth
+```
+
+The launcher runs `tests.test_stage2` before training and refuses to reuse a
+non-empty output directory. `batch_size` is per GPU; `64 x 2` preserves the
+original global batch size of 128. ReSA/Sinkhorn relations, mixed-sample
+permutations, instance keys and the Q0 queue are all gathered across ranks;
+the queue then performs the same enqueue on every rank. The formal outputs are:
+
+```text
+checkpoint-100.pth             # complete, strictly resumable Stage2 state
+checkpoint-100-backbone.pth    # online encoder only, for MacDiff LP/finetune
+checkpoint-100-rng-rank-*.pth  # per-rank RNG state for exact DDP resume
+log.txt                        # epoch-level training losses
+```
+
+The exemplar cache is generated and validated automatically at
+`config/ntu60_xsub_joint/stage2_exemplar_seed0.json`. Use a distinct cache and
+output directory for every exemplar seed.
+
 ## Training and Testing
 Please refer to the bash scripts. Before running the scripts, you may:
 

@@ -1,0 +1,84 @@
+# Independent RSDG Stage2 initialized from a completed MacDiff Stage1 run.
+stage1_weights: ./output_dir/ntu60_xsub_ose/checkpoint-399.pth
+output_dir: ./output_dir/ntu60_xsub_macdiff_stage2_seed0
+log_dir: ./output_dir/ntu60_xsub_macdiff_stage2_seed0/tensorboard
+
+feeder: feeder.feeder_stage2.FeederStage2
+train_feeder_args:
+  data_path: ../data/MAMP/ntu/NTU60_XSub.npz
+  split: train
+  window_size: 120
+  base_p_interval: [0.95]
+  shear_amplitude: 0.5
+  temporal_padding_ratio: 6
+  augmentation_methods: [temporal_crop, shear, rotation]
+  augmentation_probability: 0.5
+  use_mmap: True
+
+model_args:
+  dim_in: 3
+  dim_feat: 256
+  depth: 8
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: None
+  drop_rate: 0.0
+  attn_drop_rate: 0.0
+  drop_path_rate: 0.0
+  # Keep the representation contract learned by MacDiff Stage1.
+  mask_ratio: 0.9
+  one_person: True
+  input_mean: [-0.0058, -0.1333, -0.0246]
+  input_var: [0.0206, 0.0805, 0.0218]
+  self_shift: False
+  checkpoint_blocks: False
+  feature_dim: 256
+  projector_hidden_dim: 2048
+  projector_layers: 3
+  ose_separate_projector: True
+  queue_size: 8192
+  cluster_temperature: 0.4
+  sinkhorn_temperature: 0.05
+  sinkhorn_iterations: 3
+
+# Fixed AimCLR Stage2 optimization protocol.
+epochs: 100
+batch_size: 128
+num_workers: 8
+pin_mem: True
+enable_amp: False
+max_train_steps: 0
+save_interval: 10
+device: cuda
+seed: 0
+
+lr: 0.25
+head_lr: 0.25
+final_lr: 0.0
+head_final_lr: 0.0
+weight_decay: 1e-5
+optimizer_momentum: 0.9
+nesterov: False
+ema_momentum: 0.996
+
+# One labeled exemplar per NTU60 class. The cache is created and validated
+# automatically; use a different path for every exemplar seed/protocol.
+exemplar_index_path: ./config/ntu60_xsub_joint/stage2_exemplar_seed0.json
+exemplar_seed: 0
+num_classes: 60
+# Latest AimCLR multi-augmentation semantics: two complete J/M/B groups.
+ose_exemplar_views: 2
+
+# Dual ReSA+OSE, JMB Q0 and both mixed losses.
+resa_weight: 1.0
+ose_lambda: 1.0
+ose_mix_proto_weight: 1.0
+ose_mix_ins_weight: 1.0
+ose_mix_alpha: 1.0
+ose_tau_s: 0.1
+ose_tau_t: 0.04

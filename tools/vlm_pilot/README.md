@@ -68,7 +68,86 @@ python tools/vlm_pilot/caption_qwen3vl_sample.py \
 ```
 
 The captioner passes an ordered PNG list as one video input, so FFmpeg and video
-codec behavior do not affect this first experiment. Its compact JSON focuses on
-one primary moving region, the region's beginning/middle/end motion, its
-spatial relationship with other regions or people, and a short final `text`
-paragraph for downstream conditioning.
+codec behavior do not affect this first experiment. The current schema returns
+one non-empty `persons` entry for each visible skeleton. `person_index: 0` is
+red and `person_index: 1` is blue; a single-person sample contains no synthetic
+second-person or empty-string target.
+
+## 4. Extract captions from the complete train split with vLLM
+
+Use a separate modern environment; do not upgrade the repository's legacy
+training environment in place. Qwen3-VL requires vLLM 0.11 or newer:
+
+```bash
+python -m venv .venv-vllm
+source .venv-vllm/bin/activate
+pip install -U "vllm>=0.11.0" transformers qwen-vl-utils==0.0.14 Pillow
+```
+
+First verify label-free loading, actor counting, the 32-frame renderer, and the
+expanded prompt without loading a model:
+
+```bash
+python tools/vlm_pilot/caption_qwen3vl_train_vllm.py \
+  --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
+  --output_path vlm_pilot/ntu60_xsub_train_captions.jsonl \
+  --max_samples 1 \
+  --dry_run
+```
+
+Then run a small GPU pilot. The model remains resident for every selected
+sample; `--max_samples 8` limits this validation run to `train_0` through
+`train_7`:
+
+```bash
+OMP_NUM_THREADS=1 \
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 \
+python tools/vlm_pilot/caption_qwen3vl_train_vllm.py \
+  --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
+  --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
+  --output_path vlm_pilot/ntu60_xsub_train_captions.jsonl \
+  --num_frames 32 \
+  --sample_fps 8 \
+  --batch_size 1 \
+  --max_samples 8
+```
+
+After inspecting those records, continue through all remaining `x_train`
+samples. `--resume` skips only records whose status is `accepted`; failed or
+invalid records are attempted again and appended for auditability:
+
+```bash
+OMP_NUM_THREADS=1 \
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 \
+python tools/vlm_pilot/caption_qwen3vl_train_vllm.py \
+  --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
+  --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
+  --output_path vlm_pilot/ntu60_xsub_train_captions.jsonl \
+  --num_frames 32 \
+  --sample_fps 8 \
+  --batch_size 1 \
+  --resume
+```
+
+For a checkpoint that needs both GPUs, expose both devices and set
+`--tensor_parallel_size 2`. Increase `--batch_size` only after measuring memory
+on the real server; one 32-frame sample is the safe default for a 24 GB card.
+
+Each JSONL record includes `sample_id` (`train_<index>`), prompt SHA-256,
+rendering and inference settings, raw response, parsed caption, retry history,
+and validation status. Only an `accepted` record has a non-empty `texts` list:
+
+```json
+{
+  "sample_id": "train_42",
+  "status": "accepted",
+  "texts": [
+    {"person_index": 0, "color": "red", "text": "..."},
+    {"person_index": 1, "color": "blue", "text": "..."}
+  ]
+}
+```
+
+The batch script reads only `x_train`; it never opens `y_train`. Frames are
+rendered and preprocessed in memory, so the model prompt contains neither a
+sample filename nor an action label.
