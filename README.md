@@ -186,8 +186,13 @@ and normalized again to form the Q0 prototype.
 
 The diffusion decoder, Stage1 OSE memory/teacher, optimizer, scheduler and RNG
 state are not transferred. The MacDiff adapter keeps `one_person=True` and the
-Stage1 `mask_ratio=0.9`; its global `H` is the mean visible-token feature. Run
-the formal single-GPU migration with a completed Stage1 checkpoint:
+Stage1 `mask_ratio=0.9`; its global `H` is the mean visible-token feature. A
+given unlabeled view reuses one visible-token set in the online and EMA
+branches. Likewise, Joint/Motion/Bone within one K=2 exemplar group share one
+aligned mask, while the two independently augmented groups use different
+masks. This avoids flattening the ReSA target through unrelated 10%-visible
+subsets without increasing memory. Run the formal migration with a completed
+Stage1 checkpoint:
 
 ```bash
 CUDA_VISIBLE_DEVICES=0,1 \
@@ -198,9 +203,11 @@ bash script_pretrain_stage2.sh \
   ./output_dir/ntu60_xsub_ose/checkpoint-399.pth
 ```
 
-The launcher runs `tests.test_stage2` before training and refuses to reuse a
-non-empty output directory. `batch_size` is per GPU; `64 x 2` preserves the
-original global batch size of 128. ReSA/Sinkhorn relations, mixed-sample
+The launcher runs `tests.test_stage2` before training. A fresh run removes and
+recreates its named run directory when that directory already exists; automatic
+replacement is restricted to a concrete child of `./output_dir/`. Resume runs
+never remove it. `batch_size` is per GPU; `64 x 2` preserves the original
+global batch size of 128. ReSA/Sinkhorn relations, mixed-sample
 permutations, instance keys and the Q0 queue are all gathered across ranks;
 the queue then performs the same enqueue on every rank. The formal outputs are:
 

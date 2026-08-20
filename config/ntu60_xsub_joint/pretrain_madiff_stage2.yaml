@@ -30,7 +30,9 @@ model_args:
   drop_rate: 0.0
   attn_drop_rate: 0.0
   drop_path_rate: 0.0
-  # Keep the representation contract learned by MacDiff Stage1.
+  # Keep the representation contract learned by MacDiff Stage1. Stage2
+  # explicitly shares each view's 75 visible token indices across online/EMA;
+  # J/M/B inside one exemplar augmentation also share those indices.
   mask_ratio: 0.9
   one_person: True
   input_mean: [-0.0058, -0.1333, -0.0246]
@@ -82,3 +84,4 @@ ose_mix_ins_weight: 1.0
 ose_mix_alpha: 1.0
 ose_tau_s: 0.1
 ose_tau_t: 0.04
+mask_protocol: shared_qk_jmb_v1

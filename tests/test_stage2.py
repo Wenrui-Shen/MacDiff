@@ -2,6 +2,7 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest import mock
 
 import numpy as np
@@ -12,6 +13,7 @@ from main_pretrain_stage2 import (
     derive_bone,
     derive_motion,
     load_or_create_exemplars,
+    prepare_output,
 )
 from feeder.feeder_stage2 import FeederStage2
 from model.transformer_stage2 import (
@@ -162,22 +164,56 @@ class MacDiffStage2Test(unittest.TestCase):
         mix_beta = 0.3
         mixed = mix_beta * view_b + (1.0 - mix_beta) * view_a[mix_index]
 
-        losses = model(
-            view_a,
-            view_b,
-            [
-                (exemplar_joint, exemplar_motion, exemplar_bone),
-                second_group,
-            ],
-            momentum=0.996,
-            mixed_view=mixed,
-            mix_index=mix_index,
-            mix_beta=mix_beta,
-        )
+        online_masks = []
+        teacher_masks = []
+        online_forward = model.encoder_q.forward_features
+        teacher_forward = model.encoder_k.forward_features
+
+        def record_online(skeleton, mask_indices=None):
+            online_masks.append(
+                None if mask_indices is None else mask_indices.clone())
+            return online_forward(skeleton, mask_indices=mask_indices)
+
+        def record_teacher(skeleton, mask_indices=None):
+            teacher_masks.append(
+                None if mask_indices is None else mask_indices.clone())
+            return teacher_forward(skeleton, mask_indices=mask_indices)
+
+        with mock.patch.object(
+                model.encoder_q, 'forward_features',
+                side_effect=record_online), mock.patch.object(
+                    model.encoder_k, 'forward_features',
+                    side_effect=record_teacher):
+            losses = model(
+                view_a,
+                view_b,
+                [
+                    (exemplar_joint, exemplar_motion, exemplar_bone),
+                    second_group,
+                ],
+                momentum=0.996,
+                mixed_view=mixed,
+                mix_index=mix_index,
+                mix_beta=mix_beta,
+                exemplar_mask_seed=123,
+            )
+
+        # q/k see the same visible tokens for each unlabeled view.
+        self.assertTrue(torch.equal(online_masks[0], teacher_masks[0]))
+        self.assertTrue(torch.equal(online_masks[1], teacher_masks[1]))
+        # Within each K=2 augmentation, online Joint and EMA Motion/Bone
+        # reuse one aligned visible-token set.
+        self.assertTrue(torch.equal(online_masks[2], teacher_masks[2]))
+        self.assertTrue(torch.equal(online_masks[2], teacher_masks[3]))
+        self.assertTrue(torch.equal(online_masks[3], teacher_masks[4]))
+        self.assertTrue(torch.equal(online_masks[3], teacher_masks[5]))
 
         self.assertEqual(model.queue_filled.item(), 0)
         self.assertFalse(losses['queue_features'].requires_grad)
         self.assertTrue(torch.isfinite(losses['proto']))
+        self.assertTrue(torch.allclose(
+            losses['cluster'],
+            losses['cluster_entropy'] + losses['cluster_kl']))
         fused = model.fuse_labeled_exemplars(
             torch.randn(3, 4), torch.randn(3, 2, 4))
         fused_groups = torch.stack(
@@ -319,6 +355,42 @@ class MacDiffStage2Test(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'seed mismatch'):
                 load_or_create_exemplars(
                     dataset, path, seed=1, num_classes=3)
+
+    def test_fresh_output_replaces_only_a_named_run_directory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            workspace = Path(directory)
+            output_root = workspace / 'output_dir'
+            run = output_root / 'stage2_run'
+            run.mkdir(parents=True)
+            stale = run / 'stale.txt'
+            stale.write_text('old', encoding='utf-8')
+            args = SimpleNamespace(
+                output_dir=str(run),
+                log_dir=str(run / 'tensorboard'),
+                resume='',
+            )
+            with mock.patch.object(Path, 'cwd', return_value=workspace):
+                prepare_output(args)
+            self.assertTrue(run.is_dir())
+            self.assertTrue((run / 'tensorboard').is_dir())
+            self.assertFalse(stale.exists())
+
+            protected = SimpleNamespace(
+                output_dir=str(output_root),
+                log_dir=str(output_root / 'tensorboard'),
+                resume='',
+            )
+            with mock.patch.object(Path, 'cwd', return_value=workspace):
+                with self.assertRaisesRegex(
+                        RuntimeError, 'only allowed for a child directory'):
+                    prepare_output(protected)
+
+            preserved = run / 'resume.txt'
+            preserved.write_text('keep', encoding='utf-8')
+            args.resume = str(run / 'checkpoint-010.pth')
+            with mock.patch.object(Path, 'cwd', return_value=workspace):
+                prepare_output(args)
+            self.assertTrue(preserved.exists())
 
 
 if __name__ == '__main__':

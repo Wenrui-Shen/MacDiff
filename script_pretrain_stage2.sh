@@ -6,7 +6,7 @@ cd "${SCRIPT_DIR}"
 
 PYTHON_BIN="${PYTHON_BIN:-python}"
 CONFIG="${CONFIG:-./config/ntu60_xsub_joint/pretrain_madiff_stage2.yaml}"
-STAGE1_CHECKPOINT="${1:-./output_dir/ntu60_xsub_ose/checkpoint-399.pth}"
+STAGE1_CHECKPOINT="${1:-./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth}"
 OUTPUT_DIR="${OUTPUT_DIR:-./output_dir/ntu60_xsub_macdiff_stage2_seed0}"
 LOG_DIR="${LOG_DIR:-${OUTPUT_DIR}/tensorboard}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
@@ -20,12 +20,6 @@ if [[ ! -f "${STAGE1_CHECKPOINT}" ]]; then
     echo "Missing MacDiff Stage1 checkpoint: ${STAGE1_CHECKPOINT}" >&2
     exit 1
 fi
-if [[ -d "${OUTPUT_DIR}" ]] &&
-        [[ -n "$(find "${OUTPUT_DIR}" -mindepth 1 -maxdepth 1 -print -quit)" ]]; then
-    echo "Refusing to reuse non-empty Stage2 output_dir: ${OUTPUT_DIR}" >&2
-    exit 1
-fi
-
 echo "Running MacDiff Stage2 unit tests"
 "${PYTHON_BIN}" -m unittest tests.test_stage2
 

@@ -11,6 +11,7 @@ import json
 import math
 import os
 import random
+import shutil
 import time
 from pathlib import Path
 
@@ -38,8 +39,8 @@ NTU_BONE_PAIRS = (
 )
 
 TRAIN_METRICS = (
-    'loss', 'cluster', 'proto', 'align', 'disp', 'mix_proto', 'mix_ins',
-    'queue_fill', 'ema_momentum',
+    'loss', 'cluster', 'cluster_entropy', 'cluster_kl', 'proto', 'align',
+    'disp', 'mix_proto', 'mix_ins', 'queue_fill', 'ema_momentum',
 )
 
 RESUME_CONTRACT_FIELDS = (
@@ -49,7 +50,7 @@ RESUME_CONTRACT_FIELDS = (
     'nesterov', 'ema_momentum', 'exemplar_index_path', 'exemplar_seed',
     'num_classes', 'ose_exemplar_views', 'resa_weight', 'ose_lambda',
     'ose_mix_proto_weight', 'ose_mix_ins_weight', 'ose_mix_alpha',
-    'ose_tau_s', 'ose_tau_t', 'world_size',
+    'ose_tau_s', 'ose_tau_t', 'mask_protocol', 'world_size',
 )
 
 
@@ -120,6 +121,8 @@ def get_args_parser():
     parser.add_argument('--ose_mix_alpha', default=1.0, type=float)
     parser.add_argument('--ose_tau_s', default=0.1, type=float)
     parser.add_argument('--ose_tau_t', default=0.04, type=float)
+    parser.add_argument(
+        '--mask_protocol', default='shared_qk_jmb_v1', type=str)
 
     return parser
 
@@ -175,6 +178,9 @@ def validate_args(args):
         raise ValueError('num_classes must be positive')
     if args.ose_exemplar_views < 1:
         raise ValueError('ose_exemplar_views must be at least 1')
+    if args.mask_protocol != 'shared_qk_jmb_v1':
+        raise ValueError(
+            'Stage2 requires mask_protocol=shared_qk_jmb_v1')
     if not args.exemplar_index_path:
         raise ValueError('exemplar_index_path must be set')
     if not args.output_dir:
@@ -457,10 +463,21 @@ def validate_resume_checkpoint(checkpoint, args):
 
 def prepare_output(args):
     output = Path(args.output_dir)
-    if not args.resume and output.exists() and any(output.iterdir()):
-        raise RuntimeError(
-            'Refusing to reuse non-empty Stage2 output_dir: {}'.format(
-                output))
+    if not args.resume and output.exists():
+        if not output.is_dir():
+            raise RuntimeError(
+                'Stage2 output_dir exists but is not a directory: {}'.format(
+                    output))
+        resolved_output = output.resolve()
+        safe_root = (Path.cwd() / 'output_dir').resolve()
+        if (resolved_output == safe_root or
+                safe_root not in resolved_output.parents):
+            raise RuntimeError(
+                'Automatic Stage2 output replacement is only allowed for '
+                'a child directory of {}: {}'.format(
+                    safe_root, resolved_output))
+        shutil.rmtree(str(resolved_output))
+        print('Removed previous Stage2 output: {}'.format(resolved_output))
     output.mkdir(parents=True, exist_ok=True)
     Path(args.log_dir).mkdir(parents=True, exist_ok=True)
 
@@ -558,6 +575,8 @@ def train_one_epoch(model, loader, exemplar_provider, optimizer, scaler,
         values = {
             'loss': float(loss.item()),
             'cluster': float(losses['cluster'].item()),
+            'cluster_entropy': float(losses['cluster_entropy'].item()),
+            'cluster_kl': float(losses['cluster_kl'].item()),
             'proto': float(losses['proto'].item()),
             'align': float(losses['align'].item()),
             'disp': float(losses['disp'].item()),
@@ -579,10 +598,12 @@ def train_one_epoch(model, loader, exemplar_provider, optimizer, scaler,
         if step % 20 == 0 or step + 1 == steps:
             print(
                 'Epoch {:03d} [{:04d}/{:04d}] loss {:.4f} '
-                'ReSA {:.4f} proto {:.4f} mix-p {:.4f} mix-i {:.4f} '
+                'ReSA {:.4f} (H {:.4f}, KL {:.4f}) proto {:.4f} '
+                'mix-p {:.4f} mix-i {:.4f} '
                 'lr {:.6f} head_lr {:.6f} m {:.6f}'.format(
                     epoch + 1, step + 1, steps, values['loss'],
-                    values['cluster'], values['proto'],
+                    values['cluster'], values['cluster_entropy'],
+                    values['cluster_kl'], values['proto'],
                     values['mix_proto'], values['mix_ins'],
                     backbone_lr, head_lr, momentum), flush=True)
 
@@ -729,8 +750,10 @@ def main(args):
                 handle.write(json.dumps(row) + '\n')
             print(
                 'Epoch {:03d} mean loss {:.4f} | ReSA {:.4f} | '
-                'prototype {:.4f} | queue {}'.format(
-                    epoch + 1, means['loss'], means['cluster'], means['proto'],
+                'H {:.4f} | KL {:.4f} | prototype {:.4f} | queue {}'.format(
+                    epoch + 1, means['loss'], means['cluster'],
+                    means['cluster_entropy'], means['cluster_kl'],
+                    means['proto'],
                     int(model_without_ddp.queue_filled.item())))
         completed = epoch + 1
         if completed % args.save_interval == 0 or completed == args.epochs:

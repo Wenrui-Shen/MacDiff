@@ -127,6 +127,9 @@ class MacDiffStage2Encoder(nn.Module):
         self.input_std = tuple(math.sqrt(float(value)) for value in input_var)
         self.self_shift = bool(self_shift)
         self.checkpoint_blocks = bool(checkpoint_blocks)
+        self.num_tokens = (
+            (int(num_frames) // int(t_patch_size))
+            * (int(num_joints) // int(patch_size)))
 
         self.joints_embed = SkeleEmbed(
             dim_in, dim_feat, num_frames, num_joints, patch_size,
@@ -157,20 +160,41 @@ class MacDiffStage2Encoder(nn.Module):
         trunc_normal_(self.temp_embed, std=0.02)
         trunc_normal_(self.pos_embed, std=0.02)
 
-    def _random_mask(self, tokens):
+    def sample_mask_indices(self, skeleton):
+        """Draw one visible-token set that can be reused by q/k branches."""
+        if self.mask_ratio <= 0.0:
+            return None
+        if skeleton.ndim != 5:
+            raise ValueError('Skeleton input must have shape [N,C,T,V,M]')
+        people = 1 if self.one_person else skeleton.shape[-1]
+        batch_size = skeleton.shape[0] * people
+        keep = round(self.num_tokens * (1.0 - self.mask_ratio))
+        if keep <= 0:
+            raise ValueError('Stage2 mask_ratio leaves no visible token')
+        return torch.argsort(torch.rand(
+            batch_size, self.num_tokens, device=skeleton.device), dim=1
+        )[:, :keep]
+
+    def _random_mask(self, tokens, mask_indices=None):
         if self.mask_ratio <= 0.0:
             return tokens
         batch_size, length, dim = tokens.shape
         keep = round(length * (1.0 - self.mask_ratio))
         if keep <= 0:
             raise ValueError('Stage2 mask_ratio leaves no visible token')
-        ids = torch.argsort(
-            torch.rand(batch_size, length, device=tokens.device), dim=1
-        )[:, :keep]
+        if mask_indices is None:
+            mask_indices = torch.argsort(torch.rand(
+                batch_size, length, device=tokens.device), dim=1
+            )[:, :keep]
+        if tuple(mask_indices.shape) != (batch_size, keep):
+            raise ValueError(
+                'Stage2 mask indices must have shape [{},{}]'.format(
+                    batch_size, keep))
+        ids = mask_indices.to(device=tokens.device, dtype=torch.long)
         return torch.gather(
             tokens, 1, ids.unsqueeze(-1).expand(-1, -1, dim))
 
-    def forward_features(self, skeleton):
+    def forward_features(self, skeleton, mask_indices=None):
         if skeleton.ndim != 5:
             raise ValueError('Skeleton input must have shape [N,C,T,V,M]')
         if self.one_person:
@@ -195,7 +219,7 @@ class MacDiffStage2Encoder(nn.Module):
             + self.pos_embed[:, :, :joint_patches]
             + self.temp_embed[:, :temporal_patches]
         ).reshape(batch_size * people, temporal_patches * joint_patches, dim)
-        tokens = self._random_mask(tokens)
+        tokens = self._random_mask(tokens, mask_indices=mask_indices)
 
         for block in self.blocks:
             if (self.checkpoint_blocks and self.training and
@@ -360,15 +384,19 @@ class MacDiffStage2(nn.Module):
         fused_groups = F.normalize(fused_groups, dim=2)
         return F.normalize(fused_groups.mean(dim=1), dim=1)
 
-    def _online_projection(self, skeleton, ose_branch=False):
-        features = self.encoder_q.forward_features(skeleton)
+    def _online_projection(self, skeleton, ose_branch=False,
+                           mask_indices=None):
+        features = self.encoder_q.forward_features(
+            skeleton, mask_indices=mask_indices)
         projector = (
             self.ose_online_projector if ose_branch else self.projector_q)
         return F.normalize(projector(features), dim=1)
 
-    def _online_exemplar_projection(self, skeleton, preserve_bn=False):
+    def _online_exemplar_projection(self, skeleton, preserve_bn=False,
+                                    mask_indices=None):
         if not preserve_bn:
-            return self._online_projection(skeleton, ose_branch=True)
+            return self._online_projection(
+                skeleton, ose_branch=True, mask_indices=mask_indices)
         projector = self.ose_online_projector
         bn_state = []
         for module in (self.encoder_q, projector):
@@ -380,14 +408,15 @@ class MacDiffStage2(nn.Module):
                     # changing the long-term BN buffers for extra JMB groups.
                     child.track_running_stats = False
         try:
-            return self._online_projection(skeleton, ose_branch=True)
+            return self._online_projection(
+                skeleton, ose_branch=True, mask_indices=mask_indices)
         finally:
             for child, track_running_stats in bn_state:
                 child.track_running_stats = track_running_stats
 
     @torch.no_grad()
     def _teacher_projection(self, skeleton, ose_branch=False,
-                            preserve_bn=False):
+                            preserve_bn=False, mask_indices=None):
         projector = (
             self.ose_teacher_projector if ose_branch else self.projector_k)
         modules = (self.encoder_k, projector)
@@ -408,7 +437,8 @@ class MacDiffStage2(nn.Module):
                             if child.num_batches_tracked is not None else None,
                         ))
         try:
-            features = self.encoder_k.forward_features(skeleton)
+            features = self.encoder_k.forward_features(
+                skeleton, mask_indices=mask_indices)
             return F.normalize(projector(features), dim=1)
         finally:
             for child, mean, var, count in bn_state:
@@ -472,9 +502,19 @@ class MacDiffStage2(nn.Module):
         if mixed_view is None or mix_index is None or mix_beta is None:
             raise ValueError('Stage2 mixed losses require mixed inputs')
 
+        # A view uses one explicit visible-token set in both online and EMA
+        # branches. With MacDiff's 90% masking, independently drawing q/k
+        # masks would leave only 7.5 shared tokens in expectation and flatten
+        # the ReSA relation target toward the log(global_batch) entropy floor.
+        view_masks = [
+            self.encoder_q.sample_mask_indices(view_a),
+            self.encoder_q.sample_mask_indices(view_b),
+        ]
         raw_h = [
-            self.encoder_q.forward_features(view_a),
-            self.encoder_q.forward_features(view_b),
+            self.encoder_q.forward_features(
+                view_a, mask_indices=view_masks[0]),
+            self.encoder_q.forward_features(
+                view_b, mask_indices=view_masks[1]),
         ]
         online_h = [F.normalize(value, dim=1) for value in raw_h]
         raw_z = [self.projector_q(value) for value in raw_h]
@@ -490,17 +530,27 @@ class MacDiffStage2(nn.Module):
             online_ose_z = online_z
 
         with _fixed_rng(exemplar_mask_seed, view_a.device):
+            # Each K=2 augmentation owns one visible-token set. Joint, motion
+            # and bone within that group reuse it so structural fusion is not
+            # confounded by three unrelated 10%-visible subsets.
+            exemplar_group_masks = [
+                self.encoder_q.sample_mask_indices(group[0])
+                for group in exemplar_groups
+            ]
             online_group_anchors = [
                 self._online_exemplar_projection(
-                    group[0], preserve_bn=(index > 0))
+                    group[0], preserve_bn=(index > 0),
+                    mask_indices=exemplar_group_masks[index])
                 for index, group in enumerate(exemplar_groups)
             ]
 
         with torch.no_grad():
             self.momentum_update(momentum)
             teacher_raw_h = [
-                self.encoder_k.forward_features(view_a),
-                self.encoder_k.forward_features(view_b),
+                self.encoder_k.forward_features(
+                    view_a, mask_indices=view_masks[0]),
+                self.encoder_k.forward_features(
+                    view_b, mask_indices=view_masks[1]),
             ]
             teacher_h = [
                 F.normalize(value, dim=1) for value in teacher_raw_h]
@@ -512,18 +562,15 @@ class MacDiffStage2(nn.Module):
                 F.normalize(self.ose_teacher_projector(value), dim=1)
                 for value in teacher_raw_h
             ]
-            with _fixed_rng(
-                    None if exemplar_mask_seed is None
-                    else int(exemplar_mask_seed) + 1,
-                    view_a.device):
-                teacher_group_extras = [
-                    torch.stack([
-                        self._teacher_projection(
-                            value, ose_branch=True, preserve_bn=True)
-                        for value in group[1:]
-                    ], dim=1)
-                    for group in exemplar_groups
-                ]
+            teacher_group_extras = [
+                torch.stack([
+                    self._teacher_projection(
+                        value, ose_branch=True, preserve_bn=True,
+                        mask_indices=exemplar_group_masks[index])
+                    for value in group[1:]
+                ], dim=1)
+                for index, group in enumerate(exemplar_groups)
+            ]
 
         global_online_h = _concat_all_gather(online_h[0].detach())
         global_teacher_h = _concat_all_gather(teacher_h[0].detach())
@@ -553,6 +600,10 @@ class MacDiffStage2(nn.Module):
                     logits, assignment)
                 terms += 1
         cluster_loss = cluster_loss / max(terms, 1)
+        cluster_entropy = -(
+            assignment * assignment.clamp_min(1e-12).log()
+        ).sum(dim=1).mean()
+        cluster_kl = cluster_loss - cluster_entropy
 
         fused_groups = torch.stack([
             self.fuse_labeled_exemplars(anchor, extras)
@@ -615,6 +666,8 @@ class MacDiffStage2(nn.Module):
 
         return {
             'cluster': cluster_loss,
+            'cluster_entropy': cluster_entropy.detach(),
+            'cluster_kl': cluster_kl.detach(),
             'proto': prototype_loss,
             'align': align_loss.detach(),
             'disp': dispersion_loss.detach(),
