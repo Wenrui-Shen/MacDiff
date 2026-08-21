@@ -12,6 +12,8 @@ LOG_DIR="${LOG_DIR:-${OUTPUT_DIR}/tensorboard}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 MASTER_PORT="${MASTER_PORT:-10237}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
+BACKBONE_LR="${BACKBONE_LR:-0.25}"
+HEAD_LR="${HEAD_LR:-0.25}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
@@ -33,12 +35,16 @@ if [[ "${NPROC_PER_NODE}" -gt 1 ]]; then
         --stage1_weights "${STAGE1_CHECKPOINT}" \
         --output_dir "${OUTPUT_DIR}" \
         --log_dir "${LOG_DIR}" \
-        --batch_size "${BATCH_SIZE}"
+        --batch_size "${BATCH_SIZE}" \
+        --lr "${BACKBONE_LR}" \
+        --head_lr "${HEAD_LR}"
 else
     "${PYTHON_BIN}" main_pretrain_stage2.py \
         --config "${CONFIG}" \
         --stage1_weights "${STAGE1_CHECKPOINT}" \
         --output_dir "${OUTPUT_DIR}" \
         --log_dir "${LOG_DIR}" \
-        --batch_size "${BATCH_SIZE}"
+        --batch_size "${BATCH_SIZE}" \
+        --lr "${BACKBONE_LR}" \
+        --head_lr "${HEAD_LR}"
 fi
