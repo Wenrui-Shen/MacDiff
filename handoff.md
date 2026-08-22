@@ -203,3 +203,5 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 BACKBO
 - 本机默认Windows Python launcher不可执行，Codex bundled Python没有PyTorch，
   因此没有在本机运行GPU/PyTorch单测。服务器启动脚本会先运行
   `python -m unittest tests.test_stage2`。
+- PyTorch 1.8不支持SyncBatchNorm的CPU forward；相关测试已拆成CPU普通BN行为测试
+  与不执行forward的SyncBN结构转换测试。正式双卡SyncBN仍在CUDA DDP中运行。

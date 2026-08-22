@@ -246,13 +246,13 @@ class MacDiffStage2Test(unittest.TestCase):
         self.assertTrue(any(value is not None for value in encoder_resa))
         self.assertTrue(any(value is not None for value in encoder_ose))
 
-    def test_extra_joint_view_preserves_sync_bn_and_retains_gradient(self):
-        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self._model())
+    def test_extra_joint_view_preserves_bn_and_retains_gradient(self):
+        # Keep the forward test on ordinary CPU BatchNorm. PyTorch 1.8
+        # rejects SyncBatchNorm CPU forwards even without initialized DDP;
+        # production SyncBatchNorm runs on one CUDA device per DDP process.
+        model = self._model()
         model.train()
         projector = model.ose_online_projector
-        self.assertTrue(any(
-            isinstance(module, torch.nn.SyncBatchNorm)
-            for module in projector.modules()))
         before = {
             name: value.clone()
             for name, value in projector.state_dict().items()
@@ -267,6 +267,15 @@ class MacDiffStage2Test(unittest.TestCase):
         after = projector.state_dict()
         for name, value in before.items():
             self.assertTrue(torch.equal(value, after[name]))
+
+    def test_stage2_heads_convert_to_sync_batch_norm(self):
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self._model())
+        self.assertTrue(any(
+            isinstance(module, torch.nn.SyncBatchNorm)
+            for module in model.ose_online_projector.modules()))
+        self.assertTrue(any(
+            isinstance(module, torch.nn.SyncBatchNorm)
+            for module in model.projector_q.modules()))
 
     def test_k2_exemplar_provider_builds_two_joint_views(self):
         dataset = _AugmentedExemplarDataset()
