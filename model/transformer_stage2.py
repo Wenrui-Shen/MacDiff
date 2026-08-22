@@ -3,8 +3,8 @@
 Stage2 deliberately owns a fresh online/EMA encoder pair and fresh heads.  A
 Stage1 MacDiff checkpoint is transferred by :func:`transfer_macdiff_stage1`;
 the diffusion decoder, Stage1 momentum encoder, OSE memory and optimizer state
-are never imported.  The current prototype path uses two independently
-augmented complete J/M/B groups and ensembles their normalized JMB anchors.
+are never imported.  The current prototype path uses independently augmented
+Joint exemplars only and ensembles their normalized anchors.
 """
 
 import copy
@@ -85,7 +85,7 @@ class MacDiffStage2Encoder(nn.Module):
 
     Stage2 keeps 10% of skeleton tokens, pools visible temporal tokens within
     each joint, and flattens the joint grid as downstream ``linprobe2`` does.
-    Explicit mask indices align related online/EMA and J/M/B paths.
+    Explicit mask indices align related online/EMA paths.
     """
 
     def __init__(
@@ -363,35 +363,13 @@ class MacDiffStage2(nn.Module):
         return assignment.t().detach()
 
     @staticmethod
-    def fuse_labeled_exemplars(online_exemplar, ema_exemplars=None):
-        online_exemplar = F.normalize(online_exemplar, dim=1)
-        if ema_exemplars is None:
-            return online_exemplar
-        if ema_exemplars.ndim != 3:
-            raise ValueError('EMA exemplars must have shape [C,R,D]')
-        expected = (
-            online_exemplar.shape[0], ema_exemplars.shape[1],
-            online_exemplar.shape[1])
-        if tuple(ema_exemplars.shape) != expected:
-            raise ValueError('EMA exemplars do not align with online anchors')
-        ema_exemplars = F.normalize(ema_exemplars, dim=2)
-        components = torch.cat([
-            online_exemplar.unsqueeze(1), ema_exemplars,
-        ], dim=1)
-        scores = torch.sum(
-            components * online_exemplar.unsqueeze(1), dim=2)
-        weights = torch.softmax(scores, dim=1)
-        return F.normalize(
-            torch.sum(weights.unsqueeze(2) * components, dim=1), dim=1)
-
-    @staticmethod
-    def ensemble_labeled_exemplars(fused_groups):
-        if fused_groups.ndim != 3:
-            raise ValueError('Fused groups must have shape [C,K,D]')
-        if fused_groups.shape[1] < 1:
-            raise ValueError('At least one complete JMB group is required')
-        fused_groups = F.normalize(fused_groups, dim=2)
-        return F.normalize(fused_groups.mean(dim=1), dim=1)
+    def ensemble_labeled_exemplars(joint_views):
+        if joint_views.ndim != 3:
+            raise ValueError('Joint views must have shape [C,K,D]')
+        if joint_views.shape[1] < 1:
+            raise ValueError('At least one Joint exemplar view is required')
+        joint_views = F.normalize(joint_views, dim=2)
+        return F.normalize(joint_views.mean(dim=1), dim=1)
 
     def _online_projection(self, skeleton, ose_branch=False,
                            mask_indices=None):
@@ -411,10 +389,11 @@ class MacDiffStage2(nn.Module):
         for module in (self.encoder_q, projector):
             for child in module.modules():
                 if isinstance(child, (
-                        nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d)):
+                        nn.BatchNorm1d, nn.BatchNorm2d, nn.BatchNorm3d,
+                        nn.SyncBatchNorm)):
                     bn_state.append((child, child.track_running_stats))
                     # Use batch statistics and retain gradients without
-                    # changing the long-term BN buffers for extra JMB groups.
+                    # changing long-term BN buffers for extra Joint views.
                     child.track_running_stats = False
         try:
             return self._online_projection(
@@ -423,46 +402,11 @@ class MacDiffStage2(nn.Module):
             for child, track_running_stats in bn_state:
                 child.track_running_stats = track_running_stats
 
-    @torch.no_grad()
-    def _teacher_projection(self, skeleton, ose_branch=False,
-                            preserve_bn=False, mask_indices=None):
-        projector = (
-            self.ose_teacher_projector if ose_branch else self.projector_k)
-        modules = (self.encoder_k, projector)
-        bn_state = []
-        if preserve_bn:
-            for module in modules:
-                for child in module.modules():
-                    if isinstance(child, (
-                            nn.BatchNorm1d, nn.BatchNorm2d,
-                            nn.BatchNorm3d)):
-                        bn_state.append((
-                            child,
-                            child.running_mean.clone()
-                            if child.running_mean is not None else None,
-                            child.running_var.clone()
-                            if child.running_var is not None else None,
-                            child.num_batches_tracked.clone()
-                            if child.num_batches_tracked is not None else None,
-                        ))
-        try:
-            features = self.encoder_k.forward_features(
-                skeleton, mask_indices=mask_indices)
-            return F.normalize(projector(features), dim=1)
-        finally:
-            for child, mean, var, count in bn_state:
-                if mean is not None:
-                    child.running_mean.copy_(mean)
-                if var is not None:
-                    child.running_var.copy_(var)
-                if count is not None:
-                    child.num_batches_tracked.copy_(count)
-
     def forward(
         self,
         view_a,
         view_b,
-        exemplar_groups,
+        exemplar_views,
         momentum=0.996,
         ose_tau_s=0.1,
         ose_tau_t=0.04,
@@ -471,19 +415,18 @@ class MacDiffStage2(nn.Module):
         mix_beta=None,
         exemplar_mask_seed=None,
     ):
-        if not isinstance(exemplar_groups, (tuple, list)):
-            raise ValueError('exemplar_groups must be a list or tuple')
-        if not exemplar_groups:
-            raise ValueError('Stage2 requires at least one JMB group')
+        if not isinstance(exemplar_views, (tuple, list)):
+            raise ValueError('exemplar_views must be a list or tuple')
+        if not exemplar_views:
+            raise ValueError('Stage2 requires at least one Joint view')
         class_count = None
-        for group in exemplar_groups:
-            if not isinstance(group, (tuple, list)) or len(group) != 3:
-                raise ValueError(
-                    'Every exemplar group must contain Joint/Motion/Bone')
+        for joint in exemplar_views:
+            if not torch.is_tensor(joint) or joint.ndim != 5:
+                raise ValueError('Every exemplar view must be a Joint tensor')
             if class_count is None:
-                class_count = group[0].shape[0]
-            if any(value.shape[0] != class_count for value in group):
-                raise ValueError('All exemplar groups must align by class')
+                class_count = joint.shape[0]
+            if joint.shape[0] != class_count:
+                raise ValueError('All Joint views must align by class')
         if mixed_view is None or mix_index is None or mix_beta is None:
             raise ValueError('Stage2 mixed losses require mixed inputs')
 
@@ -514,18 +457,18 @@ class MacDiffStage2(nn.Module):
             online_ose_z = online_z
 
         with _fixed_rng(exemplar_mask_seed, view_a.device):
-            # Joint/Motion/Bone within one K=2 augmentation reuse a single
-            # aligned visible-token set; the two augmentations remain
-            # independently masked.
-            exemplar_group_masks = [
-                self.encoder_q.sample_mask_indices(group[0])
-                for group in exemplar_groups
+            # Each augmented Joint view has its own visible-token set. Online
+            # processing is the only exemplar branch; Motion/Bone and their
+            # EMA projections are intentionally absent.
+            exemplar_view_masks = [
+                self.encoder_q.sample_mask_indices(joint)
+                for joint in exemplar_views
             ]
-            online_group_anchors = [
+            online_joint_anchors = [
                 self._online_exemplar_projection(
-                    group[0], preserve_bn=(index > 0),
-                    mask_indices=exemplar_group_masks[index])
-                for index, group in enumerate(exemplar_groups)
+                    joint, preserve_bn=(index > 0),
+                    mask_indices=exemplar_view_masks[index])
+                for index, joint in enumerate(exemplar_views)
             ]
 
         with torch.no_grad():
@@ -546,16 +489,6 @@ class MacDiffStage2(nn.Module):
                 F.normalize(self.ose_teacher_projector(value), dim=1)
                 for value in teacher_raw_h
             ]
-            teacher_group_extras = [
-                torch.stack([
-                    self._teacher_projection(
-                        value, ose_branch=True, preserve_bn=True,
-                        mask_indices=exemplar_group_masks[index])
-                    for value in group[1:]
-                ], dim=1)
-                for index, group in enumerate(exemplar_groups)
-            ]
-
         global_online_h = _concat_all_gather(online_h[0].detach())
         global_teacher_h = _concat_all_gather(teacher_h[0].detach())
         global_assignment = self.sinkhorn_knopp(torch.matmul(
@@ -589,12 +522,8 @@ class MacDiffStage2(nn.Module):
         ).sum(dim=1).mean()
         cluster_kl = cluster_loss - cluster_entropy
 
-        fused_groups = torch.stack([
-            self.fuse_labeled_exemplars(anchor, extras)
-            for anchor, extras in zip(
-                online_group_anchors, teacher_group_extras)
-        ], dim=1)
-        prototypes = self.ensemble_labeled_exemplars(fused_groups)
+        joint_views = torch.stack(online_joint_anchors, dim=1)
+        prototypes = self.ensemble_labeled_exemplars(joint_views)
         student_logits = torch.matmul(
             online_ose_z[1], prototypes.t()) / max(float(ose_tau_s), 1e-12)
         teacher_logits = torch.matmul(

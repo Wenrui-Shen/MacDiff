@@ -1,6 +1,6 @@
 # MacDiff Joint-aware ReSA+OSE Stage2 交接
 
-更新时间：2026-08-21
+更新时间：2026-08-22
 
 ## 1. 当前任务
 
@@ -25,11 +25,12 @@ Stage1 权重必须使用：
   `config/ntu60_xsub_joint/pretrain_madiff_stage2.yaml` 和启动脚本。
 - 仅从Stage1转移在线骨架encoder；diffusion decoder、optimizer、EMA和旧OSE状态
   均不转移。
-- Stage2包含ReSA、独立OSE projector、K=2原型、mixed prototype loss和mixed
-  instance loss。
-- K=2表示每类独立增强两次；每次包含Joint在线anchor以及Motion/Bone EMA特征，
-  共六个embedding。
-- 双卡使用标准DDP；关系矩阵、mixed permutation和instance keys跨卡构造。
+- Stage2包含ReSA、独立OSE projector、K=2 Joint-only原型、mixed prototype loss和
+  mixed instance loss。
+- K=2表示每类Joint样本独立增强两次，共两个Joint embedding。Motion/Bone构造和
+  对应EMA exemplar分支已经删除，不能再按旧的六embedding语义理解。
+- 双卡使用标准DDP；关系矩阵、mixed permutation和instance keys跨卡构造；
+  projector/predictor的BN会转换为SyncBatchNorm，使无标签分支统计对应全局batch128。
 - fresh run若输出目录是 `./output_dir/` 下明确的子目录，会自动删除并重建；
   resume不会删除。
 - 每10轮保存完整Stage2 checkpoint和仅含 `encoder_q` 的LP backbone。
@@ -49,7 +50,7 @@ Stage1 权重必须使用：
 
 - `mask_ratio=0.9`，每条样本保留75/750 token。
 - 同一个无标签view的online/EMA共享同一组mask indices。
-- 每个K=2组内部Joint/Motion/Bone共享对齐mask；两次独立增强使用不同mask。
+- 两个Joint-only exemplar增强分别使用独立mask；不再存在Motion/Bone mask。
 - 仍是全局随机75个token；尚未改成每joint固定抽3个token。用户要求本轮只改
   joint-aware pooling，其他先不改。
 
@@ -86,10 +87,31 @@ ln(128) = 4.852
 
 不要再把raw ReSA约4.8简单解释为loss权重错误；必须分别看H和KL。
 
+### 2.6 Joint-only原型与SyncBN改造
+
+2026-08-22新增两项对照修改：
+
+- `ExemplarProvider`只产生K个Joint增强，不再构造Motion和Bone；
+- 原型直接对K个归一化Joint anchor取均值；当前K=2即两个Joint anchor；
+- 删除已经无调用的teacher Motion/Bone exemplar projection和JMB融合逻辑；
+- DDP默认`sync_batchnorm: True`，在包装DDP前转换模型中的BN；
+- 额外Joint view仍使用batch statistics但不更新长期running buffers，且该逻辑兼容
+  `SyncBatchNorm`；
+- mask协议名更新为`shared_qk_joint_v1`，因此不能resume旧JMB Stage2 checkpoint。
+
+### 2.7 Stage2增强关闭
+
+为隔离MacDiff Stage1/Stage2增强分布跳变，当前配置已将
+`augmentation_probability`设为`0.0`。temporal crop、shear和rotation均不执行；
+基础`base_p_interval: [0.95]`裁剪/resize仍保留。无标签view A/B和K=2 Joint
+exemplar仍分别抽取独立的90%随机mask，因此训练并非两个完全相同的输入分支。
+
 ## 3. 当前阻塞点：ReSA正常但LP下降
 
-Stage1 checkpoint的LP约85.86，joint-aware Stage2训练后LP仍下降。最可能原因是
-直接照搬AimCLR/ST-GCN的Stage2学习率破坏了MacDiff Transformer backbone：
+Stage1 checkpoint的LP约85.86，joint-aware Stage2训练后LP仍下降。需要同时验证
+backbone更新速度、稀疏mask关系目标和原型质量。用户补充PSTL也存在Stage1 AdamW、
+Stage2 SGD且表现良好的先例，因此不要把“AdamW切换SGD”本身当作主要原因。
+当前仍保留低backbone LR对照，因为数值0.25相对MacDiff预训练LR仍可能造成漂移：
 
 - MacDiff Stage1：AdamW，backbone LR `1e-3`；
 - MacDiff finetune：LR `5e-4`；
@@ -129,10 +151,10 @@ shape加载错误，而是encoder参数本身发生了不利漂移。
 CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 BATCH_SIZE=64 LP_ROOT=./output_dir/ntu60_xsub_macdiff_stage2_seed0_lp_sweep bash script_linprobe_stage2_sweep.sh ./output_dir/ntu60_xsub_macdiff_stage2_seed0
 ```
 
-低LR新实验完成后的sweep命令：
+当前Joint-only + SyncBN低LR实验完成后的sweep命令：
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 BATCH_SIZE=64 LP_ROOT=./output_dir/ntu60_xsub_macdiff_stage2_seed0_lr1e3_lp_sweep bash script_linprobe_stage2_sweep.sh ./output_dir/ntu60_xsub_macdiff_stage2_seed0_lr1e3
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 BATCH_SIZE=64 LP_ROOT=./output_dir/ntu60_xsub_macdiff_stage2_jointonly_noaug_syncbn_lr1e3_lp_sweep bash script_linprobe_stage2_sweep.sh ./output_dir/ntu60_xsub_macdiff_stage2_jointonly_noaug_syncbn_lr1e3
 ```
 
 ## 5. 低backbone LR训练命令
@@ -140,39 +162,43 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 BATCH_SIZE=64 LP_ROOT=./output_dir/ntu
 `script_pretrain_stage2.sh` 现在支持 `BACKBONE_LR` 和 `HEAD_LR` 环境变量。
 
 ```bash
-CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 BACKBONE_LR=0.001 HEAD_LR=0.25 OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff_stage2_seed0_lr1e3 OMP_NUM_THREADS=1 bash script_pretrain_stage2.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 BACKBONE_LR=0.001 HEAD_LR=0.25 OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff_stage2_jointonly_noaug_syncbn_lr1e3 OMP_NUM_THREADS=1 bash script_pretrain_stage2.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
 ```
 
 ## 6. 下一步计划
 
-1. 对现有LR=0.25实验的10/20/.../100 backbone运行LP sweep，得到下降曲线。
-2. 用backbone LR `0.001`、head LR `0.25`从Stage1重新训练，不能resume旧Stage2。
-3. 对低LR实验运行同样LP sweep。
+1. 从Stage1 fresh run当前Joint-only + no-augmentation + SyncBN版本，不能resume任何
+   旧JMB或有增强Stage2。
+2. 优先用backbone LR `0.001`、head LR `0.25`训练，并逐10轮运行LP sweep。
+3. 如果需要严格拆变量，再用同一LR分别运行`sync_batchnorm=False`或K=1；不要把
+   多项改动混进同一个对照。
 4. 比较相同epoch：
    - 若旧实验第10轮即大降而低LR保持，确认是catastrophic backbone drift；
    - 若两者均前期高、后期下降，缩短Stage2或选择最佳中间checkpoint；
    - 若低LR仍持续下降，再记录encoder parameter drift、ReSA/OSE backbone梯度范数
      与梯度余弦，判断目标冲突。
-5. 在上述对照完成前，不继续修改Sinkhorn温度、loss权重、mask策略或原型结构，
+5. 在上述对照完成前，不继续修改Sinkhorn温度、loss权重或mask策略，
    避免同时改变多个变量。
 
 ## 7. 绝对不要再踩的坑
 
 1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、
    全750 token以及分类头前BN。
-2. 不要再用100% token训练当前K=2六分支Stage2；6GB显卡即使每卡batch16也OOM。
-3. 不要通过继续减普通batch解决全输入OOM；60类六原型是固定显存开销。
+2. 旧K=2六embedding版本使用100% token时，6GB显卡即使每卡batch16也OOM；当前
+   Joint-only虽减少了原型分支，但本轮对照仍保持10%输入，不要同时切100%。
+3. 不要通过继续减普通batch掩盖原型分支的固定显存开销。
 4. 不要重新加入checkpoint blocks、encoder chunk、手动梯度同步或Stage2 queue。
 5. 不要把Stage1路径写回 `ntu60_xsub_ose`；必须是 `ntu60_xsub_macdiff`。
 6. `batch_size` 是每GPU大小；双卡每卡64才是全局128。
 7. 不要用旧的256维Stage2 checkpoint resume joint-aware版本；projector shape不兼容。
-8. mask协议变化或模型结构变化后必须fresh run。
+8. mask协议变化或模型结构变化后必须fresh run；当前协议是
+   `shared_qk_joint_v1`。
 9. 不要只看raw ReSA；同时看 `cluster_entropy(H)` 和 `cluster_kl`。
 10. 不要因为ReSA数值正常就断言表征更适合分类；最终必须逐checkpoint LP验证。
 
 ## 8. 验证状态
 
-- Python AST静态语法检查通过。
+- `py_compile`静态语法检查通过。
 - `git diff --check` 通过，仅有Windows工作区LF/CRLF提示。
 - 本机默认Windows Python launcher不可执行，Codex bundled Python没有PyTorch，
   因此没有在本机运行GPU/PyTorch单测。服务器启动脚本会先运行

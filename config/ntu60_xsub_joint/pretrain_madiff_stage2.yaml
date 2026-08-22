@@ -12,7 +12,9 @@ train_feeder_args:
   shear_amplitude: 0.5
   temporal_padding_ratio: 6
   augmentation_methods: [temporal_crop, shear, rotation]
-  augmentation_probability: 0.5
+  # Disable Stage2 crop/shear/rotation. The two views still differ through
+  # independently sampled 90% token masks inside the encoder.
+  augmentation_probability: 0.0
   use_mmap: True
 
 model_args:
@@ -30,8 +32,8 @@ model_args:
   drop_rate: 0.0
   attn_drop_rate: 0.0
   drop_path_rate: 0.0
-  # Keep 10% (75/750) visible tokens. Online/EMA views share indices, and
-  # Joint/Motion/Bone inside each K=2 exemplar group share aligned indices.
+  # Keep 10% (75/750) visible tokens. Online/EMA views share indices; each
+  # augmented Joint-only exemplar view draws its own visible-token set.
   mask_ratio: 0.9
   one_person: True
   input_mean: [-0.0058, -0.1333, -0.0246]
@@ -52,6 +54,7 @@ batch_size: 64
 num_workers: 8
 pin_mem: True
 enable_amp: False
+sync_batchnorm: True
 max_train_steps: 0
 save_interval: 10
 device: cuda
@@ -71,10 +74,10 @@ ema_momentum: 0.996
 exemplar_index_path: ./config/ntu60_xsub_joint/stage2_exemplar_seed0.json
 exemplar_seed: 0
 num_classes: 60
-# Latest AimCLR multi-augmentation semantics: two complete J/M/B groups.
+# Two independently augmented Joint-only exemplar views per class.
 ose_exemplar_views: 2
 
-# Dual ReSA+OSE, JMB Q0 and both mixed losses.
+# Dual ReSA+OSE with Joint-only prototypes and both mixed losses.
 resa_weight: 1.0
 ose_lambda: 1.0
 ose_mix_proto_weight: 1.0
@@ -82,4 +85,4 @@ ose_mix_ins_weight: 1.0
 ose_mix_alpha: 1.0
 ose_tau_s: 0.1
 ose_tau_t: 0.04
-mask_protocol: shared_qk_jmb_v1
+mask_protocol: shared_qk_joint_v1

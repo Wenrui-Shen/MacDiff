@@ -10,8 +10,6 @@ import torch
 
 from main_pretrain_stage2 import (
     ExemplarProvider,
-    derive_bone,
-    derive_motion,
     load_or_create_exemplars,
     prepare_output,
 )
@@ -158,20 +156,14 @@ class MacDiffStage2Test(unittest.TestCase):
         self.assertTrue(all(
             name.startswith('head.') for name in message.missing_keys))
 
-    def test_q0_jmb_forward_and_gradient_isolation(self):
+    def test_joint_only_forward_and_gradient_isolation(self):
         torch.manual_seed(7)
         model = self._model()
         model.train()
         view_a = torch.randn(4, 3, 8, 5, 1)
         view_b = torch.randn(4, 3, 8, 5, 1)
         exemplar_joint = torch.randn(3, 3, 8, 5, 1)
-        exemplar_motion = torch.randn(3, 3, 8, 5, 1)
-        exemplar_bone = torch.randn(3, 3, 8, 5, 1)
-        second_group = (
-            torch.randn(3, 3, 8, 5, 1),
-            torch.randn(3, 3, 8, 5, 1),
-            torch.randn(3, 3, 8, 5, 1),
-        )
+        second_joint = torch.randn(3, 3, 8, 5, 1)
         mix_index = torch.tensor([1, 0, 3, 2])
         mix_beta = 0.3
         mixed = mix_beta * view_b + (1.0 - mix_beta) * view_a[mix_index]
@@ -199,10 +191,7 @@ class MacDiffStage2Test(unittest.TestCase):
             losses = model(
                 view_a,
                 view_b,
-                [
-                    (exemplar_joint, exemplar_motion, exemplar_bone),
-                    second_group,
-                ],
+                [exemplar_joint, second_joint],
                 momentum=0.996,
                 mixed_view=mixed,
                 mix_index=mix_index,
@@ -213,29 +202,23 @@ class MacDiffStage2Test(unittest.TestCase):
         # q/k see the same visible tokens for each unlabeled view.
         self.assertTrue(torch.equal(online_masks[0], teacher_masks[0]))
         self.assertTrue(torch.equal(online_masks[1], teacher_masks[1]))
-        # Within each K=2 augmentation, online Joint and EMA Motion/Bone
-        # reuse one aligned visible-token set.
-        self.assertTrue(torch.equal(online_masks[2], teacher_masks[2]))
-        self.assertTrue(torch.equal(online_masks[2], teacher_masks[3]))
-        self.assertTrue(torch.equal(online_masks[3], teacher_masks[4]))
-        self.assertTrue(torch.equal(online_masks[3], teacher_masks[5]))
+        # Exemplar encoding is Joint-only: the teacher has no exemplar calls.
+        self.assertEqual(len(teacher_masks), 2)
+        self.assertEqual(len(online_masks), 5)
+        self.assertIsNotNone(online_masks[2])
+        self.assertIsNotNone(online_masks[3])
+        self.assertIsNone(online_masks[4])
 
         self.assertNotIn('queue_features', losses)
         self.assertTrue(torch.isfinite(losses['proto']))
         self.assertTrue(torch.allclose(
             losses['cluster'],
             losses['cluster_entropy'] + losses['cluster_kl']))
-        fused = model.fuse_labeled_exemplars(
-            torch.randn(3, 4), torch.randn(3, 2, 4))
-        fused_groups = torch.stack(
-            [fused, torch.randn_like(fused)], dim=1)
-        ensemble = model.ensemble_labeled_exemplars(fused_groups)
+        joint_views = torch.randn(3, 2, 4)
+        ensemble = model.ensemble_labeled_exemplars(joint_views)
         expected_ensemble = torch.nn.functional.normalize(
             torch.nn.functional.normalize(
-                fused_groups, dim=2).mean(dim=1), dim=1)
-        self.assertTrue(torch.isfinite(fused).all())
-        self.assertTrue(torch.allclose(
-            fused.norm(dim=1), torch.ones(3), atol=1e-5))
+                joint_views, dim=2).mean(dim=1), dim=1)
         self.assertTrue(torch.allclose(
             ensemble.norm(dim=1), torch.ones(3), atol=1e-5))
         self.assertTrue(torch.allclose(
@@ -263,26 +246,13 @@ class MacDiffStage2Test(unittest.TestCase):
         self.assertTrue(any(value is not None for value in encoder_resa))
         self.assertTrue(any(value is not None for value in encoder_ose))
 
-    def test_teacher_exemplar_forward_preserves_batch_norm_buffers(self):
-        model = self._model()
-        model.train()
-        projector = model.ose_teacher_projector
-        before = {
-            name: value.clone()
-            for name, value in projector.state_dict().items()
-            if ('running_' in name or 'num_batches_tracked' in name)
-        }
-        sample = torch.randn(3, 3, 8, 5, 1)
-        model._teacher_projection(
-            sample, ose_branch=True, preserve_bn=True)
-        after = projector.state_dict()
-        for name, value in before.items():
-            self.assertTrue(torch.equal(value, after[name]))
-
-    def test_extra_online_exemplar_preserves_bn_and_retains_gradient(self):
-        model = self._model()
+    def test_extra_joint_view_preserves_sync_bn_and_retains_gradient(self):
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(self._model())
         model.train()
         projector = model.ose_online_projector
+        self.assertTrue(any(
+            isinstance(module, torch.nn.SyncBatchNorm)
+            for module in projector.modules()))
         before = {
             name: value.clone()
             for name, value in projector.state_dict().items()
@@ -298,17 +268,15 @@ class MacDiffStage2Test(unittest.TestCase):
         for name, value in before.items():
             self.assertTrue(torch.equal(value, after[name]))
 
-    def test_k2_exemplar_provider_builds_two_complete_jmb_groups(self):
+    def test_k2_exemplar_provider_builds_two_joint_views(self):
         dataset = _AugmentedExemplarDataset()
         provider = ExemplarProvider(dataset, [0, 1, 2])
-        groups = provider.jmb_groups(torch.device('cpu'), num_views=2)
+        views = provider.joint_views(torch.device('cpu'), num_views=2)
         self.assertEqual(dataset.augmentation_calls, 6)
-        self.assertEqual(len(groups), 2)
-        self.assertTrue(all(len(group) == 3 for group in groups))
-        self.assertFalse(torch.equal(groups[0][0], groups[1][0]))
-        for joint, motion, bone in groups:
-            self.assertTrue(torch.equal(motion, derive_motion(joint)))
-            self.assertTrue(torch.equal(bone, derive_bone(joint)))
+        self.assertEqual(len(views), 2)
+        self.assertTrue(all(tuple(view.shape) == (3, 3, 4, 25, 1)
+                            for view in views))
+        self.assertFalse(torch.equal(views[0], views[1]))
 
     def test_two_views_draw_augmentations_independently(self):
         feeder = FeederStage2.__new__(FeederStage2)
@@ -330,18 +298,6 @@ class MacDiffStage2Test(unittest.TestCase):
             second = feeder.augment(sample)
         self.assertTrue(np.all(first == 1.0))
         self.assertTrue(np.all(second == 10.0))
-
-    def test_motion_and_bone_share_the_joint_tensor(self):
-        joint = torch.arange(
-            1 * 3 * 4 * 25 * 1, dtype=torch.float32
-        ).view(1, 3, 4, 25, 1)
-        motion = derive_motion(joint)
-        bone = derive_bone(joint)
-        self.assertTrue(torch.equal(
-            motion[:, :, :-1], joint[:, :, 1:] - joint[:, :, :-1]))
-        self.assertEqual(torch.count_nonzero(motion[:, :, -1]).item(), 0)
-        self.assertTrue(torch.equal(
-            bone[:, :, :, 0], joint[:, :, :, 0] - joint[:, :, :, 1]))
 
     def test_exemplar_cache_records_and_validates_seed(self):
         dataset = _LabelDataset()

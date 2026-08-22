@@ -30,14 +30,6 @@ from model.transformer_stage2 import (
 )
 
 
-NTU_BONE_PAIRS = (
-    (1, 2), (2, 21), (3, 21), (4, 3), (5, 21),
-    (6, 5), (7, 6), (8, 7), (9, 21), (10, 9),
-    (11, 10), (12, 11), (13, 1), (14, 13), (15, 14),
-    (16, 15), (17, 1), (18, 17), (19, 18), (20, 19),
-    (21, 21), (22, 23), (23, 8), (24, 25), (25, 12),
-)
-
 TRAIN_METRICS = (
     'loss', 'cluster', 'cluster_entropy', 'cluster_kl', 'proto', 'align',
     'disp', 'mix_proto', 'mix_ins', 'ema_momentum',
@@ -50,7 +42,8 @@ RESUME_CONTRACT_FIELDS = (
     'nesterov', 'ema_momentum', 'exemplar_index_path', 'exemplar_seed',
     'num_classes', 'ose_exemplar_views', 'resa_weight', 'ose_lambda',
     'ose_mix_proto_weight', 'ose_mix_ins_weight', 'ose_mix_alpha',
-    'ose_tau_s', 'ose_tau_t', 'mask_protocol', 'world_size',
+    'ose_tau_s', 'ose_tau_t', 'mask_protocol', 'sync_batchnorm',
+    'world_size',
 )
 
 
@@ -100,6 +93,7 @@ def get_args_parser():
     parser.add_argument('--local_rank', '--local-rank', default=-1, type=int)
     parser.add_argument('--dist_url', default='env://')
     parser.add_argument('--dist_on_itp', action='store_true')
+    parser.add_argument('--sync_batchnorm', type=str2bool, default=True)
 
     parser.add_argument('--lr', default=0.25, type=float)
     parser.add_argument('--head_lr', default=0.25, type=float)
@@ -122,7 +116,7 @@ def get_args_parser():
     parser.add_argument('--ose_tau_s', default=0.1, type=float)
     parser.add_argument('--ose_tau_t', default=0.04, type=float)
     parser.add_argument(
-        '--mask_protocol', default='shared_qk_jmb_v1', type=str)
+        '--mask_protocol', default='shared_qk_joint_v1', type=str)
 
     return parser
 
@@ -178,12 +172,12 @@ def validate_args(args):
         raise ValueError('num_classes must be positive')
     if args.ose_exemplar_views < 1:
         raise ValueError('ose_exemplar_views must be at least 1')
-    if args.mask_protocol != 'shared_qk_jmb_v1':
+    if args.mask_protocol != 'shared_qk_joint_v1':
         raise ValueError(
-            'Stage2 requires mask_protocol=shared_qk_jmb_v1')
+            'Stage2 requires mask_protocol=shared_qk_joint_v1')
     if float(args.model_args.get('mask_ratio', -1.0)) != 0.9:
         raise ValueError(
-            'shared_qk_jmb_v1 requires model_args.mask_ratio=0.9')
+            'shared_qk_joint_v1 requires model_args.mask_ratio=0.9')
     if not args.exemplar_index_path:
         raise ValueError('exemplar_index_path must be set')
     if not args.output_dir:
@@ -257,38 +251,21 @@ def load_or_create_exemplars(dataset, path, seed, num_classes):
     return class_ids, indices
 
 
-def derive_motion(skeleton):
-    motion = torch.zeros_like(skeleton)
-    motion[:, :, :-1] = skeleton[:, :, 1:] - skeleton[:, :, :-1]
-    return motion
-
-
-def derive_bone(skeleton):
-    if skeleton.shape[3] != 25:
-        raise ValueError('NTU Stage2 bone stream requires 25 joints')
-    bone = torch.zeros_like(skeleton)
-    for first, second in NTU_BONE_PAIRS:
-        bone[:, :, :, first - 1] = (
-            skeleton[:, :, :, first - 1]
-            - skeleton[:, :, :, second - 1])
-    return bone
-
-
 class ExemplarProvider:
     def __init__(self, dataset, indices):
         self.dataset = dataset
         self.base_samples = [
             dataset.get_base_sample(index) for index in indices]
 
-    def jmb_groups(self, device, num_views):
-        groups = []
+    def joint_views(self, device, num_views):
+        views = []
         for _ in range(int(num_views)):
             augmented = np.stack([
                 self.dataset.augment(sample) for sample in self.base_samples])
             joint = torch.from_numpy(augmented).float().to(
                 device, non_blocking=True)
-            groups.append((joint, derive_motion(joint), derive_bone(joint)))
-        return groups
+            views.append(joint)
+        return views
 
 
 @torch.no_grad()
@@ -526,7 +503,7 @@ def train_one_epoch(model, loader, exemplar_provider, optimizer, scaler,
         mixed_view = (
             mix_beta * view_b
             + (1.0 - mix_beta) * global_view_a[mix_index])
-        exemplar_groups = exemplar_provider.jmb_groups(
+        exemplar_views = exemplar_provider.joint_views(
             device, args.ose_exemplar_views)
 
         progress = (
@@ -541,7 +518,7 @@ def train_one_epoch(model, loader, exemplar_provider, optimizer, scaler,
             losses = model(
                 view_a,
                 view_b,
-                exemplar_groups,
+                exemplar_views,
                 momentum=momentum,
                 ose_tau_s=args.ose_tau_s,
                 ose_tau_t=args.ose_tau_t,
@@ -682,6 +659,9 @@ def main(args):
         len(unlabeled_indices), len(exemplar_indices), len(class_ids)))
 
     model = MacDiffStage2(**args.model_args).to(device)
+    if args.distributed and args.sync_batchnorm:
+        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+        print('Enabled SyncBatchNorm for Stage2 DDP heads')
     model_without_ddp = model
     start_epoch = 0
     resume_checkpoint = None
