@@ -12,6 +12,7 @@ from main_pretrain_stage2 import (
     ExemplarProvider,
     load_or_create_exemplars,
     prepare_output,
+    stage2_training_mode,
 )
 from feeder.feeder_stage2 import FeederStage2
 from model.transformer_stage2 import (
@@ -62,6 +63,16 @@ class MacDiffStage2Test(unittest.TestCase):
             sinkhorn_temperature=0.05,
             sinkhorn_iterations=3,
         )
+
+    def test_stage2_training_mode_labels_ose_only(self):
+        args = SimpleNamespace(
+            resa_weight=0.0,
+            ose_lambda=1.0,
+            ose_mix_proto_weight=1.0,
+            ose_mix_ins_weight=1.0,
+        )
+        self.assertEqual(
+            stage2_training_mode(args), 'ose_only_separate_projector')
 
     def test_transfer_loads_only_stage1_online_encoder(self):
         model = self._model()

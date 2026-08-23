@@ -168,6 +168,11 @@ def validate_args(args):
             args.ose_mix_proto_weight,
             args.ose_mix_ins_weight) < 0:
         raise ValueError('Stage2 loss weights must be non-negative')
+    if max(
+            args.resa_weight, args.ose_lambda,
+            args.ose_mix_proto_weight,
+            args.ose_mix_ins_weight) == 0:
+        raise ValueError('Stage2 requires at least one positive loss weight')
     if args.num_classes <= 0:
         raise ValueError('num_classes must be positive')
     if args.ose_exemplar_views < 1:
@@ -192,6 +197,21 @@ def validate_args(args):
             'model_args.ose_separate_projector must be True')
     if not args.log_dir:
         args.log_dir = os.path.join(args.output_dir, 'tensorboard')
+
+
+def stage2_training_mode(args):
+    """Return a stable label for the active Stage2 objective branches."""
+    resa_enabled = args.resa_weight > 0
+    ose_enabled = any(weight > 0 for weight in (
+        args.ose_lambda,
+        args.ose_mix_proto_weight,
+        args.ose_mix_ins_weight,
+    ))
+    if resa_enabled and ose_enabled:
+        return 'resa_ose_separate_projector'
+    if ose_enabled:
+        return 'ose_only_separate_projector'
+    return 'resa_only'
 
 
 def load_or_create_exemplars(dataset, path, seed, num_classes):
@@ -704,6 +724,8 @@ def main(args):
         SummaryWriter(log_dir=args.log_dir)
         if misc.is_main_process() else None)
     start_time = time.time()
+    training_mode = stage2_training_mode(args)
+    print('Stage2 training mode: {}'.format(training_mode))
     for epoch in range(start_epoch, args.epochs):
         if args.distributed:
             sampler.set_epoch(epoch)
@@ -712,7 +734,7 @@ def main(args):
             device, epoch, args, log_writer)
         row = {
             'epoch': epoch + 1,
-            'training_mode': 'resa_ose_separate_projector',
+            'training_mode': training_mode,
             'batches': batches,
             'backbone_lr': backbone_lr,
             'head_lr': head_lr,

@@ -14,6 +14,10 @@ MASTER_PORT="${MASTER_PORT:-10237}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 BACKBONE_LR="${BACKBONE_LR:-0.25}"
 HEAD_LR="${HEAD_LR:-0.25}"
+RESA_WEIGHT="${RESA_WEIGHT:-1.0}"
+OSE_LAMBDA="${OSE_LAMBDA:-1.0}"
+OSE_MIX_PROTO_WEIGHT="${OSE_MIX_PROTO_WEIGHT:-1.0}"
+OSE_MIX_INS_WEIGHT="${OSE_MIX_INS_WEIGHT:-1.0}"
 
 export OMP_NUM_THREADS="${OMP_NUM_THREADS:-1}"
 export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
@@ -25,6 +29,7 @@ fi
 echo "Running MacDiff Stage2 unit tests"
 "${PYTHON_BIN}" -m unittest tests.test_stage2
 
+echo "Stage2 weights: ReSA=${RESA_WEIGHT}, OSE=${OSE_LAMBDA}, mix-proto=${OSE_MIX_PROTO_WEIGHT}, mix-ins=${OSE_MIX_INS_WEIGHT}"
 echo "Starting independent 100-epoch MacDiff RSDG Stage2"
 if [[ "${NPROC_PER_NODE}" -gt 1 ]]; then
     "${PYTHON_BIN}" -m torch.distributed.launch \
@@ -37,7 +42,11 @@ if [[ "${NPROC_PER_NODE}" -gt 1 ]]; then
         --log_dir "${LOG_DIR}" \
         --batch_size "${BATCH_SIZE}" \
         --lr "${BACKBONE_LR}" \
-        --head_lr "${HEAD_LR}"
+        --head_lr "${HEAD_LR}" \
+        --resa_weight "${RESA_WEIGHT}" \
+        --ose_lambda "${OSE_LAMBDA}" \
+        --ose_mix_proto_weight "${OSE_MIX_PROTO_WEIGHT}" \
+        --ose_mix_ins_weight "${OSE_MIX_INS_WEIGHT}"
 else
     "${PYTHON_BIN}" main_pretrain_stage2.py \
         --config "${CONFIG}" \
@@ -46,5 +55,9 @@ else
         --log_dir "${LOG_DIR}" \
         --batch_size "${BATCH_SIZE}" \
         --lr "${BACKBONE_LR}" \
-        --head_lr "${HEAD_LR}"
+        --head_lr "${HEAD_LR}" \
+        --resa_weight "${RESA_WEIGHT}" \
+        --ose_lambda "${OSE_LAMBDA}" \
+        --ose_mix_proto_weight "${OSE_MIX_PROTO_WEIGHT}" \
+        --ose_mix_ins_weight "${OSE_MIX_INS_WEIGHT}"
 fi
