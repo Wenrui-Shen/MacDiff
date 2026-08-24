@@ -203,6 +203,30 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 OMP_NU
 该实验仍计算并记录ReSA指标用于诊断，但其权重为零，不向encoder或ReSA head提供
 梯度。必须从Stage1 fresh run，不能resume ReSA+OSE checkpoint。
 
+OSE-only最终checkpoint的LP为85.02，低于相同低LR的ReSA+OSE 85.22。该0.20pp
+差距说明ReSA可能有轻微帮助，但仍可能处于LP随机波动范围，不能视为显著结论。
+
+### 6.2 ReSA+OSE teacher温度0.06对照
+
+保留低LR完整ReSA+OSE，只将OSE EMA teacher温度从0.04提高到0.06：
+
+```text
+resa_weight = 1.0
+ose_tau_s   = 0.1
+ose_tau_t   = 0.06
+backbone lr = 0.001
+head lr     = 0.25
+```
+
+启动命令：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 OMP_NUM_THREADS=1 bash script_pretrain_stage2_resa_ose_taut006.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+必须fresh run并使用独立输出目录；除`ose_tau_t`外不要同时改变mask、loss权重、K、
+SyncBN或augmentation协议。
+
 ## 7. 绝对不要再踩的坑
 
 1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、
