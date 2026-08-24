@@ -73,65 +73,54 @@ one non-empty `persons` entry for each visible skeleton. `person_index: 0` is
 red and `person_index: 1` is blue; a single-person sample contains no synthetic
 second-person or empty-string target.
 
-## 4. Extract captions from the complete train split with vLLM
+## 4. Extract captions from the complete train split with Transformers
 
-Use a separate modern environment; do not upgrade the repository's legacy
-training environment in place. Qwen3-VL requires vLLM 0.11 or newer:
+This path uses the same `transformers` + `qwen-vl-utils` inference flow as the
+single-sample pilot and does not require vLLM. The model is loaded once and kept
+resident while a process works through its shard. On two 24 GB GPUs, run two
+independent processes: GPU 0 handles even sample indices and GPU 1 handles odd
+sample indices. Each process writes its own JSONL file.
 
-```bash
-python -m venv .venv-vllm
-source .venv-vllm/bin/activate
-pip install -U "vllm>=0.11.0" transformers qwen-vl-utils==0.0.14 Pillow
-```
-
-First verify label-free loading, actor counting, the 32-frame renderer, and the
-expanded prompt without loading a model:
+First verify label-free loading, actor counting, 32-frame rendering, prompt
+expansion, and sharding without loading the model:
 
 ```bash
-python tools/vlm_pilot/caption_qwen3vl_train_vllm.py \
+python tools/vlm_pilot/caption_qwen3vl_train_transformers.py \
   --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
-  --output_path vlm_pilot/ntu60_xsub_train_captions.jsonl \
-  --max_samples 1 \
+  --output_path vlm_pilot/dry_run.jsonl \
+  --num_shards 2 \
+  --shard_id 0 \
+  --max_samples 8 \
   --dry_run
 ```
 
-Then run a small GPU pilot. The model remains resident for every selected
-sample; `--max_samples 8` limits this validation run to `train_0` through
-`train_7`:
+Then run a small two-GPU pilot in two terminals. `--max_samples 8` means the
+global range `train_0` through `train_7`; each process receives half:
 
 ```bash
-OMP_NUM_THREADS=1 \
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 \
-python tools/vlm_pilot/caption_qwen3vl_train_vllm.py \
+OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 \
+python tools/vlm_pilot/caption_qwen3vl_train_transformers.py \
   --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
   --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
-  --output_path vlm_pilot/ntu60_xsub_train_captions.jsonl \
-  --num_frames 32 \
-  --sample_fps 8 \
-  --batch_size 1 \
+  --output_path vlm_pilot/ntu60_xsub_train_captions_shard0.jsonl \
+  --num_shards 2 --shard_id 0 --num_frames 32 --sample_fps 8 \
   --max_samples 8
 ```
 
-After inspecting those records, continue through all remaining `x_train`
-samples. `--resume` skips only records whose status is `accepted`; failed or
-invalid records are attempted again and appended for auditability:
-
 ```bash
-OMP_NUM_THREADS=1 \
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 \
-python tools/vlm_pilot/caption_qwen3vl_train_vllm.py \
+OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1 \
+python tools/vlm_pilot/caption_qwen3vl_train_transformers.py \
   --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
   --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
-  --output_path vlm_pilot/ntu60_xsub_train_captions.jsonl \
-  --num_frames 32 \
-  --sample_fps 8 \
-  --batch_size 1 \
-  --resume
+  --output_path vlm_pilot/ntu60_xsub_train_captions_shard1.jsonl \
+  --num_shards 2 --shard_id 1 --num_frames 32 --sample_fps 8 \
+  --max_samples 8
 ```
 
-For a checkpoint that needs both GPUs, expose both devices and set
-`--tensor_parallel_size 2`. Increase `--batch_size` only after measuring memory
-on the real server; one 32-frame sample is the safe default for a 24 GB card.
+Remove `--max_samples 8` for the full split. Add `--resume` when restarting;
+only records whose status is `accepted` are skipped, while invalid and failed
+samples are tried again and appended for auditability. Keep the same
+`--num_shards` and `--shard_id` for a resumed output file.
 
 Each JSONL record includes `sample_id` (`train_<index>`), prompt SHA-256,
 rendering and inference settings, raw response, parsed caption, retry history,
@@ -150,4 +139,5 @@ and validation status. Only an `accepted` record has a non-empty `texts` list:
 
 The batch script reads only `x_train`; it never opens `y_train`. Frames are
 rendered and preprocessed in memory, so the model prompt contains neither a
-sample filename nor an action label.
+sample filename nor an action label. Concatenate the two shard files only after
+both processes finish; use `sample_index` when ordered records are required.

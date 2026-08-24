@@ -253,6 +253,32 @@ CUDA_VISIBLE_DEVICES=0 python diagnose_stage1_geometry.py --checkpoint ./output_
 
 本地工作区没有checkpoint和NTU数据，因此结果必须在训练服务器生成。
 
+Stage1的4096样本诊断结果：
+
+- full/masked cosine为0.7581，两次masked cosine为0.6882；
+- 每个masked样本平均缺失1.016个joint，67.18%的样本至少缺失一个joint；
+- full同异类cosine gap为0.0301，masked后降到0.0214；
+- full单exemplar最近原型准确率17.63%，masked K=2仅7.79%；
+- masked K=2在`tau=0.04`时平均top-1 confidence仅8.46%，entropy为3.759，
+  相对`ln(60)=4.094`仍接近均匀，因此现有证据不支持teacher target过尖。
+
+### 6.4 Stage1/Stage2同样本同mask对比
+
+新增`compare_stage1_stage2_geometry.py`，在相同4096个样本和相同随机mask下对比：
+
+- Stage1与Stage2各自的全部6.3指标；
+- full/masked表征的逐样本余弦和linear CKA；
+- encoder整体及逐block参数漂移；
+- 若输入完整Stage2 checkpoint，再测EMA encoder/projector相对online K=2 prototype的
+  实际伪标签准确率、置信度和熵（BN使用checkpoint running statistics）。
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python compare_stage1_stage2_geometry.py --stage1_checkpoint ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth --stage2_checkpoint ./output_dir/ntu60_xsub_macdiff_stage2_jointonly_noaug_syncbn_lr1e3/checkpoint-100.pth --config ./config/ntu60_xsub_joint/pretrain_madiff_stage2.yaml --batch_size 32 --max_samples 4096 --output ./output_dir/stage1_vs_stage2_geometry.json
+```
+
+优先传入完整`checkpoint-100.pth`而不是`-backbone.pth`，否则无法诊断真实OSE teacher
+projector。
+
 ## 7. 绝对不要再踩的坑
 
 1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、
