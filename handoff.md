@@ -227,6 +227,32 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 OMP_NU
 必须fresh run并使用独立输出目录；除`ose_tau_t`外不要同时改变mask、loss权重、K、
 SyncBN或augmentation协议。
 
+该实验最终checkpoint的LP为85.12，低于`tau_t=0.04`完整ReSA+OSE的85.22；0.10pp
+差距处于LP波动量级，没有证据表明继续增大teacher温度能解决当前瓶颈。
+
+### 6.3 Stage1特征几何诊断
+
+新增`diagnose_stage1_geometry.py`，冻结Stage1 `checkpoint-399.pth`并在不训练的情况
+下检查：
+
+- full-token与90% mask特征的余弦一致性；
+- 两次独立mask之间的余弦一致性；
+- full/masked空间的同类、异类余弦及其间隔；
+- 当前单exemplar和masked K=2 exemplar的最近原型准确率；
+- `tau_t=0.04/0.06/0.1`对应的原型分布置信度与熵；
+- 全局随机75-token mask导致的缺失joint数量。
+
+原型准确率和温度统计位于冻结encoder输出空间，不经过尚未训练的OSE projector，
+因此用于判断Stage1几何是否适合单exemplar OSE，不等同于训练后OSE teacher的实测值。
+
+默认平衡抽取4096个非exemplar训练样本，使用单卡且不更新权重：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python diagnose_stage1_geometry.py --checkpoint ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth --config ./config/ntu60_xsub_joint/pretrain_madiff_stage2.yaml --batch_size 32 --max_samples 4096 --output ./output_dir/stage1_geometry.json
+```
+
+本地工作区没有checkpoint和NTU数据，因此结果必须在训练服务器生成。
+
 ## 7. 绝对不要再踩的坑
 
 1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、
