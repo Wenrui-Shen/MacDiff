@@ -279,6 +279,45 @@ CUDA_VISIBLE_DEVICES=0 python compare_stage1_stage2_geometry.py --stage1_checkpo
 优先传入完整`checkpoint-100.pth`而不是`-backbone.pth`，否则无法诊断真实OSE teacher
 projector。
 
+### 6.5 ReSA-only + per-joint 3-token mask
+
+根据Stage1/Stage2几何诊断，新增协议`shared_qk_per_joint_v1`：在30个时间patch中
+为每个joint独立随机保留3个，合计仍为`25 x 3 = 75` token。每个view独立采样，
+同一view的online/EMA仍共享indices；K=2 exemplar分别独立采样，未显式传mask的
+mixed-view内部采样也使用相同per-joint策略。
+
+该实验同时关闭全部OSE梯度，只保留ReSA：
+
+```text
+backbone lr          = 0.001
+head lr              = 0.25
+resa_weight          = 1.0
+ose_lambda           = 0.0
+ose_mix_proto_weight = 0.0
+ose_mix_ins_weight   = 0.0
+mask_protocol        = shared_qk_per_joint_v1
+```
+
+启动命令：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 OMP_NUM_THREADS=1 bash script_pretrain_stage2_resa_only_perjoint.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+输出目录默认为：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_noaug_syncbn_lr1e3_resaonly_perjoint3
+```
+
+必须从Stage1 fresh run，不能resume任何`shared_qk_joint_v1` checkpoint。
+
+没有直接创建full-token Stage2：当前no-augmentation下view A/B和K=2 exemplar在取消
+mask后几乎相同，ReSA会退化为近似同输入自蒸馏；750相对75 token还会使attention
+矩阵约增大100倍，固定60类K=2 exemplar分支无法通过缩小普通batch消除。若后续尝试
+LP对齐的dense Stage2，需要先重新设计view增强和dense teacher/prototype计算，而不是
+只把`mask_ratio`改成0。
+
 ## 7. 绝对不要再踩的坑
 
 1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、

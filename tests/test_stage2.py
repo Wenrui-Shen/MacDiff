@@ -143,6 +143,29 @@ class MacDiffStage2Test(unittest.TestCase):
         features = model.encoder_q.forward_features(sample)
         self.assertEqual(tuple(features.shape), (2, 5 * 8))
 
+    def test_per_joint_mask_keeps_equal_temporal_tokens_per_joint(self):
+        model = self._model()
+        encoder = model.encoder_q
+        encoder.mask_strategy = 'per_joint_random'
+        sample = torch.randn(4, 3, 8, 5, 1)
+        indices = encoder.sample_mask_indices(sample)
+        self.assertEqual(tuple(indices.shape), (4, 10))
+        counts = torch.zeros(4, 5, dtype=torch.long)
+        counts.scatter_add_(
+            1, indices.remainder(5), torch.ones_like(indices))
+        self.assertTrue(torch.equal(counts, torch.full_like(counts, 2)))
+        self.assertTrue(all(
+            torch.unique(row).numel() == row.numel() for row in indices))
+
+        tokens = torch.randn(4, 20, 8)
+        _, internal_indices = encoder._random_mask(tokens)
+        internal_counts = torch.zeros(4, 5, dtype=torch.long)
+        internal_counts.scatter_add_(
+            1, internal_indices.remainder(5),
+            torch.ones_like(internal_indices))
+        self.assertTrue(torch.equal(
+            internal_counts, torch.full_like(internal_counts, 2)))
+
     def test_exported_online_encoder_matches_downstream_keys(self):
         model = self._model()
         downstream = DownstreamTransformer(

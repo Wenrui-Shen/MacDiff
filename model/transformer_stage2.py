@@ -105,6 +105,7 @@ class MacDiffStage2Encoder(nn.Module):
         attn_drop_rate=0.0,
         drop_path_rate=0.0,
         mask_ratio=0.9,
+        mask_strategy='global_random',
         one_person=True,
         input_mean=(-0.0058, -0.1333, -0.0246),
         input_var=(0.0206, 0.0805, 0.0218),
@@ -113,6 +114,10 @@ class MacDiffStage2Encoder(nn.Module):
         super().__init__()
         if not 0.0 <= float(mask_ratio) < 1.0:
             raise ValueError('Stage2 mask_ratio must be in [0, 1)')
+        if mask_strategy not in ('global_random', 'per_joint_random'):
+            raise ValueError(
+                'Stage2 mask_strategy must be global_random or '
+                'per_joint_random')
         if len(input_mean) != dim_in or len(input_var) != dim_in:
             raise ValueError('input_mean/input_var must match dim_in')
         if any(float(value) <= 0 for value in input_var):
@@ -120,6 +125,7 @@ class MacDiffStage2Encoder(nn.Module):
 
         self.dim_feat = int(dim_feat)
         self.mask_ratio = float(mask_ratio)
+        self.mask_strategy = str(mask_strategy)
         self.one_person = bool(one_person)
         self.input_mean = tuple(float(value) for value in input_mean)
         self.input_std = tuple(math.sqrt(float(value)) for value in input_var)
@@ -159,6 +165,40 @@ class MacDiffStage2Encoder(nn.Module):
         trunc_normal_(self.temp_embed, std=0.02)
         trunc_normal_(self.pos_embed, std=0.02)
 
+    def _sample_visible_indices(self, batch_size, length, device):
+        keep = round(length * (1.0 - self.mask_ratio))
+        if keep <= 0:
+            raise ValueError('Stage2 mask_ratio leaves no visible token')
+        if self.mask_strategy == 'global_random':
+            return torch.argsort(torch.rand(
+                batch_size, length, device=device), dim=1
+            )[:, :keep]
+
+        if length % self.num_joint_patches != 0:
+            raise ValueError(
+                'Per-joint masking requires a complete temporal-joint grid')
+        if keep % self.num_joint_patches != 0:
+            raise ValueError(
+                'Per-joint masking requires equal visible tokens per joint')
+        temporal_patches = length // self.num_joint_patches
+        keep_per_joint = keep // self.num_joint_patches
+        if keep_per_joint <= 0 or keep_per_joint > temporal_patches:
+            raise ValueError('Invalid visible-token count per joint')
+        temporal_ids = torch.argsort(torch.rand(
+            batch_size, self.num_joint_patches, temporal_patches,
+            device=device), dim=2)[:, :, :keep_per_joint]
+        joint_ids = torch.arange(
+            self.num_joint_patches, device=device, dtype=torch.long
+        ).view(1, self.num_joint_patches, 1)
+        ids = (
+            temporal_ids * self.num_joint_patches + joint_ids
+        ).reshape(batch_size, keep)
+        # Attention is permutation equivariant after positional embeddings,
+        # but preserve the reference protocol's randomly ordered token set.
+        order = torch.argsort(torch.rand(
+            batch_size, keep, device=device), dim=1)
+        return torch.gather(ids, 1, order)
+
     def sample_mask_indices(self, skeleton):
         """Draw one visible-token set that can be reused by q/k branches."""
         if self.mask_ratio <= 0.0:
@@ -167,12 +207,8 @@ class MacDiffStage2Encoder(nn.Module):
             raise ValueError('Skeleton input must have shape [N,C,T,V,M]')
         people = 1 if self.one_person else skeleton.shape[-1]
         batch_size = skeleton.shape[0] * people
-        keep = round(self.num_tokens * (1.0 - self.mask_ratio))
-        if keep <= 0:
-            raise ValueError('Stage2 mask_ratio leaves no visible token')
-        return torch.argsort(torch.rand(
-            batch_size, self.num_tokens, device=skeleton.device), dim=1
-        )[:, :keep]
+        return self._sample_visible_indices(
+            batch_size, self.num_tokens, skeleton.device)
 
     def _random_mask(self, tokens, mask_indices=None):
         if self.mask_ratio <= 0.0:
@@ -185,9 +221,8 @@ class MacDiffStage2Encoder(nn.Module):
         if keep <= 0:
             raise ValueError('Stage2 mask_ratio leaves no visible token')
         if mask_indices is None:
-            mask_indices = torch.argsort(torch.rand(
-                batch_size, length, device=tokens.device), dim=1
-            )[:, :keep]
+            mask_indices = self._sample_visible_indices(
+                batch_size, length, tokens.device)
         if tuple(mask_indices.shape) != (batch_size, keep):
             raise ValueError(
                 'Stage2 mask indices must have shape [{},{}]'.format(

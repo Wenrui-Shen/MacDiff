@@ -46,6 +46,20 @@ RESUME_CONTRACT_FIELDS = (
     'world_size',
 )
 
+MASK_PROTOCOL_STRATEGIES = {
+    'shared_qk_joint_v1': 'global_random',
+    'shared_qk_per_joint_v1': 'per_joint_random',
+}
+
+
+def mask_strategy_from_protocol(protocol):
+    try:
+        return MASK_PROTOCOL_STRATEGIES[str(protocol)]
+    except KeyError as error:
+        raise ValueError(
+            'Unsupported Stage2 mask_protocol: {}'.format(protocol)
+        ) from error
+
 
 def import_class(name):
     components = name.split('.')
@@ -177,12 +191,29 @@ def validate_args(args):
         raise ValueError('num_classes must be positive')
     if args.ose_exemplar_views < 1:
         raise ValueError('ose_exemplar_views must be at least 1')
-    if args.mask_protocol != 'shared_qk_joint_v1':
-        raise ValueError(
-            'Stage2 requires mask_protocol=shared_qk_joint_v1')
+    mask_strategy = mask_strategy_from_protocol(args.mask_protocol)
     if float(args.model_args.get('mask_ratio', -1.0)) != 0.9:
         raise ValueError(
-            'shared_qk_joint_v1 requires model_args.mask_ratio=0.9')
+            '{} requires model_args.mask_ratio=0.9'.format(
+                args.mask_protocol))
+    if mask_strategy == 'per_joint_random':
+        num_frames = int(args.model_args.get('num_frames', 0))
+        num_joints = int(args.model_args.get('num_joints', 0))
+        patch_size = int(args.model_args.get('patch_size', 0))
+        temporal_patch = int(args.model_args.get('t_patch_size', 0))
+        if min(num_frames, num_joints, patch_size, temporal_patch) <= 0:
+            raise ValueError(
+                'Per-joint masking requires valid model patch dimensions')
+        if num_frames % temporal_patch or num_joints % patch_size:
+            raise ValueError(
+                'Per-joint masking requires divisible temporal/joint grids')
+        joint_patches = num_joints // patch_size
+        tokens = (num_frames // temporal_patch) * joint_patches
+        keep = round(tokens * (1.0 - 0.9))
+        if keep != joint_patches * 3:
+            raise ValueError(
+                'shared_qk_per_joint_v1 requires exactly three visible '
+                'temporal tokens per joint')
     if not args.exemplar_index_path:
         raise ValueError('exemplar_index_path must be set')
     if not args.output_dir:
@@ -678,7 +709,9 @@ def main(args):
     print('Stage2 dataset: {} unlabeled + {} exemplars, classes {}'.format(
         len(unlabeled_indices), len(exemplar_indices), len(class_ids)))
 
-    model = MacDiffStage2(**args.model_args).to(device)
+    model = MacDiffStage2(
+        mask_strategy=mask_strategy_from_protocol(args.mask_protocol),
+        **args.model_args).to(device)
     if args.distributed and args.sync_batchnorm:
         model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
         print('Enabled SyncBatchNorm for Stage2 DDP heads')

@@ -19,7 +19,11 @@ from diagnose_stage1_geometry import (
     _prototype_metrics,
     _select_balanced_indices,
 )
-from main_pretrain_stage2 import import_class, load_or_create_exemplars
+from main_pretrain_stage2 import (
+    import_class,
+    load_or_create_exemplars,
+    mask_strategy_from_protocol,
+)
 from model.transformer_stage2 import MacDiffStage2, transfer_macdiff_stage1
 
 
@@ -43,8 +47,9 @@ def _unwrap_state(checkpoint):
     return state
 
 
-def _load_stage1_encoder(model_args, path):
-    container = MacDiffStage2(**model_args)
+def _load_stage1_encoder(model_args, path, mask_strategy):
+    container = MacDiffStage2(
+        mask_strategy=mask_strategy, **model_args)
     checkpoint = torch.load(path, map_location='cpu')
     report = transfer_macdiff_stage1(container, checkpoint)
     encoder = container.encoder_q
@@ -53,7 +58,7 @@ def _load_stage1_encoder(model_args, path):
     return encoder, report
 
 
-def _load_stage2_modules(model_args, path):
+def _load_stage2_modules(model_args, path, default_mask_protocol):
     container = MacDiffStage2(**model_args)
     checkpoint = torch.load(path, map_location='cpu')
     state = _unwrap_state(checkpoint)
@@ -72,6 +77,12 @@ def _load_stage2_modules(model_args, path):
             'unexpected keys {}'.format(missing, unexpected))
 
     metadata = checkpoint.get('args', {})
+    checkpoint_mask_protocol = (
+        metadata.get('mask_protocol', default_mask_protocol)
+        if isinstance(metadata, dict) else default_mask_protocol)
+    mask_strategy = mask_strategy_from_protocol(checkpoint_mask_protocol)
+    container.encoder_q.mask_strategy = mask_strategy
+    container.encoder_k.mask_strategy = mask_strategy
     modules = {
         'encoder_q': container.encoder_q,
         'encoder_k': container.encoder_k if complete else None,
@@ -82,7 +93,7 @@ def _load_stage2_modules(model_args, path):
     }
     del container
     del checkpoint
-    return modules, complete, metadata
+    return modules, complete, metadata, checkpoint_mask_protocol
 
 
 def _parameter_group(name):
@@ -332,10 +343,12 @@ def main(args):
         drop_last=False,
     )
 
+    (stage2_modules, complete_stage2, stage2_metadata,
+     comparison_mask_protocol) = _load_stage2_modules(
+        config['model_args'], stage2_path, config['mask_protocol'])
     stage1_encoder, stage1_report = _load_stage1_encoder(
-        config['model_args'], stage1_path)
-    stage2_modules, complete_stage2, stage2_metadata = _load_stage2_modules(
-        config['model_args'], stage2_path)
+        config['model_args'], stage1_path,
+        mask_strategy_from_protocol(comparison_mask_protocol))
     stage2_encoder = stage2_modules['encoder_q']
     drift = _parameter_drift(stage1_encoder, stage2_encoder)
     print('Loaded Stage1 encoder: {}'.format(stage1_report))
@@ -387,6 +400,7 @@ def main(args):
         'samples': len(selected),
         'feature_dim': int(stage1_queries['full'].shape[1]),
         'same_samples_and_masks': True,
+        'comparison_mask_protocol': comparison_mask_protocol,
         'prototype_space': (
             'normalized frozen encoder outputs; no projector'),
         'stage1': stage1_metrics,

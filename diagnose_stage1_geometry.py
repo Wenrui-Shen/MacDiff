@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader, Dataset
 from main_pretrain_stage2 import (
     import_class,
     load_or_create_exemplars,
+    mask_strategy_from_protocol,
 )
 from model.transformer_stage2 import (
     MacDiffStage2,
@@ -371,7 +372,9 @@ def main(args):
     # Construct the transfer container on CPU, then retain only encoder_q.
     # Moving the four fresh 6400-D Stage2 projector branches to the diagnostic
     # GPU would waste substantial memory without affecting any metric here.
-    model = MacDiffStage2(**config['model_args'])
+    model = MacDiffStage2(
+        mask_strategy=mask_strategy_from_protocol(config['mask_protocol']),
+        **config['model_args'])
     checkpoint = torch.load(checkpoint_path, map_location='cpu')
     transfer_report = transfer_macdiff_stage1(model, checkpoint)
     encoder = model.encoder_q
