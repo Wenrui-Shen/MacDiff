@@ -318,6 +318,25 @@ mask后几乎相同，ReSA会退化为近似同输入自蒸馏；750相对75 tok
 LP对齐的dense Stage2，需要先重新设计view增强和dense teacher/prototype计算，而不是
 只把`mask_ratio`改成0。
 
+### 6.6 ReSA+OSE + per-joint 3-token mask
+
+为隔离OSE在per-joint mask下的实际贡献，新增完整ReSA+OSE对照。相对6.5只将
+`ose_lambda`、`ose_mix_proto_weight`和`ose_mix_ins_weight`从0改为1；其余学习率、
+mask和训练协议不变。teacher温度使用当前结果更好的0.04，而不是LP略低的0.06。
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10238 BATCH_SIZE=64 OMP_NUM_THREADS=1 bash script_pretrain_stage2_resa_ose_perjoint.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+输出目录默认为：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_noaug_syncbn_lr1e3_resaose_perjoint3
+```
+
+该实验必须从同一Stage1 checkpoint fresh run。将它与6.5的ReSA-only/per-joint结果
+比较，才能判断OSE在per-joint mask下是正贡献还是负贡献；不要跨不同mask协议直接归因。
+
 ## 7. 绝对不要再踩的坑
 
 1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、
