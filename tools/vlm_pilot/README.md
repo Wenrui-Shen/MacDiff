@@ -156,3 +156,21 @@ python tools/vlm_pilot/inspect_random_captions.py \
 
 Add `--compact` to print only the final `text` fields, or `--seed 42` to make
 the random selection reproducible.
+
+To export labels and skeleton animations into a standalone review folder, add
+the aligned NTU60 NPZ and a new output directory:
+
+```bash
+python tools/vlm_pilot/inspect_random_captions.py \
+  --input_paths vlm_pilot/ntu60_xsub_train_person_captions_v1_shard0.jsonl \
+                vlm_pilot/ntu60_xsub_train_person_captions_v1_shard1.jsonl \
+  --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
+  --output_dir vlm_pilot/random_caption_review_seed42 \
+  --num_samples 10 \
+  --seed 42
+```
+
+The root `index.html` shows every selected GIF beside its `y_train` class and
+person captions. Each sample subdirectory also contains `preview.gif`,
+`preview_middle.png`, `summary.txt`, and the complete `review.json`. The output
+directory must not already exist, which prevents accidental review overwrites.
