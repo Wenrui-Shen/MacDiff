@@ -24,7 +24,7 @@ def parse_args():
     parser.add_argument(
         "--prompt_path",
         type=Path,
-        default=Path(__file__).with_name("skeleton_motion_prompt_v0.txt"),
+        default=Path(__file__).with_name("skeleton_motion_prompt_v1.txt"),
     )
     parser.add_argument("--output_path", type=Path, required=True)
     parser.add_argument("--model", default="Qwen/Qwen3-VL-2B-Instruct")

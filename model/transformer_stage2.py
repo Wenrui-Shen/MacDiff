@@ -621,6 +621,283 @@ class MacDiffStage2(nn.Module):
             'disp': dispersion_loss.detach(),
             'mix_proto': mix_proto_loss,
             'mix_ins': mix_ins_loss,
+            'ose_target_entropy': -(
+                teacher_target * teacher_target.clamp_min(1e-12).log()
+            ).sum(dim=1).mean().detach(),
+            'ose_target_confidence': teacher_target.max(
+                dim=1).values.mean().detach(),
+            'ose_prototype_usage': (
+                teacher_target.argmax(dim=1).unique().numel()
+                / float(prototypes.shape[0])),
+        }
+
+
+class MacDiffDenseOSE(nn.Module):
+    """Full-token OSE prototype alignment without ReSA or mixed branches.
+
+    The online student and EMA teacher consume two independent augmented
+    views.  Labeled exemplar prototypes are encoded only by the EMA pair and
+    supplied as an epoch-frozen cache, so a training step retains exactly one
+    encoder graph for backward.
+    """
+
+    def __init__(
+        self,
+        feature_dim=256,
+        projector_hidden_dim=2048,
+        projector_layers=3,
+        ose_separate_projector=True,
+        cluster_temperature=0.4,
+        sinkhorn_temperature=0.05,
+        sinkhorn_iterations=3,
+        **encoder_args
+    ):
+        super().__init__()
+        del cluster_temperature, sinkhorn_temperature, sinkhorn_iterations
+        if not bool(ose_separate_projector):
+            raise ValueError(
+                'Dense OSE requires an independent OSE projector pair')
+        if float(encoder_args.get('mask_ratio', -1.0)) != 0.0:
+            raise ValueError('Dense OSE requires mask_ratio=0.0')
+        self.feature_dim = int(feature_dim)
+        self.encoder_q = MacDiffStage2Encoder(**encoder_args)
+        self.encoder_k = copy.deepcopy(self.encoder_q)
+        input_dim = self.encoder_q.output_dim
+        self.ose_projector_q = _build_projector(
+            input_dim, projector_hidden_dim, feature_dim, projector_layers)
+        self.ose_projector_k = copy.deepcopy(self.ose_projector_q)
+        self.reset_momentum_encoder()
+
+    @property
+    def ose_online_projector(self):
+        return self.ose_projector_q
+
+    @property
+    def ose_teacher_projector(self):
+        return self.ose_projector_k
+
+    @torch.no_grad()
+    def reset_momentum_encoder(self):
+        self.encoder_k.load_state_dict(self.encoder_q.state_dict())
+        self.ose_projector_k.load_state_dict(
+            self.ose_projector_q.state_dict())
+        for module in (self.encoder_k, self.ose_projector_k):
+            for parameter in module.parameters():
+                parameter.requires_grad = False
+
+    @staticmethod
+    @torch.no_grad()
+    def _update_module_ema(online_module, teacher_module, momentum):
+        online_parameters = dict(online_module.named_parameters())
+        teacher_parameters = dict(teacher_module.named_parameters())
+        if online_parameters.keys() != teacher_parameters.keys():
+            raise RuntimeError('Online/EMA parameter structures differ')
+        for name, teacher in teacher_parameters.items():
+            online = online_parameters[name]
+            teacher.data.mul_(momentum).add_(
+                online.data, alpha=1.0 - momentum)
+
+        # Dense OSE always evaluates the EMA projector with running statistics.
+        # Keep floating BN buffers on the same EMA trajectory and copy integer
+        # counters exactly; no teacher forward is allowed to mutate them.
+        online_buffers = dict(online_module.named_buffers())
+        teacher_buffers = dict(teacher_module.named_buffers())
+        if online_buffers.keys() != teacher_buffers.keys():
+            raise RuntimeError('Online/EMA buffer structures differ')
+        for name, teacher in teacher_buffers.items():
+            online = online_buffers[name]
+            if torch.is_floating_point(teacher):
+                teacher.data.mul_(momentum).add_(
+                    online.data, alpha=1.0 - momentum)
+            else:
+                teacher.data.copy_(online.data)
+
+    @torch.no_grad()
+    def momentum_update(self, momentum):
+        momentum = float(momentum)
+        if not 0.0 <= momentum <= 1.0:
+            raise ValueError('EMA momentum must be in [0, 1]')
+        self._update_module_ema(self.encoder_q, self.encoder_k, momentum)
+        self._update_module_ema(
+            self.ose_projector_q, self.ose_projector_k, momentum)
+
+    @staticmethod
+    def soft_cross_entropy(logits, target):
+        return -(
+            target * F.log_softmax(logits, dim=1)
+        ).sum(dim=1).mean()
+
+    @staticmethod
+    def _set_eval(modules):
+        states = [module.training for module in modules]
+        for module in modules:
+            module.eval()
+        return states
+
+    @staticmethod
+    def _restore_training_states(modules, states):
+        for module, state in zip(modules, states):
+            module.train(state)
+
+    @torch.no_grad()
+    def refresh_ema_prototypes(self, exemplar_views, batch_size=0):
+        if not isinstance(exemplar_views, (tuple, list)) or not exemplar_views:
+            raise ValueError('Dense OSE requires EMA exemplar views')
+        modules = (self.encoder_k, self.ose_projector_k)
+        states = self._set_eval(modules)
+        try:
+            anchors = []
+            class_count = None
+            for exemplar_view in exemplar_views:
+                if not torch.is_tensor(exemplar_view) or exemplar_view.ndim != 5:
+                    raise ValueError(
+                        'Every dense OSE exemplar view must be a Joint tensor')
+                if class_count is None:
+                    class_count = exemplar_view.shape[0]
+                elif exemplar_view.shape[0] != class_count:
+                    raise ValueError('Dense OSE exemplar views must align')
+                micro_batch = int(batch_size)
+                if micro_batch <= 0:
+                    micro_batch = exemplar_view.shape[0]
+                projected = []
+                for start in range(0, exemplar_view.shape[0], micro_batch):
+                    chunk = exemplar_view[start:start + micro_batch]
+                    features = self.encoder_k.forward_features(chunk)
+                    projected.append(F.normalize(
+                        self.ose_projector_k(features), dim=1))
+                anchors.append(torch.cat(projected, dim=0))
+            stacked = torch.stack(anchors, dim=1)
+            prototypes = MacDiffStage2.ensemble_labeled_exemplars(stacked)
+            return prototypes.detach().float()
+        finally:
+            self._restore_training_states(modules, states)
+
+    def forward(
+        self,
+        online_view,
+        teacher_view,
+        prototypes,
+        ose_tau_s=0.1,
+        ose_tau_t=0.04,
+        labels=None,
+    ):
+        if prototypes.ndim != 2:
+            raise ValueError('Dense OSE prototypes must have shape [C,D]')
+        if prototypes.shape[1] != self.feature_dim:
+            raise ValueError('Dense OSE prototype feature dimension mismatch')
+
+        # Run the no-grad full-token branch first.  Its layer-local attention
+        # workspace is released before the online graph is retained.
+        teacher_modules = (self.encoder_k, self.ose_projector_k)
+        teacher_states = self._set_eval(teacher_modules)
+        try:
+            with torch.no_grad():
+                teacher_features = self.encoder_k.forward_features(
+                    teacher_view)
+                teacher_z = F.normalize(
+                    self.ose_projector_k(teacher_features), dim=1)
+        finally:
+            self._restore_training_states(
+                teacher_modules, teacher_states)
+
+        online_features = self.encoder_q.forward_features(online_view)
+        student_z = F.normalize(
+            self.ose_projector_q(online_features), dim=1)
+
+        # Keep low-temperature logits in fp32 even when the encoders run AMP.
+        normalized_prototypes = F.normalize(
+            prototypes.detach().float(), dim=1)
+        student_logits = torch.matmul(
+            student_z.float(), normalized_prototypes.t()
+        ) / max(float(ose_tau_s), 1e-12)
+        teacher_logits = torch.matmul(
+            teacher_z.detach().float(), normalized_prototypes.t()
+        ) / max(float(ose_tau_t), 1e-12)
+        teacher_target = torch.softmax(teacher_logits, dim=1).detach()
+        student_probability = torch.softmax(
+            student_logits.detach(), dim=1)
+        align_loss = self.soft_cross_entropy(
+            student_logits, teacher_target)
+
+        prototype_similarity = torch.matmul(
+            normalized_prototypes, normalized_prototypes.t())
+        if normalized_prototypes.shape[0] > 1:
+            off_diagonal = ~torch.eye(
+                normalized_prototypes.shape[0], dtype=torch.bool,
+                device=normalized_prototypes.device)
+            dispersion = (
+                prototype_similarity[off_diagonal].mean()
+                / max(float(ose_tau_s), 1e-12))
+        else:
+            dispersion = prototype_similarity.new_zeros(())
+        target_entropy_per_sample = -(
+            teacher_target * teacher_target.clamp_min(1e-12).log()
+        ).sum(dim=1)
+        target_confidence, assignment = teacher_target.max(dim=1)
+        student_assignment = student_probability.max(dim=1).indices
+        top_two = teacher_target.topk(
+            k=min(2, teacher_target.shape[1]), dim=1).values
+        if top_two.shape[1] == 2:
+            target_margin = top_two[:, 0] - top_two[:, 1]
+        else:
+            target_margin = top_two[:, 0]
+        if labels is None:
+            teacher_accuracy = align_loss.detach().new_zeros(())
+            student_accuracy = align_loss.detach().new_zeros(())
+            true_class_probability = align_loss.detach().new_zeros(())
+        else:
+            labels = labels.to(
+                device=teacher_target.device, dtype=torch.long).reshape(-1)
+            if labels.shape[0] != teacher_target.shape[0]:
+                raise ValueError('Dense OSE labels must match the batch')
+            if (labels.min() < 0 or labels.max() >= teacher_target.shape[1]):
+                raise ValueError('Dense OSE labels are outside prototype IDs')
+            teacher_accuracy = assignment.eq(labels).float().mean()
+            student_accuracy = student_assignment.eq(labels).float().mean()
+            true_class_probability = teacher_target.gather(
+                1, labels[:, None]).mean()
+        zero = align_loss.detach().new_zeros(())
+        return {
+            # Cached EMA anchors cannot receive gradients, so the trainable
+            # prototype objective is alignment only; dispersion is diagnostic.
+            'cluster': zero,
+            'cluster_entropy': zero,
+            'cluster_kl': zero,
+            'proto': align_loss,
+            'align': align_loss.detach(),
+            'disp': dispersion.detach(),
+            'mix_proto': zero,
+            'mix_ins': zero,
+            'ose_target_entropy': target_entropy_per_sample.mean().detach(),
+            'ose_target_confidence': target_confidence.mean().detach(),
+            'ose_prototype_usage': (
+                assignment.unique().numel()
+                / float(normalized_prototypes.shape[0])),
+            'ose_target_entropy_p10': torch.quantile(
+                target_entropy_per_sample, 0.1).detach(),
+            'ose_target_entropy_p50': torch.quantile(
+                target_entropy_per_sample, 0.5).detach(),
+            'ose_target_entropy_p90': torch.quantile(
+                target_entropy_per_sample, 0.9).detach(),
+            'ose_target_confidence_p10': torch.quantile(
+                target_confidence, 0.1).detach(),
+            'ose_target_confidence_p50': torch.quantile(
+                target_confidence, 0.5).detach(),
+            'ose_target_confidence_p90': torch.quantile(
+                target_confidence, 0.9).detach(),
+            'ose_teacher_accuracy': teacher_accuracy.detach(),
+            'ose_student_accuracy': student_accuracy.detach(),
+            'ose_teacher_student_agreement': assignment.eq(
+                student_assignment).float().mean().detach(),
+            'ose_teacher_true_class_probability': (
+                true_class_probability.detach()),
+            'ose_teacher_margin': target_margin.mean().detach(),
+            # Private tensors are consumed by the standalone diagnostic log;
+            # they never enter the objective or the ordinary metric reducer.
+            '_ose_teacher_assignment': assignment.detach(),
+            '_ose_student_assignment': student_assignment.detach(),
+            '_ose_teacher_probability_sum': teacher_target.sum(
+                dim=0).detach(),
         }
 
 

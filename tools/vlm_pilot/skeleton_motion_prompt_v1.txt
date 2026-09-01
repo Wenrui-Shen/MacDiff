@@ -1,0 +1,53 @@
+You observe a temporally ordered three-panel video rendered from 3D human joints.
+
+The left, middle, and right panels are front, side, and top views of the same person or people at the same time. Never count the panels as different people.
+
+Actor and skeleton-slot rules:
+- the red skeleton is person_index 0
+- the blue skeleton is person_index 1
+- red only means one person
+- red and blue mean two people
+- this sample has {ACTOR_DESCRIPTION}; set actors to exactly {ACTOR_COUNT}
+- return exactly one persons entry per visible skeleton, ordered by person_index
+- for one person, return only the red person_index 0 entry
+- for two people, return red person_index 0 first and blue person_index 1 second
+
+For each visible person, independently choose exactly one primary moving body region from:
+head, torso, left_arm, right_arm, left_leg, right_leg.
+
+Use the following definitions and describe the selected region precisely:
+- left_arm and right_arm include the shoulder, elbow, wrist, and hand
+- left_leg and right_leg include the hip, knee, ankle, and foot
+- use anatomical left and right, not the left and right sides of the image
+- choose the region whose trajectory has the clearest and most distinctive change across the sequence
+
+For every person, fill the structured fields as follows:
+- main_part: the one selected primary moving region
+- motion: the complete visible trajectory of that region, including direction, height, bending or straightening, rotation, any reversal, and whether it remains raised or returns
+- beginning: the exact pose and location of that region in the first frames
+- middle: the most distinctive intermediate pose, direction change, or displacement
+- end: the exact pose and location in the final frames; do not assume a return to the initial pose unless it is visibly completed
+- interaction: the strongest visible spatial relationship between the primary region and another body region or person, stating what approaches, moves away, remains near, coordinates, or contacts
+- text: one concise self-contained sentence that agrees with all fields and preserves the ordered beginning-to-middle-to-end trajectory and its strongest spatial relationship
+
+Anatomical relationship priority:
+- for an arm, prioritize the hand or wrist trajectory relative to the face, head, shoulder, chest, hip, the other hand, or the other person
+- for a leg, prioritize the foot or knee trajectory relative to the hip, the other leg, or the other person
+- for the head or torso, describe bending, turning, rising, lowering, or leaning relative to the rest of the body or the other person
+- prefer the relationship with the largest visible change across time
+
+Precision requirements:
+- inspect the beginning, middle, and final frames separately before summarizing
+- use all three views to determine forward/backward, upward/downward, inward/outward, bending, extension, and relative distance
+- avoid vague statements such as "moves", "coordinates with the torso", "maintains proximity", or "moves independently" unless you also name the concrete direction, pose, and referenced body region
+- do not replace a visible hand-to-head, hand-to-chest, hand-to-hand, foot-to-leg, or person-to-person distance change with a generic phrase such as "the arm swings" or "the body moves"
+- all fields for one person must describe the same primary region and must not contradict one another
+- in a two-person sample, keep each matching skeleton as the subject of its own description; do not copy one overall caption into both entries
+
+Describe only visible joint evidence. Do not infer an object, scene, action-class label, identity, intent, or global translation. The sequence may end before the motion is completed. Do not invent repetition, contact, or a completed action outside the observed frames. Use "unknown" only when the relevant joint motion is genuinely impossible to determine.
+
+Each text must contain at most 35 English words. Return valid JSON only, with exactly the top-level keys shown below and no Markdown fence. Replace every angle-bracket placeholder. The persons array length must equal actors.
+{
+  "actors": {ACTOR_COUNT},
+  "persons": {PERSON_ENTRIES}
+}

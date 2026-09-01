@@ -312,11 +312,10 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 OMP_NU
 
 必须从Stage1 fresh run，不能resume任何`shared_qk_joint_v1` checkpoint。
 
-没有直接创建full-token Stage2：当前no-augmentation下view A/B和K=2 exemplar在取消
-mask后几乎相同，ReSA会退化为近似同输入自蒸馏；750相对75 token还会使attention
-矩阵约增大100倍，固定60类K=2 exemplar分支无法通过缩小普通batch消除。若后续尝试
-LP对齐的dense Stage2，需要先重新设计view增强和dense teacher/prototype计算，而不是
-只把`mask_ratio`改成0。
+本节当时没有直接创建full-token Stage2：no-augmentation下view A/B和K=2 exemplar
+在取消mask后几乎相同，ReSA会退化为近似同输入自蒸馏；750相对75 token还会使
+attention矩阵约增大100倍。后续6.7已通过裁掉ReSA/mix、恢复独立增强和EMA prototype
+epoch cache建立单独的dense协议，并非只把`mask_ratio`改成0。
 
 ### 6.6 ReSA+OSE + per-joint 3-token mask
 
@@ -337,6 +336,60 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10238 BATCH_SIZE=64 OMP_NU
 该实验必须从同一Stage1 checkpoint fresh run。将它与6.5的ReSA-only/per-joint结果
 比较，才能判断OSE在per-joint mask下是正贡献还是负贡献；不要跨不同mask协议直接归因。
 
+### 6.7 Full-token prototype-only OSE + EMA epoch cache
+
+新增`dense_ose_proto_ema_v1`，真正从模型和forward中裁掉ReSA、Sinkhorn、predictor、
+`mix_proto`与`mix_ins`，而不是把loss权重乘0。每个训练step仅包含：
+
+- 一个独立增强view进入online encoder/projector并保留梯度；
+- 另一个独立增强view先进入EMA encoder/projector，使用eval BN且不保留梯度；
+- 60类exemplar只在每个epoch开头经过EMA encoder/projector，两次独立增强取平均后
+  缓存为`[60,256]` prototype，step内不重复编码；refresh使用eval-BN并按4类
+  micro-batch执行，只降低瞬时显存，不改变prototype结果；
+- 训练loss只有teacher soft target到student logits的prototype alignment。EMA缓存
+  prototype不可训练，因此prototype dispersion只记录为诊断量，不加入梯度。
+
+encoder输入完整30 x 25 = 750 token。`one_person=False`，对两个person及30个时间patch
+按LP2方式平均，保留25个joint并flatten为6400维。配置使用augmentation probability
+0.5、AMP、每卡micro-batch 4、梯度累积16；双卡有效样本batch仍为128。EMA仅在成功
+optimizer step后更新，浮点BN buffers也做EMA，整数counter直接复制；epoch cache不写入
+checkpoint，resume后在下一epoch开头按保存的RNG/EMA状态重新生成。
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10240 OMP_NUM_THREADS=1 bash script_pretrain_stage2_dense_ose.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+默认输出目录：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema
+```
+
+最终checkpoint LP：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 OMP_NUM_THREADS=1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10241 main_linprobe.py --config ./config/ntu60_xsub_joint/linprobe_madiff.yaml --output_dir "" --log_dir ./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema_lp_checkpoint100/tensorboard --finetune ./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/checkpoint-100-backbone.pth --dist_eval --accum_iter 1 --batch_size 64 --epochs 100 --model model.transformer_downstream.Transformer
+```
+
+训练时另写一个可直接上传分析的独立JSONL：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/dense_ose_diagnostics.jsonl
+```
+
+该文件包含四类event：`run_start`保存固定600样本的Stage1参考几何；
+`prototype_refresh`保存prototype相似度、effective rank和逐epoch漂移；
+`optimizer_step`每20次更新保存target熵/置信度分位数、teacher/student准确率与一致率、
+真实类概率、margin，以及encoder/projector梯度范数和相对step估计；
+`epoch_summary`保存60类hard/soft assignment完整分布；`representation_geometry`在
+epoch 1及每5 epoch保存6400/256维class gap、Stage1 cosine/CKA、online-EMA差距、
+clean prototype分类和online projector的eval-BN/模拟全局micro-batch BN差距。
+
+固定Stage1 raw feature缓存为同目录下
+`dense_ose_diagnostic_reference.pth`，只供resume和漂移计算，不需要上传。诊断前向会
+恢复Python/NumPy/Torch RNG和模块train/eval状态，不改变训练随机轨迹。上传分析时只需
+提供`dense_ose_diagnostics.jsonl`；如果已有对应checkpoint的LP结果，同时附上更好。
+
 ## 7. 绝对不要再踩的坑
 
 1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、
@@ -346,10 +399,11 @@ CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10238 BATCH_SIZE=64 OMP_NU
 3. 不要通过继续减普通batch掩盖原型分支的固定显存开销。
 4. 不要重新加入checkpoint blocks、encoder chunk、手动梯度同步或Stage2 queue。
 5. 不要把Stage1路径写回 `ntu60_xsub_ose`；必须是 `ntu60_xsub_macdiff`。
-6. `batch_size` 是每GPU大小；双卡每卡64才是全局128。
+6. `batch_size` 是每GPU micro-batch；masked协议双卡每卡64是全局128，dense协议
+   每卡4并用`accum_iter=16`得到有效全局128。
 7. 不要用旧的256维Stage2 checkpoint resume joint-aware版本；projector shape不兼容。
-8. mask协议变化或模型结构变化后必须fresh run；当前协议是
-   `shared_qk_joint_v1`。
+8. mask协议或模型结构变化后必须fresh run；masked实验和
+   `dense_ose_proto_ema_v1`之间绝不能resume。
 9. 不要只看raw ReSA；同时看 `cluster_entropy(H)` 和 `cluster_kl`。
 10. 不要因为ReSA数值正常就断言表征更适合分类；最终必须逐checkpoint LP验证。
 

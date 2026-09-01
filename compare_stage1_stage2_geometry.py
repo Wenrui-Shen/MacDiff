@@ -21,10 +21,15 @@ from diagnose_stage1_geometry import (
 )
 from main_pretrain_stage2 import (
     import_class,
+    is_dense_ose_protocol,
     load_or_create_exemplars,
     mask_strategy_from_protocol,
 )
-from model.transformer_stage2 import MacDiffStage2, transfer_macdiff_stage1
+from model.transformer_stage2 import (
+    MacDiffDenseOSE,
+    MacDiffStage2,
+    transfer_macdiff_stage1,
+)
 
 
 def _reset_mask_seed(seed):
@@ -59,9 +64,17 @@ def _load_stage1_encoder(model_args, path, mask_strategy):
 
 
 def _load_stage2_modules(model_args, path, default_mask_protocol):
-    container = MacDiffStage2(**model_args)
     checkpoint = torch.load(path, map_location='cpu')
     state = _unwrap_state(checkpoint)
+    metadata = checkpoint.get('args', {})
+    checkpoint_mask_protocol = (
+        metadata.get('mask_protocol', default_mask_protocol)
+        if isinstance(metadata, dict) else default_mask_protocol)
+    container_class = (
+        MacDiffDenseOSE
+        if is_dense_ose_protocol(checkpoint_mask_protocol)
+        else MacDiffStage2)
+    container = container_class(**model_args)
     encoder_keys = set(container.encoder_q.state_dict())
     state_keys = set(state)
     complete = any(name.startswith('encoder_q.') for name in state_keys)
@@ -76,10 +89,6 @@ def _load_stage2_modules(model_args, path, default_mask_protocol):
             'Unrecognized Stage2 checkpoint state; missing encoder keys {}, '
             'unexpected keys {}'.format(missing, unexpected))
 
-    metadata = checkpoint.get('args', {})
-    checkpoint_mask_protocol = (
-        metadata.get('mask_protocol', default_mask_protocol)
-        if isinstance(metadata, dict) else default_mask_protocol)
     mask_strategy = mask_strategy_from_protocol(checkpoint_mask_protocol)
     container.encoder_q.mask_strategy = mask_strategy
     container.encoder_k.mask_strategy = mask_strategy
@@ -444,15 +453,18 @@ def main(args):
     }
 
     if complete_stage2:
-        online_encoder = stage2_modules['encoder_q'].to(device).eval()
-        online_projector = (
-            stage2_modules['ose_projector_q'].to(device).eval())
+        dense_ose = is_dense_ose_protocol(comparison_mask_protocol)
+        prototype_encoder = stage2_modules[
+            'encoder_k' if dense_ose else 'encoder_q'].to(device).eval()
+        prototype_projector = stage2_modules[
+            'ose_projector_k' if dense_ose
+            else 'ose_projector_q'].to(device).eval()
         _reset_mask_seed(exemplar_seed)
         projected_prototypes = _encode_projected_prototypes(
-            online_encoder, online_projector, dataset, exemplar_indices,
+            prototype_encoder, prototype_projector, dataset, exemplar_indices,
             args.batch_size, device)
-        online_encoder = online_encoder.cpu()
-        online_projector = online_projector.cpu()
+        prototype_encoder = prototype_encoder.cpu()
+        prototype_projector = prototype_projector.cpu()
 
         teacher_encoder = stage2_modules['encoder_k'].to(device).eval()
         teacher_projector = (
@@ -467,8 +479,11 @@ def main(args):
             teacher_features, teacher_labels, projected_prototypes,
             class_ids, (0.04, 0.06, 0.1), device)
         results['stage2_ose_teacher_eval_bn']['note'] = (
-            'EMA encoder/projector queries versus online K2 prototypes; '
-            'projector BatchNorm uses checkpoint running statistics')
+            ('EMA encoder/projector queries versus reconstructed EMA K2 '
+             'prototypes; the exact augmented epoch cache is not stored'
+             if dense_ose else
+             'EMA encoder/projector queries versus online K2 prototypes; '
+             'projector BatchNorm uses checkpoint running statistics'))
     else:
         results['stage2_ose_teacher_eval_bn'] = None
 

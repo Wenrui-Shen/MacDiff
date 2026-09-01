@@ -73,6 +73,12 @@ one non-empty `persons` entry for each visible skeleton. `person_index: 0` is
 red and `person_index: 1` is blue; a single-person sample contains no synthetic
 second-person or empty-string target.
 
+The default prompt is `skeleton_motion_prompt_v1.txt`. It preserves the
+person-specific `persons` array while requiring a precise `main_part`, complete
+`motion`, separate `beginning`/`middle`/`end`, the strongest anatomical
+`interaction`, and a consistent final `text`. The earlier v0 file is retained
+only for historical comparison.
+
 ## 4. Extract captions from the complete train split with Transformers
 
 This path uses the same `transformers` + `qwen-vl-utils` inference flow as the

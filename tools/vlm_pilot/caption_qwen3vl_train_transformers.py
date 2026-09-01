@@ -28,7 +28,7 @@ from caption_qwen3vl_sample import extract_json, render_prompt, validate_caption
 from render_skeleton_sample import load_font, render_sample_frames
 
 
-DEFAULT_PROMPT = SCRIPT_DIR / "skeleton_motion_prompt_v0.txt"
+DEFAULT_PROMPT = SCRIPT_DIR / "skeleton_motion_prompt_v1.txt"
 SCHEMA_VERSION = "macdiff.person_caption.v1"
 
 

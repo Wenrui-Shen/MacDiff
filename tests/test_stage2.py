@@ -16,8 +16,15 @@ from main_pretrain_stage2 import (
 )
 from feeder.feeder_stage2 import FeederStage2
 from model.transformer_stage2 import (
+    MacDiffDenseOSE,
     MacDiffStage2,
     transfer_macdiff_stage1,
+)
+from util.dense_ose_diagnostics import (
+    DenseOSEJsonlLogger,
+    assignment_distribution,
+    prototype_geometry,
+    select_balanced_indices,
 )
 from model.transformer_downstream import Transformer as DownstreamTransformer
 
@@ -64,6 +71,27 @@ class MacDiffStage2Test(unittest.TestCase):
             sinkhorn_iterations=3,
         )
 
+    def _dense_model(self):
+        return MacDiffDenseOSE(
+            dim_in=3,
+            dim_feat=8,
+            depth=1,
+            num_heads=2,
+            mlp_ratio=2,
+            num_frames=8,
+            num_joints=5,
+            patch_size=1,
+            t_patch_size=2,
+            mask_ratio=0.0,
+            one_person=True,
+            input_mean=(0.0, 0.0, 0.0),
+            input_var=(1.0, 1.0, 1.0),
+            feature_dim=4,
+            projector_hidden_dim=8,
+            projector_layers=2,
+            ose_separate_projector=True,
+        )
+
     def test_stage2_training_mode_labels_ose_only(self):
         args = SimpleNamespace(
             resa_weight=0.0,
@@ -73,6 +101,17 @@ class MacDiffStage2Test(unittest.TestCase):
         )
         self.assertEqual(
             stage2_training_mode(args), 'ose_only_separate_projector')
+
+    def test_stage2_training_mode_labels_dense_ose(self):
+        args = SimpleNamespace(
+            mask_protocol='dense_ose_proto_ema_v1',
+            resa_weight=0.0,
+            ose_lambda=1.0,
+            ose_mix_proto_weight=0.0,
+            ose_mix_ins_weight=0.0,
+        )
+        self.assertEqual(
+            stage2_training_mode(args), 'dense_ose_proto_ema_v1')
 
     def test_transfer_loads_only_stage1_online_encoder(self):
         model = self._model()
@@ -279,6 +318,111 @@ class MacDiffStage2Test(unittest.TestCase):
             retain_graph=True, allow_unused=True)
         self.assertTrue(any(value is not None for value in encoder_resa))
         self.assertTrue(any(value is not None for value in encoder_ose))
+
+    def test_dense_ose_has_one_online_graph_and_ema_prototypes(self):
+        torch.manual_seed(11)
+        model = self._dense_model()
+        model.train()
+        exemplar_views = [
+            torch.randn(3, 3, 8, 5, 1),
+            torch.randn(3, 3, 8, 5, 1),
+        ]
+        prototypes = model.refresh_ema_prototypes(exemplar_views)
+        self.assertEqual(tuple(prototypes.shape), (3, 4))
+        self.assertFalse(prototypes.requires_grad)
+        self.assertTrue(torch.allclose(
+            prototypes.norm(dim=1), torch.ones(3), atol=1e-5))
+        self.assertFalse(hasattr(model, 'predictor'))
+        self.assertFalse(hasattr(model, 'projector_q'))
+
+        online_calls = []
+        teacher_calls = []
+        online_forward = model.encoder_q.forward_features
+        teacher_forward = model.encoder_k.forward_features
+
+        def record_online(skeleton, mask_indices=None):
+            online_calls.append(mask_indices)
+            return online_forward(skeleton, mask_indices=mask_indices)
+
+        def record_teacher(skeleton, mask_indices=None):
+            teacher_calls.append(mask_indices)
+            return teacher_forward(skeleton, mask_indices=mask_indices)
+
+        with mock.patch.object(
+                model.encoder_q, 'forward_features',
+                side_effect=record_online), mock.patch.object(
+                    model.encoder_k, 'forward_features',
+                    side_effect=record_teacher):
+            losses = model(
+                torch.randn(4, 3, 8, 5, 1),
+                torch.randn(4, 3, 8, 5, 1),
+                prototypes,
+                labels=torch.tensor([0, 1, 2, 0]),
+            )
+
+        self.assertEqual(online_calls, [None])
+        self.assertEqual(teacher_calls, [None])
+        self.assertTrue(torch.isfinite(losses['proto']))
+        self.assertEqual(float(losses['mix_proto']), 0.0)
+        self.assertEqual(float(losses['mix_ins']), 0.0)
+        for name in (
+                'ose_target_entropy_p10',
+                'ose_target_entropy_p50',
+                'ose_target_entropy_p90',
+                'ose_target_confidence_p10',
+                'ose_target_confidence_p50',
+                'ose_target_confidence_p90',
+                'ose_teacher_accuracy',
+                'ose_student_accuracy',
+                'ose_teacher_student_agreement',
+                'ose_teacher_true_class_probability',
+                'ose_teacher_margin'):
+            self.assertTrue(torch.isfinite(losses[name]))
+        self.assertEqual(
+            tuple(losses['_ose_teacher_assignment'].shape), (4,))
+        self.assertEqual(
+            tuple(losses['_ose_teacher_probability_sum'].shape), (3,))
+        losses['proto'].backward()
+        self.assertTrue(any(
+            parameter.grad is not None
+            for parameter in model.encoder_q.parameters()))
+        self.assertTrue(any(
+            parameter.grad is not None
+            for parameter in model.ose_projector_q.parameters()))
+        self.assertTrue(all(
+            parameter.grad is None
+            for parameter in model.encoder_k.parameters()))
+        self.assertTrue(all(
+            parameter.grad is None
+            for parameter in model.ose_projector_k.parameters()))
+
+    def test_dense_diagnostic_helpers_are_balanced_and_track_drift(self):
+        labels = np.repeat(np.arange(3), 4)
+        selected = select_balanced_indices(
+            labels, excluded_indices=[0, 4, 8], max_samples=6,
+            seed=3, num_classes=3)
+        selected_labels = labels[selected]
+        self.assertEqual(
+            np.bincount(selected_labels, minlength=3).tolist(), [2, 2, 2])
+
+        prototypes = torch.eye(3)
+        first = prototype_geometry(prototypes)
+        second = prototype_geometry(prototypes, prototypes.clone())
+        self.assertIsNone(first['epoch_drift_cosine_mean'])
+        self.assertAlmostEqual(second['epoch_drift_cosine_mean'], 1.0)
+        distribution = assignment_distribution(torch.tensor([2, 0, 2]))
+        self.assertAlmostEqual(distribution['used_fraction'], 2.0 / 3.0)
+        self.assertEqual(distribution['histogram'], [2, 0, 2])
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'diagnostics.jsonl'
+            DenseOSEJsonlLogger(path).write(
+                'test_event', finite=1.0, nonfinite=float('inf'))
+            with path.open('r', encoding='utf-8') as handle:
+                record = json.loads(handle.readline())
+            self.assertEqual(record['event'], 'test_event')
+            self.assertEqual(record['finite'], 1.0)
+            self.assertIsNone(record['nonfinite'])
 
     def test_extra_joint_view_preserves_bn_and_retains_gradient(self):
         # Keep the forward test on ordinary CPU BatchNorm. PyTorch 1.8

@@ -1,0 +1,96 @@
+# Full-token Stage2: prototype-only OSE with one online and one EMA view.
+stage1_weights: ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+output_dir: ./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema
+log_dir: ./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/tensorboard
+
+feeder: feeder.feeder_stage2.FeederStage2
+train_feeder_args:
+  data_path: ../data/MAMP/ntu/NTU60_XSub.npz
+  split: train
+  window_size: 120
+  base_p_interval: [0.95]
+  shear_amplitude: 0.5
+  temporal_padding_ratio: 6
+  augmentation_methods: [temporal_crop, shear, rotation]
+  # Full-token views cannot differ through masks, so draw two independent
+  # augmentations from the same base sequence.
+  augmentation_probability: 0.5
+  use_mmap: True
+
+model_args:
+  dim_in: 3
+  dim_feat: 256
+  depth: 8
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: None
+  drop_rate: 0.0
+  attn_drop_rate: 0.0
+  drop_path_rate: 0.0
+  mask_ratio: 0.0
+  # Match linprobe2: encode both people, then average people/time per joint.
+  one_person: False
+  input_mean: [-0.0058, -0.1333, -0.0246]
+  input_var: [0.0206, 0.0805, 0.0218]
+  self_shift: False
+  feature_dim: 256
+  projector_hidden_dim: 2048
+  projector_layers: 3
+  ose_separate_projector: True
+  cluster_temperature: 0.4
+  sinkhorn_temperature: 0.05
+  sinkhorn_iterations: 3
+
+epochs: 100
+# Per-GPU micro-batch 4 x accumulation 16 x two GPUs = global batch 128.
+# Each sample contains two independent 750-token person sequences.
+batch_size: 4
+accum_iter: 16
+num_workers: 8
+pin_mem: True
+enable_amp: True
+sync_batchnorm: True
+max_train_steps: 0
+save_interval: 10
+device: cuda
+seed: 0
+
+lr: 0.001
+head_lr: 0.25
+final_lr: 0.0
+head_final_lr: 0.0
+weight_decay: 1.0e-5
+optimizer_momentum: 0.9
+nesterov: False
+ema_momentum: 0.996
+
+exemplar_index_path: ./config/ntu60_xsub_joint/stage2_exemplar_seed0.json
+exemplar_seed: 0
+num_classes: 60
+# Average two independently augmented EMA encodings once per epoch.
+ose_exemplar_views: 2
+# Eval-BN makes class micro-batching exact while bounding full-token peak memory.
+ose_exemplar_batch_size: 4
+
+resa_weight: 0.0
+ose_lambda: 1.0
+ose_mix_proto_weight: 0.0
+ose_mix_ins_weight: 0.0
+ose_mix_alpha: 1.0
+ose_tau_s: 0.1
+ose_tau_t: 0.04
+mask_protocol: dense_ose_proto_ema_v1
+
+# Standalone upload-friendly JSONL diagnostics. Heavy clean-set geometry runs
+# at epoch 1 and every five epochs; optimizer diagnostics run every 20 updates.
+diagnostic_log_name: dense_ose_diagnostics.jsonl
+diagnostic_step_interval: 20
+diagnostic_epoch_interval: 5
+diagnostic_max_samples: 600
+diagnostic_batch_size: 4
+diagnostic_seed: 17

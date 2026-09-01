@@ -12,6 +12,8 @@ LOG_DIR="${LOG_DIR:-${OUTPUT_DIR}/tensorboard}"
 NPROC_PER_NODE="${NPROC_PER_NODE:-1}"
 MASTER_PORT="${MASTER_PORT:-10237}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
+ACCUM_ITER="${ACCUM_ITER:-1}"
+ENABLE_AMP="${ENABLE_AMP:-false}"
 BACKBONE_LR="${BACKBONE_LR:-0.25}"
 HEAD_LR="${HEAD_LR:-0.25}"
 RESA_WEIGHT="${RESA_WEIGHT:-1.0}"
@@ -35,7 +37,8 @@ echo "Running MacDiff Stage2 unit tests"
 echo "Stage2 weights: ReSA=${RESA_WEIGHT}, OSE=${OSE_LAMBDA}, mix-proto=${OSE_MIX_PROTO_WEIGHT}, mix-ins=${OSE_MIX_INS_WEIGHT}"
 echo "OSE temperatures: student=${OSE_TAU_S}, teacher=${OSE_TAU_T}"
 echo "Stage2 mask protocol: ${MASK_PROTOCOL}"
-echo "Starting independent 100-epoch MacDiff RSDG Stage2"
+echo "Stage2 micro-batch=${BATCH_SIZE}, accum_iter=${ACCUM_ITER}, AMP=${ENABLE_AMP}"
+echo "Starting independent MacDiff Stage2 protocol ${MASK_PROTOCOL}"
 if [[ "${NPROC_PER_NODE}" -gt 1 ]]; then
     "${PYTHON_BIN}" -m torch.distributed.launch \
         --nproc_per_node="${NPROC_PER_NODE}" \
@@ -46,6 +49,8 @@ if [[ "${NPROC_PER_NODE}" -gt 1 ]]; then
         --output_dir "${OUTPUT_DIR}" \
         --log_dir "${LOG_DIR}" \
         --batch_size "${BATCH_SIZE}" \
+        --accum_iter "${ACCUM_ITER}" \
+        --enable_amp "${ENABLE_AMP}" \
         --lr "${BACKBONE_LR}" \
         --head_lr "${HEAD_LR}" \
         --resa_weight "${RESA_WEIGHT}" \
@@ -62,6 +67,8 @@ else
         --output_dir "${OUTPUT_DIR}" \
         --log_dir "${LOG_DIR}" \
         --batch_size "${BATCH_SIZE}" \
+        --accum_iter "${ACCUM_ITER}" \
+        --enable_amp "${ENABLE_AMP}" \
         --lr "${BACKBONE_LR}" \
         --head_lr "${HEAD_LR}" \
         --resa_weight "${RESA_WEIGHT}" \
