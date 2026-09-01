@@ -141,3 +141,18 @@ The batch script reads only `x_train`; it never opens `y_train`. Frames are
 rendered and preprocessed in memory, so the model prompt contains neither a
 sample filename nor an action label. Concatenate the two shard files only after
 both processes finish; use `sample_index` when ordered records are required.
+
+## 5. Randomly inspect accepted captions
+
+Read both shard files, deduplicate accepted results by `sample_index`, and print
+five random samples with all person-level fields:
+
+```bash
+python tools/vlm_pilot/inspect_random_captions.py \
+  --input_paths vlm_pilot/ntu60_xsub_train_person_captions_v1_shard0.jsonl \
+                vlm_pilot/ntu60_xsub_train_person_captions_v1_shard1.jsonl \
+  --num_samples 5
+```
+
+Add `--compact` to print only the final `text` fields, or `--seed 42` to make
+the random selection reproducible.
