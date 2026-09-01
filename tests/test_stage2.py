@@ -10,6 +10,7 @@ import torch
 
 from main_pretrain_stage2 import (
     ExemplarProvider,
+    checkpoint_schedule,
     load_or_create_exemplars,
     prepare_output,
     stage2_training_mode,
@@ -112,6 +113,18 @@ class MacDiffStage2Test(unittest.TestCase):
         )
         self.assertEqual(
             stage2_training_mode(args), 'dense_ose_proto_ema_v1')
+
+    def test_lp_backbone_schedule_is_independent_of_full_checkpoints(self):
+        args = SimpleNamespace(
+            epochs=100,
+            save_interval=10,
+            lp_checkpoint_epochs=[1, 2, 3, 5, 8, 10, 15, 20],
+        )
+        self.assertEqual(checkpoint_schedule(args, 1), (False, True))
+        self.assertEqual(checkpoint_schedule(args, 8), (False, True))
+        self.assertEqual(checkpoint_schedule(args, 10), (True, True))
+        self.assertEqual(checkpoint_schedule(args, 11), (False, False))
+        self.assertEqual(checkpoint_schedule(args, 100), (True, True))
 
     def test_transfer_loads_only_stage1_online_encoder(self):
         model = self._model()

@@ -390,6 +390,12 @@ clean prototype分类和online projector的eval-BN/模拟全局micro-batch BN差
 恢复Python/NumPy/Torch RNG和模块train/eval状态，不改变训练随机轨迹。上传分析时只需
 提供`dense_ose_diagnostics.jsonl`；如果已有对应checkpoint的LP结果，同时附上更好。
 
+为检查Stage2是否训练过久，dense配置额外保存online encoder-only LP权重：
+epoch `1,2,3,5,8,10,15,20`，之后每10 epoch到100。文件名仍为
+`checkpoint-XXX-backbone.pth`；只有每10 epoch和最终epoch保存包含EMA、optimizer、
+scaler与RNG的完整`checkpoint-XXX.pth`，因此早期密集LP对比不会成倍增加完整checkpoint
+存储。每次保存也会写入独立诊断日志的`checkpoint_saved` event。
+
 ## 7. 绝对不要再踩的坑
 
 1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、

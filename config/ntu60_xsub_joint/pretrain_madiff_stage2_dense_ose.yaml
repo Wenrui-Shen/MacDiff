@@ -57,6 +57,9 @@ enable_amp: True
 sync_batchnorm: True
 max_train_steps: 0
 save_interval: 10
+# Preserve early online encoders densely for LP without duplicating full EMA,
+# optimizer, scaler, and RNG checkpoint state.
+lp_checkpoint_epochs: [1, 2, 3, 5, 8, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100]
 device: cuda
 seed: 0
 

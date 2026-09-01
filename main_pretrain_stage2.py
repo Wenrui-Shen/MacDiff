@@ -132,6 +132,8 @@ def get_args_parser():
     parser.add_argument('--pin_mem', type=str2bool, default=True)
     parser.add_argument('--max_train_steps', default=0, type=int)
     parser.add_argument('--save_interval', default=10, type=int)
+    parser.add_argument(
+        '--lp_checkpoint_epochs', default=(), nargs='*', type=int)
     parser.add_argument('--device', default='cuda')
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--enable_amp', type=str2bool, default=False)
@@ -213,6 +215,17 @@ def validate_args(args):
         raise ValueError('world_size must be positive')
     if args.save_interval <= 0:
         raise ValueError('save_interval must be positive')
+    if not isinstance(args.lp_checkpoint_epochs, (list, tuple)):
+        raise ValueError('lp_checkpoint_epochs must be a sequence')
+    args.lp_checkpoint_epochs = sorted(set(
+        int(value) for value in args.lp_checkpoint_epochs))
+    invalid_lp_epochs = [
+        value for value in args.lp_checkpoint_epochs
+        if value <= 0 or value > args.epochs]
+    if invalid_lp_epochs:
+        raise ValueError(
+            'lp_checkpoint_epochs must be within [1, epochs]: {}'.format(
+                invalid_lp_epochs))
     if args.lr <= 0 or args.head_lr <= 0:
         raise ValueError('Stage2 initial learning rates must be positive')
     if args.final_lr < 0 or args.head_final_lr < 0:
@@ -535,6 +548,22 @@ def preserve_rng_state():
             torch.cuda.set_rng_state(state['cuda_rng_state'])
 
 
+def save_backbone_checkpoint(model, args, completed_epochs):
+    """Save only the online encoder needed by downstream linear probing."""
+    backbone_path = (
+        Path(args.output_dir)
+        / 'checkpoint-{:03d}-backbone.pth'.format(completed_epochs))
+    if misc.is_main_process():
+        torch.save({
+            'model': model.encoder_q.state_dict(),
+            'epoch': int(completed_epochs),
+            'source': 'MacDiff RSDG Stage2 online encoder',
+        }, backbone_path)
+    if misc.is_dist_avail_and_initialized():
+        dist.barrier()
+    return backbone_path
+
+
 def save_checkpoint(model, optimizer, scaler, args, completed_epochs):
     output = Path(args.output_dir)
     checkpoint_path = output / 'checkpoint-{:03d}.pth'.format(
@@ -561,17 +590,21 @@ def save_checkpoint(model, optimizer, scaler, args, completed_epochs):
         state.update(rng_state)
     if misc.is_main_process():
         torch.save(state, checkpoint_path)
-    backbone_path = output / 'checkpoint-{:03d}-backbone.pth'.format(
-        completed_epochs)
-    if misc.is_main_process():
-        torch.save({
-            'model': model.encoder_q.state_dict(),
-            'epoch': int(completed_epochs),
-            'source': 'MacDiff RSDG Stage2 online encoder',
-        }, backbone_path)
-    if misc.is_dist_avail_and_initialized():
-        dist.barrier()
+    backbone_path = save_backbone_checkpoint(
+        model, args, completed_epochs)
     return checkpoint_path, backbone_path
+
+
+def checkpoint_schedule(args, completed_epochs):
+    """Separate costly resume checkpoints from lightweight LP backbones."""
+    completed_epochs = int(completed_epochs)
+    full_checkpoint = (
+        completed_epochs % int(args.save_interval) == 0
+        or completed_epochs == int(args.epochs))
+    lp_backbone = (
+        full_checkpoint
+        or completed_epochs in set(args.lp_checkpoint_epochs))
+    return full_checkpoint, lp_backbone
 
 
 def restore_rng(checkpoint, args):
@@ -1403,12 +1436,33 @@ def main(args):
                     flush=True)
             if misc.is_dist_avail_and_initialized():
                 dist.barrier()
-        if completed % args.save_interval == 0 or completed == args.epochs:
+        save_full, save_lp_backbone = checkpoint_schedule(args, completed)
+        if save_full:
             checkpoint_path, backbone_path = save_checkpoint(
                 model_without_ddp, optimizer, scaler, args, completed)
             if misc.is_main_process():
                 print('Saved Stage2 checkpoint: {}'.format(checkpoint_path))
                 print('Saved LP backbone: {}'.format(backbone_path))
+                if dense_ose:
+                    diagnostic_logger.write(
+                        'checkpoint_saved',
+                        epoch=int(completed),
+                        full_checkpoint=str(checkpoint_path),
+                        lp_backbone=str(backbone_path),
+                    )
+        elif save_lp_backbone:
+            backbone_path = save_backbone_checkpoint(
+                model_without_ddp, args, completed)
+            if misc.is_main_process():
+                print('Saved intermediate LP backbone: {}'.format(
+                    backbone_path))
+                if dense_ose:
+                    diagnostic_logger.write(
+                        'checkpoint_saved',
+                        epoch=int(completed),
+                        full_checkpoint=None,
+                        lp_backbone=str(backbone_path),
+                    )
         if log_writer is not None:
             log_writer.flush()
 
