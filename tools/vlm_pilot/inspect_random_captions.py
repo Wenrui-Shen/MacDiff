@@ -104,6 +104,23 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--num_samples", type=int, default=5)
     parser.add_argument(
+        "--sample_indices",
+        nargs="+",
+        type=int,
+        default=None,
+        help="Inspect exact train indices instead of taking a random selection.",
+    )
+    parser.add_argument(
+        "--visualization_dirs",
+        nargs="+",
+        type=Path,
+        default=None,
+        help=(
+            "Existing renderer output directories; sample indices are read from "
+            "their render_metadata.json files."
+        ),
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -191,6 +208,20 @@ def load_latest_accepted(
     return records, stats
 
 
+def indices_from_visualizations(paths: Sequence[Path]) -> Dict[int, Path]:
+    result: Dict[int, Path] = {}
+    for path in paths:
+        metadata_path = path if path.name == "render_metadata.json" else path / "render_metadata.json"
+        if not metadata_path.is_file():
+            raise FileNotFoundError(f"Visualization metadata not found: {metadata_path}")
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        sample_index = metadata.get("sample_index")
+        if sample_index is None:
+            raise ValueError(f"Visualization has no dataset sample_index: {metadata_path}")
+        result[int(sample_index)] = metadata_path.parent.resolve()
+    return result
+
+
 def person_lines(person: Dict[str, Any], compact: bool) -> List[str]:
     index = person.get("person_index", "?")
     color = person.get("color", "unknown")
@@ -228,6 +259,8 @@ def format_record(record: Dict[str, Any], ordinal: int, total: int, compact: boo
                 lines.extend(person_lines(text_record, True))
             else:
                 lines.append(f"  text: {text_record}")
+    if record.get("_visualization_dir"):
+        lines.append(f"  visualization: {record['_visualization_dir']}")
     lines.append(f"  source: {record.get('_inspection_source', 'unknown')}")
     return "\n".join(lines)
 
@@ -534,9 +567,35 @@ def main() -> None:
     if not records:
         raise SystemExit("No accepted caption records were found.")
 
-    count = min(args.num_samples, len(records))
-    selected = random.Random(args.seed).sample(records, count)
-    selected.sort(key=lambda record: int(record["sample_index"]))
+    visualization_map = indices_from_visualizations(args.visualization_dirs or [])
+    requested_indices: List[int] = []
+    for sample_index in (args.sample_indices or []) + list(visualization_map):
+        if sample_index < 0:
+            raise ValueError("sample indices must be non-negative")
+        if sample_index not in requested_indices:
+            requested_indices.append(sample_index)
+
+    if requested_indices:
+        missing_indices = [
+            sample_index
+            for sample_index in requested_indices
+            if sample_index not in records_by_index
+        ]
+        if missing_indices:
+            raise SystemExit(
+                "No accepted caption found for sample_index: "
+                + ", ".join(str(index) for index in missing_indices)
+            )
+        selected = [records_by_index[index] for index in requested_indices]
+        for record in selected:
+            sample_index = int(record["sample_index"])
+            if sample_index in visualization_map:
+                record["_visualization_dir"] = str(visualization_map[sample_index])
+        count = len(selected)
+    else:
+        count = min(args.num_samples, len(records))
+        selected = random.Random(args.seed).sample(records, count)
+        selected.sort(key=lambda record: int(record["sample_index"]))
 
     if args.data_path is not None:
         export_review(
@@ -557,8 +616,11 @@ def main() -> None:
         f"{stats['non_accepted_lines']} non-accepted, "
         f"{stats['malformed_lines']} malformed."
     )
-    seed_text = "random" if args.seed is None else str(args.seed)
-    print(f"Showing {count} sample(s), seed={seed_text}.\n")
+    if requested_indices:
+        print(f"Showing {count} requested sample(s).\n")
+    else:
+        seed_text = "random" if args.seed is None else str(args.seed)
+        print(f"Showing {count} sample(s), seed={seed_text}.\n")
     for ordinal, record in enumerate(selected, start=1):
         print(format_record(record, ordinal, count, args.compact))
         if ordinal != count:

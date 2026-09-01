@@ -157,6 +157,21 @@ python tools/vlm_pilot/inspect_random_captions.py \
 Add `--compact` to print only the final `text` fields, or `--seed 42` to make
 the random selection reproducible.
 
+If a visualization already exists, do not load the NPZ again. Read its
+`render_metadata.json` and look up the matching accepted caption directly:
+
+```bash
+python tools/vlm_pilot/inspect_random_captions.py \
+  --input_paths vlm_pilot/ntu60_xsub_train_person_captions_v1_shard0.jsonl \
+                vlm_pilot/ntu60_xsub_train_person_captions_v1_shard1.jsonl \
+  --visualization_dirs vlm_pilot/sample_000000 \
+  --compact
+```
+
+Use `--sample_indices 0 42 108` when the desired train indices are already
+known. Both lookup modes scan only the caption JSONL files and do not read
+`x_train` or `y_train`.
+
 To export labels and skeleton animations into a standalone review folder, add
 the aligned NTU60 NPZ and a new output directory:
 
