@@ -79,54 +79,66 @@ person-specific `persons` array while requiring a precise `main_part`, complete
 `interaction`, and a consistent final `text`. The earlier v0 file is retained
 only for historical comparison.
 
-## 4. Extract captions from the complete train split with Transformers
+## 4. Complete train split as two independent stages
 
-This path uses the same `transformers` + `qwen-vl-utils` inference flow as the
-single-sample pilot and does not require vLLM. The model is loaded once and kept
-resident while a process works through its shard. On two 24 GB GPUs, run two
-independent processes: GPU 0 handles even sample indices and GPU 1 handles odd
-sample indices. Each process writes its own JSONL file.
+The recommended full pipeline persists every visualization before any model is
+loaded. Stage 1 reads only `x_train` and creates one `preview.gif` plus one
+`render_metadata.json` under each `train_<index>` directory. Stage 2 reads only
+those files; it never reopens the NPZ. This makes rendering independently
+inspectable and reusable across prompt or model experiments.
 
-First verify label-free loading, actor counting, 32-frame rendering, prompt
-expansion, and sharding without loading the model:
+Render all train samples once:
 
 ```bash
-python tools/vlm_pilot/caption_qwen3vl_train_transformers.py \
+python tools/vlm_pilot/render_qwen3vl_train.py \
   --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
-  --output_path vlm_pilot/dry_run.jsonl \
-  --num_shards 2 \
-  --shard_id 0 \
-  --max_samples 8 \
-  --dry_run
+  --output_root vlm_pilot/ntu60_xsub_train_rendered_v1 \
+  --num_frames 32 \
+  --sample_fps 8 \
+  --resume
 ```
 
-Then run a small two-GPU pilot in two terminals. `--max_samples 8` means the
-global range `train_0` through `train_7`; each process receives half:
+The GIF representation avoids writing 32 separate PNG files per sample. For
+NTU60 XSub, allow roughly 10-20 GB depending on the motion content and
+filesystem. `--resume` validates both the GIF and matching render configuration
+before skipping a sample.
+
+Verify the persisted inputs and expanded prompt without loading Qwen:
+
+```bash
+python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
+  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v1 \
+  --output_path vlm_pilot/rendered_dry_run.jsonl \
+  --num_shards 2 --shard_id 0 --dry_run
+```
+
+Then run two independent caption processes. Each GPU loads one model; GPU 0
+handles even indices and GPU 1 handles odd indices:
 
 ```bash
 OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 \
-python tools/vlm_pilot/caption_qwen3vl_train_transformers.py \
-  --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
+python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
+  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v1 \
   --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
-  --output_path vlm_pilot/ntu60_xsub_train_captions_shard0.jsonl \
-  --num_shards 2 --shard_id 0 --num_frames 32 --sample_fps 8 \
-  --max_samples 8
+  --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v1.txt \
+  --output_path vlm_pilot/ntu60_xsub_train_person_captions_v2_shard0.jsonl \
+  --num_shards 2 --shard_id 0 --resume
 ```
 
 ```bash
 OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1 \
-python tools/vlm_pilot/caption_qwen3vl_train_transformers.py \
-  --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
+python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
+  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v1 \
   --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
-  --output_path vlm_pilot/ntu60_xsub_train_captions_shard1.jsonl \
-  --num_shards 2 --shard_id 1 --num_frames 32 --sample_fps 8 \
-  --max_samples 8
+  --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v1.txt \
+  --output_path vlm_pilot/ntu60_xsub_train_person_captions_v2_shard1.jsonl \
+  --num_shards 2 --shard_id 1 --resume
 ```
 
-Remove `--max_samples 8` for the full split. Add `--resume` when restarting;
-only records whose status is `accepted` are skipped, while invalid and failed
-samples are tried again and appended for auditability. Keep the same
-`--num_shards` and `--shard_id` for a resumed output file.
+Caption resume skips only accepted records generated with the same model and
+prompt SHA-256. Invalid and failed samples are retried and appended for audit.
+The older `caption_qwen3vl_train_transformers.py` remains available as the
+single-stage in-memory path, but it is no longer the recommended full run.
 
 Each JSONL record includes `sample_id` (`train_<index>`), prompt SHA-256,
 rendering and inference settings, raw response, parsed caption, retry history,
@@ -143,9 +155,8 @@ and validation status. Only an `accepted` record has a non-empty `texts` list:
 }
 ```
 
-The batch script reads only `x_train`; it never opens `y_train`. Frames are
-rendered and preprocessed in memory, so the model prompt contains neither a
-sample filename nor an action label. Concatenate the two shard files only after
+Neither stage reads `y_train`. The model prompt contains neither a sample
+filename nor an action label. Concatenate the two caption shard files only after
 both processes finish; use `sample_index` when ordered records are required.
 
 ## 5. Randomly inspect accepted captions
