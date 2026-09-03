@@ -92,11 +92,23 @@ Render all train samples once:
 ```bash
 python tools/vlm_pilot/render_qwen3vl_train.py \
   --data_path ../data/MAMP/ntu/NTU60_XSub.npz \
-  --output_root vlm_pilot/ntu60_xsub_train_rendered_v1 \
+  --output_root vlm_pilot/ntu60_xsub_train_rendered_v2_smooth \
   --num_frames 32 \
   --sample_fps 8 \
+  --temporal_smooth savgol \
+  --median_window 3 \
+  --smooth_window 5 \
+  --smooth_polyorder 2 \
+  --max_interp_gap 2 \
   --resume
 ```
+
+Temporal smoothing is applied independently to every person's full joint
+trajectories before the 32 output frames are sampled.  A 3-frame median removes
+isolated spikes, short internal gaps of at most 2 frames are interpolated, and
+a dependency-free 5-frame quadratic Savitzky-Golay filter reduces jitter
+without causal lag.  Pass `--temporal_smooth none` for an unsmoothed comparison.
+Use a new output root when comparing with renders made before smoothing.
 
 The GIF representation avoids writing 32 separate PNG files per sample. For
 NTU60 XSub, allow roughly 10-20 GB depending on the motion content and
@@ -107,7 +119,7 @@ Verify the persisted inputs and expanded prompt without loading Qwen:
 
 ```bash
 python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
-  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v1 \
+  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v2_smooth \
   --output_path vlm_pilot/rendered_dry_run.jsonl \
   --num_shards 2 --shard_id 0 --dry_run
 ```
@@ -118,7 +130,7 @@ handles even indices and GPU 1 handles odd indices:
 ```bash
 OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 \
 python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
-  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v1 \
+  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v2_smooth \
   --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
   --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v1.txt \
   --output_path vlm_pilot/ntu60_xsub_train_person_captions_v2_shard0.jsonl \
@@ -128,7 +140,7 @@ python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
 ```bash
 OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1 \
 python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
-  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v1 \
+  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v2_smooth \
   --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
   --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v1.txt \
   --output_path vlm_pilot/ntu60_xsub_train_person_captions_v2_shard1.jsonl \

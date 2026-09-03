@@ -49,6 +49,31 @@ def parse_args():
     parser.add_argument("--height", type=int, default=360)
     parser.add_argument("--gif_duration_ms", type=int, default=180)
     parser.add_argument(
+        "--temporal_smooth",
+        choices=("none", "savgol"),
+        default="savgol",
+        help="Smooth every joint trajectory before frame sampling (default: savgol).",
+    )
+    parser.add_argument(
+        "--median_window",
+        type=int,
+        default=3,
+        help="Odd median-filter window used to suppress one-frame spikes.",
+    )
+    parser.add_argument(
+        "--smooth_window",
+        type=int,
+        default=5,
+        help="Odd Savitzky-Golay window applied to the full valid sequence.",
+    )
+    parser.add_argument("--smooth_polyorder", type=int, default=2)
+    parser.add_argument(
+        "--max_interp_gap",
+        type=int,
+        default=2,
+        help="Maximum internal missing-joint gap to linearly interpolate.",
+    )
+    parser.add_argument(
         "--demo",
         action="store_true",
         help="Use a synthetic walking-and-arm-raising sequence to test rendering only.",
@@ -131,6 +156,162 @@ def uniformly_sample(sequence, num_frames):
 
 def active_joint_mask(sequence):
     return np.any(np.abs(sequence) > 1e-8, axis=-1)
+
+
+def _validate_odd_window(name, value):
+    if value < 1 or value % 2 == 0:
+        raise ValueError("%s must be a positive odd integer" % name)
+
+
+def _contiguous_true_runs(mask):
+    """Yield half-open intervals for contiguous true regions in a 1-D mask."""
+    padded = np.pad(np.asarray(mask, dtype=np.int8), (1, 1))
+    transitions = np.diff(padded)
+    starts = np.flatnonzero(transitions == 1)
+    stops = np.flatnonzero(transitions == -1)
+    return zip(starts.tolist(), stops.tolist())
+
+
+def _interpolate_short_joint_gaps(sequence, max_gap):
+    """Fill only short internal gaps; never create an absent actor at an edge."""
+    result = np.asarray(sequence, dtype=np.float32).copy()
+    if max_gap <= 0:
+        return result, 0
+
+    active = active_joint_mask(result)
+    filled = 0
+    for person in range(result.shape[1]):
+        for joint in range(result.shape[2]):
+            valid = active[:, person, joint]
+            missing = ~valid
+            for start, stop in _contiguous_true_runs(missing):
+                gap = stop - start
+                if (
+                    gap > max_gap
+                    or start == 0
+                    or stop == len(result)
+                    or not valid[start - 1]
+                    or not valid[stop]
+                ):
+                    continue
+                left = result[start - 1, person, joint]
+                right = result[stop, person, joint]
+                denominator = float(gap + 1)
+                for offset in range(1, gap + 1):
+                    weight = offset / denominator
+                    result[start + offset - 1, person, joint] = (
+                        (1.0 - weight) * left + weight * right
+                    )
+                valid[start:stop] = True
+                filled += gap
+    return result, filled
+
+
+def _median_filter_segment(segment, window):
+    length = len(segment)
+    effective = min(window, length if length % 2 else length - 1)
+    if effective < 3:
+        return segment.copy()
+    half = effective // 2
+    padded = np.pad(segment, ((half, half), (0, 0)), mode="edge")
+    windows = np.lib.stride_tricks.sliding_window_view(
+        padded, effective, axis=0
+    )
+    return np.median(windows, axis=-1).astype(np.float32)
+
+
+def _savgol_weights(window, polyorder, position):
+    """Return weights that evaluate a local polynomial at ``position``."""
+    x = np.arange(window, dtype=np.float64) - float(position)
+    design = np.vander(x, N=polyorder + 1, increasing=True)
+    return np.linalg.pinv(design)[0]
+
+
+def _savgol_filter_segment(segment, window, polyorder):
+    """Dependency-free, zero-phase Savitzky-Golay smoothing for one joint."""
+    length = len(segment)
+    effective = min(window, length if length % 2 else length - 1)
+    if effective <= polyorder or effective < 3:
+        return segment.copy()
+
+    half = effective // 2
+    result = np.empty_like(segment, dtype=np.float32)
+    center_weights = _savgol_weights(effective, polyorder, half)
+    if length >= effective:
+        windows = np.lib.stride_tricks.sliding_window_view(
+            segment, effective, axis=0
+        )
+        result[half:length - half] = np.einsum(
+            "tcw,w->tc", windows, center_weights
+        ).astype(np.float32)
+
+    # At sequence boundaries, fit the same polynomial to the nearest complete
+    # window instead of padding.  This avoids both temporal lag and flat edges.
+    for index in range(half):
+        weights = _savgol_weights(effective, polyorder, index)
+        result[index] = weights @ segment[:effective]
+    start = length - effective
+    for index in range(length - half, length):
+        position = index - start
+        weights = _savgol_weights(effective, polyorder, position)
+        result[index] = weights @ segment[start:]
+    return result
+
+
+def temporal_smooth_sequence(
+    sequence,
+    *,
+    method="savgol",
+    median_window=3,
+    smooth_window=5,
+    smooth_polyorder=2,
+    max_interp_gap=2,
+):
+    """Smooth full per-person joint trajectories without crossing missing gaps."""
+    if method not in ("none", "savgol"):
+        raise ValueError("Unsupported temporal smoothing method: %s" % method)
+    if max_interp_gap < 0:
+        raise ValueError("max_interp_gap must be non-negative")
+    if method == "none":
+        return np.asarray(sequence, dtype=np.float32).copy(), {
+            "method": "none",
+            "applied_before_sampling": False,
+            "interpolated_joint_frames": 0,
+            "filtered_joint_segments": 0,
+        }
+
+    _validate_odd_window("median_window", median_window)
+    _validate_odd_window("smooth_window", smooth_window)
+    if smooth_polyorder < 0 or smooth_polyorder >= smooth_window:
+        raise ValueError("smooth_polyorder must be in [0, smooth_window)")
+
+    result, filled = _interpolate_short_joint_gaps(sequence, max_interp_gap)
+    active = active_joint_mask(result)
+    segments = 0
+    for person in range(result.shape[1]):
+        for joint in range(result.shape[2]):
+            for start, stop in _contiguous_true_runs(active[:, person, joint]):
+                segment = result[start:stop, person, joint]
+                segment = _median_filter_segment(segment, median_window)
+                segment = _savgol_filter_segment(
+                    segment, smooth_window, smooth_polyorder
+                )
+                result[start:stop, person, joint] = segment
+                segments += 1
+
+    # Preserve truly missing joints as exact zeros.  Short gaps filled above are
+    # active now and intentionally remain visible.
+    result[~active] = 0
+    return result, {
+        "method": method,
+        "applied_before_sampling": True,
+        "median_window": int(median_window),
+        "smooth_window": int(smooth_window),
+        "smooth_polyorder": int(smooth_polyorder),
+        "max_interp_gap": int(max_interp_gap),
+        "interpolated_joint_frames": int(filled),
+        "filtered_joint_segments": int(segments),
+    }
 
 
 def primary_root(sequence):
@@ -268,7 +449,18 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font, acto
     return image
 
 
-def render_sample_frames(source, num_frames=32, width=960, height=360, font=None):
+def render_sample_frames(
+    source,
+    num_frames=32,
+    width=960,
+    height=360,
+    font=None,
+    temporal_smooth="savgol",
+    median_window=3,
+    smooth_window=5,
+    smooth_polyorder=2,
+    max_interp_gap=2,
+):
     """Render one normalized or raw sample to an in-memory PIL frame list."""
     if num_frames < 2:
         raise ValueError("num_frames must be at least 2")
@@ -276,7 +468,15 @@ def render_sample_frames(source, num_frames=32, width=960, height=360, font=None
         raise ValueError("width must be divisible by 3")
 
     source = normalize_sample(source)
-    sampled, frame_indices = uniformly_sample(source, num_frames)
+    smoothed, smoothing_info = temporal_smooth_sequence(
+        source,
+        method=temporal_smooth,
+        median_window=median_window,
+        smooth_window=smooth_window,
+        smooth_polyorder=smooth_polyorder,
+        max_interp_gap=max_interp_gap,
+    )
+    sampled, frame_indices = uniformly_sample(smoothed, num_frames)
     sampled_active = active_joint_mask(sampled)
     person_active_frames = sampled_active.any(axis=2).sum(axis=0)
     blue_skeleton_visible = bool(
@@ -306,6 +506,7 @@ def render_sample_frames(source, num_frames=32, width=960, height=360, font=None
         "blue_skeleton_visible": blue_skeleton_visible,
         "active_rendered_frames_per_person": person_active_frames.astype(int).tolist(),
         "local_span": local_span,
+        "temporal_smoothing": smoothing_info,
     }
     return frames, render_info
 
@@ -318,6 +519,11 @@ def main():
         num_frames=args.num_frames,
         width=args.width,
         height=args.height,
+        temporal_smooth=args.temporal_smooth,
+        median_window=args.median_window,
+        smooth_window=args.smooth_window,
+        smooth_polyorder=args.smooth_polyorder,
+        max_interp_gap=args.max_interp_gap,
     )
     visible_actor_count = render_info["visible_actor_count"]
 
@@ -355,6 +561,7 @@ def main():
             "top_xz_root_centered",
         ],
         "root_centering": "subtract primary actor NTU joint 2 (SpineMid) independently at every frame",
+        "temporal_smoothing": render_info["temporal_smoothing"],
         "global_translation_available": False,
         "person_colors": {"person_1": "red", "person_2": "blue"},
         "actor_count_rule": "one if no blue skeleton is rendered; two if a blue skeleton is rendered",

@@ -50,6 +50,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample_fps", type=float, default=8.0)
     parser.add_argument("--width", type=int, default=960)
     parser.add_argument("--height", type=int, default=360)
+    parser.add_argument(
+        "--temporal_smooth", choices=("none", "savgol"), default="savgol"
+    )
+    parser.add_argument("--median_window", type=int, default=3)
+    parser.add_argument("--smooth_window", type=int, default=5)
+    parser.add_argument("--smooth_polyorder", type=int, default=2)
+    parser.add_argument("--max_interp_gap", type=int, default=2)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry_run", action="store_true")
     return parser.parse_args()
@@ -72,6 +79,14 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--sample_fps must be positive")
     if args.width <= 0 or args.height <= 0 or args.width % 3:
         raise ValueError("--width/--height must be positive and --width divisible by 3")
+    for name in ("median_window", "smooth_window"):
+        value = getattr(args, name)
+        if value < 1 or value % 2 == 0:
+            raise ValueError(f"--{name} must be a positive odd integer")
+    if args.smooth_polyorder < 0 or args.smooth_polyorder >= args.smooth_window:
+        raise ValueError("--smooth_polyorder must be in [0, --smooth_window)")
+    if args.max_interp_gap < 0:
+        raise ValueError("--max_interp_gap must be non-negative")
 
 
 def select_indices(
@@ -111,6 +126,11 @@ def expected_config(args: argparse.Namespace, signature: Dict[str, Any]) -> Dict
         "sample_fps": args.sample_fps,
         "width": args.width,
         "height": args.height,
+        "temporal_smooth": args.temporal_smooth,
+        "median_window": args.median_window,
+        "smooth_window": args.smooth_window,
+        "smooth_polyorder": args.smooth_polyorder,
+        "max_interp_gap": args.max_interp_gap,
     }
 
 
@@ -295,6 +315,11 @@ def main() -> None:
                             width=args.width,
                             height=args.height,
                             font=font,
+                            temporal_smooth=args.temporal_smooth,
+                            median_window=args.median_window,
+                            smooth_window=args.smooth_window,
+                            smooth_polyorder=args.smooth_polyorder,
+                            max_interp_gap=args.max_interp_gap,
                         )
                         save_gif(frames, sample_dir / "preview.gif", args.sample_fps)
                         metadata = make_metadata(
