@@ -384,12 +384,11 @@ class Panel:
 
 
 def make_panels(width, height, local_span):
-    cols = 3
+    cols = 2
     panels = []
     specs = (
         ("FRONT: ROOT-CENTERED X-Y", "local_xy", np.zeros(3), local_span),
         ("SIDE: ROOT-CENTERED Z-Y", "local_zy", np.zeros(3), local_span),
-        ("TOP: ROOT-CENTERED X-Z", "local_xz", np.zeros(3), local_span),
     )
     for col in range(cols):
         box = (
@@ -442,7 +441,7 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font, acto
                 )
 
     if actor_count == 1:
-        footer = "ONE PERSON: the red skeleton is repeated in all three views."
+        footer = "ONE PERSON: the red skeleton is repeated in both views."
     else:
         footer = "TWO PEOPLE: red is person 1 and blue is person 2; views repeat them."
     draw.text((12, height - 22), footer, font=font, fill=MUTED_TEXT)
@@ -464,8 +463,8 @@ def render_sample_frames(
     """Render one normalized or raw sample to an in-memory PIL frame list."""
     if num_frames < 2:
         raise ValueError("num_frames must be at least 2")
-    if width % 3:
-        raise ValueError("width must be divisible by 3")
+    if width % 2:
+        raise ValueError("width must be divisible by 2")
 
     source = normalize_sample(source)
     smoothed, smoothing_info = temporal_smooth_sequence(
@@ -558,7 +557,6 @@ def main():
         "layout": [
             "front_xy_root_centered",
             "side_zy_root_centered",
-            "top_xz_root_centered",
         ],
         "root_centering": "subtract primary actor NTU joint 2 (SpineMid) independently at every frame",
         "temporal_smoothing": render_info["temporal_smoothing"],

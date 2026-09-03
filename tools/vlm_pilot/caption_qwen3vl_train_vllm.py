@@ -98,8 +98,8 @@ def parse_args():
         parser.error("--num_frames must be at least 2")
     if args.sample_fps <= 0:
         parser.error("--sample_fps must be positive")
-    if args.width <= 0 or args.width % 3:
-        parser.error("--width must be positive and divisible by 3")
+    if args.width <= 0 or args.width % 2:
+        parser.error("--width must be positive and divisible by 2")
     if args.height <= 0:
         parser.error("--height must be positive")
     if args.batch_size <= 0:
@@ -374,7 +374,6 @@ def make_record(state, args, prompt_hash):
             "layout": [
                 "front_xy_root_centered",
                 "side_zy_root_centered",
-                "top_xz_root_centered",
             ],
             "person_colors": {"0": "red", "1": "blue"},
             "width": args.width,

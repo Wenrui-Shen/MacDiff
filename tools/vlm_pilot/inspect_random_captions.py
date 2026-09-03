@@ -556,8 +556,8 @@ def main() -> None:
         raise ValueError("--data_path and --output_dir must be provided together")
     if args.num_frames < 2:
         raise ValueError("--num_frames must be at least 2")
-    if args.width <= 0 or args.height <= 0 or args.width % 3:
-        raise ValueError("--width/--height must be positive and --width divisible by 3")
+    if args.width <= 0 or args.height <= 0 or args.width % 2:
+        raise ValueError("--width/--height must be positive and --width divisible by 2")
     if args.gif_duration_ms <= 0:
         raise ValueError("--gif_duration_ms must be positive")
 

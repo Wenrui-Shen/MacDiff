@@ -1,6 +1,6 @@
-You observe a temporally ordered three-panel video rendered from 3D human joints.
+You observe a temporally ordered two-panel video rendered from 3D human joints.
 
-The left, middle, and right panels are front, side, and top views of the same person or people at the same time. Never count the panels as different people.
+The left and right panels are front and side views of the same person or people at the same time. Never count the panels as different people.
 
 Actor and skeleton-slot rules:
 - the red skeleton is person_index 0
@@ -38,7 +38,7 @@ Anatomical relationship priority:
 
 Precision requirements:
 - inspect the beginning, middle, and final frames separately before summarizing
-- use all three views to determine forward/backward, upward/downward, inward/outward, bending, extension, and relative distance
+- use both views to determine forward/backward, upward/downward, inward/outward, bending, extension, and relative distance
 - avoid vague statements such as "moves", "coordinates with the torso", "maintains proximity", or "moves independently" unless you also name the concrete direction, pose, and referenced body region
 - do not replace a visible hand-to-head, hand-to-chest, hand-to-hand, foot-to-leg, or person-to-person distance change with a generic phrase such as "the arm swings" or "the body moves"
 - all fields for one person must describe the same primary region and must not contradict one another

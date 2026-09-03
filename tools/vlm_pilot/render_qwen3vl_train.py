@@ -77,8 +77,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--num_frames must be at least 2")
     if args.sample_fps <= 0:
         raise ValueError("--sample_fps must be positive")
-    if args.width <= 0 or args.height <= 0 or args.width % 3:
-        raise ValueError("--width/--height must be positive and --width divisible by 3")
+    if args.width <= 0 or args.height <= 0 or args.width % 2:
+        raise ValueError("--width/--height must be positive and --width divisible by 2")
     for name in ("median_window", "smooth_window"):
         value = getattr(args, name)
         if value < 1 or value % 2 == 0:
@@ -122,6 +122,7 @@ def expected_config(args: argparse.Namespace, signature: Dict[str, Any]) -> Dict
     return {
         "source": signature,
         "split": "train",
+        "layout": ["front_xy_root_centered", "side_zy_root_centered"],
         "num_frames": args.num_frames,
         "sample_fps": args.sample_fps,
         "width": args.width,
@@ -226,7 +227,6 @@ def make_metadata(
             "layout": [
                 "front_xy_root_centered",
                 "side_zy_root_centered",
-                "top_xz_root_centered",
             ],
             "root_centering": "primary actor NTU joint 2 at every frame",
             "global_translation_available": False,

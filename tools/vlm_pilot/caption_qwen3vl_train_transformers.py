@@ -99,8 +99,8 @@ def validate_args(args: argparse.Namespace) -> None:
         raise ValueError("--num_frames must be positive")
     if args.sample_fps <= 0:
         raise ValueError("--sample_fps must be positive")
-    if args.width <= 0 or args.height <= 0:
-        raise ValueError("--width and --height must be positive")
+    if args.width <= 0 or args.height <= 0 or args.width % 2:
+        raise ValueError("--width/--height must be positive and --width divisible by 2")
     if args.max_new_tokens <= 0:
         raise ValueError("--max_new_tokens must be positive")
     if args.max_retries < 0:
@@ -394,7 +394,6 @@ def make_record(
             "layout": [
                 "front_xy_root_centered",
                 "side_zy_root_centered",
-                "top_xz_root_centered",
             ],
             "person_colors": {"0": "red", "1": "blue"},
             "width": args.width,
