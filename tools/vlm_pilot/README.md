@@ -173,6 +173,40 @@ both processes finish; use `sample_index` when ordered records are required.
 
 ## 5. Randomly inspect accepted captions
 
+### Single-GPU AWQ with offline vLLM over existing GIFs
+
+The rendered-GIF entry point also accepts `--engine vllm`. It loads one engine
+with tensor parallel size 1 and one active request. It preserves the GIF frames,
+FPS metadata, prompt and validation; preprocessing is not repeated by vLLM.
+This is sequential full-dataset generation, not a concurrent throughput benchmark.
+AWQ is detected from checkpoint configuration. Engine/preprocessing errors are
+written to JSONL and then stop the vLLM run; invalid captions receive bounded
+validation retries. Use a fresh output file when changing engines or settings.
+
+In an independent, compatible Linux vLLM environment, test train index 2:
+
+```bash
+OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 \
+python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
+  --engine vllm \
+  --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v3_2view_smooth_w5 \
+  --model /home/user9/public3/swr/models/Qwen3-VL-30B-A3B-Instruct-AWQ \
+  --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v1.txt \
+  --output_path vlm_pilot/30b_a3b_awq_test_2.jsonl \
+  --start_index 2 --max_samples 1 --max_retries 0 \
+  --num_shards 1 --shard_id 0 --max_model_len 16384 \
+  --gpu_memory_utilization 0.90 --enforce_eager
+```
+
+Use `python -m json.tool vlm_pilot/30b_a3b_awq_test_2.jsonl` to inspect the raw
+response as well as validation errors. For a full run remove `--start_index`
+and `--max_samples`, set `--max_retries 2`, select a new output path, and add
+`--resume`. Keep that full-run output path on subsequent restarts. Add
+`--dry_run` to check one GIF and its expanded prompt without loading the model.
+
+The 24GB/32-frame AWQ run still requires server verification. CPU-only adapter
+checks: `python -m unittest tests.test_rendered_vllm`.
+
 Read both shard files, deduplicate accepted results by `sample_index`, and print
 five random samples with all person-level fields:
 
