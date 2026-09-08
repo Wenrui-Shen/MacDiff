@@ -244,3 +244,7 @@ If you find this work useful for your research, please consider citing our work:
 
 ## Acknowledgment
 The framework of our code is based on [MAE](https://github.com/facebookresearch/mae), [MAMP](https://github.com/maoyunyao/MAMP).
+
+## Frozen Stage1 readout comparison
+
+Compare raw/centered/standardized/PCA/whitened prototypes and one-shot ridge readouts on frozen LP-input features with `compare_stage1_readouts.py`. See [the fixed protocol and commands](STAGE1_READOUT_COMPARISON.md). Feature extraction and NumPy comparison are separate; this diagnostic does not train Stage2.
