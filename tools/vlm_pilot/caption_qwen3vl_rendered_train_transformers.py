@@ -51,6 +51,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--prompt_path", type=Path, default=DEFAULT_PROMPT)
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--engine", choices=("transformers", "vllm"), default="transformers")
+    parser.add_argument(
+        "--device_map", choices=("auto", "cuda"), default="auto",
+        help="Transformers only: cuda places the entire model on visible GPU 0 without CPU offload.",
+    )
     parser.add_argument("--max_model_len", type=int, default=16384)
     parser.add_argument("--gpu_memory_utilization", type=float, default=0.90)
     parser.add_argument("--enforce_eager", action="store_true")
@@ -298,6 +302,7 @@ def make_caption_record(
             "torch_version": args.torch_version,
             "dtype": args.resolved_dtype,
             "device": args.resolved_device,
+            "device_map": args.device_map if args.engine == "transformers" else None,
             "attention": args.attn_implementation,
             "max_new_tokens": args.max_new_tokens,
             "sample_fps": args.sample_fps,
@@ -505,7 +510,7 @@ def main() -> None:
     }
     load_kwargs: Dict[str, Any] = {
         "dtype": dtype_map[args.dtype],
-        "device_map": "auto",
+        "device_map": {"": 0} if args.device_map == "cuda" else "auto",
         "low_cpu_mem_usage": True,
         "trust_remote_code": args.trust_remote_code,
     }
@@ -549,6 +554,16 @@ def main() -> None:
         )
         generate = generate_vllm_once
     else:
+        if args.device_map == "cuda":
+            if not torch.cuda.is_available():
+                raise RuntimeError("--device_map cuda requires an available CUDA GPU")
+            free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+            print(
+                f"Loading entirely on visible cuda:0 ({torch.cuda.get_device_name(0)}): "
+                f"free={free_bytes / 2**30:.2f} GiB, total={total_bytes / 2**30:.2f} GiB. "
+                "CPU/disk offload disabled; insufficient memory will raise CUDA OOM.",
+                flush=True,
+            )
         if quantization_metadata(model_config)[0] == "awq":
             from awq_compat import prepare_awq_imports
 
