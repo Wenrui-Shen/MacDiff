@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
 """Caption persistent skeleton GIFs without reopening the source NPZ.
 
-This is stage 2 of the split rendering/captioning pipeline. One model remains
-resident per process (Transformers by default, or --engine vllm). Run one process
-per GPU with matching --num_shards and distinct JSONL output paths.
+This is stage 2 of the split rendering/captioning pipeline.  One model remains
+resident per process.  Run one process per GPU with matching ``--num_shards``
+and distinct JSONL output paths.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 import time
 from datetime import datetime, timezone
@@ -50,18 +49,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output_path", type=Path, required=True)
     parser.add_argument("--prompt_path", type=Path, default=DEFAULT_PROMPT)
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
-    parser.add_argument("--engine", choices=("transformers", "vllm"), default="transformers")
-    parser.add_argument(
-        "--load_trace_seconds", type=int, default=0,
-        help="Print repeated Python thread stacks during Transformers loading; 0 disables.",
-    )
-    parser.add_argument(
-        "--device_map", choices=("auto", "cuda"), default="auto",
-        help="Transformers only: cuda places the entire model on visible GPU 0 without CPU offload.",
-    )
-    parser.add_argument("--max_model_len", type=int, default=16384)
-    parser.add_argument("--gpu_memory_utilization", type=float, default=0.90)
-    parser.add_argument("--enforce_eager", action="store_true")
     parser.add_argument("--revision", default=None)
     parser.add_argument("--trust_remote_code", action="store_true")
 
@@ -95,12 +82,6 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
-    if args.load_trace_seconds < 0:
-        raise ValueError("--load_trace_seconds must be non-negative")
-    if args.max_model_len <= args.max_new_tokens:
-        raise ValueError("--max_model_len must exceed --max_new_tokens")
-    if not 0 < args.gpu_memory_utilization < 1:
-        raise ValueError("--gpu_memory_utilization must be in (0, 1)")
     if not args.rendered_root.is_dir():
         raise FileNotFoundError(args.rendered_root)
     if not args.prompt_path.is_file():
@@ -299,16 +280,11 @@ def make_caption_record(
         "quantization": args.quantization,
         "quantization_config": args.quantization_config,
         "inference": {
-            "engine": f"{args.engine}_rendered_gif",
-            "vllm_version": getattr(args, "vllm_version", None),
-            "max_model_len": args.max_model_len if args.engine == "vllm" else None,
-            "gpu_memory_utilization": args.gpu_memory_utilization if args.engine == "vllm" else None,
-            "enforce_eager": args.enforce_eager if args.engine == "vllm" else None,
+            "engine": "transformers_rendered_gif",
             "transformers_version": args.transformers_version,
             "torch_version": args.torch_version,
             "dtype": args.resolved_dtype,
             "device": args.resolved_device,
-            "device_map": args.device_map if args.engine == "transformers" else None,
             "attention": args.attn_implementation,
             "max_new_tokens": args.max_new_tokens,
             "sample_fps": args.sample_fps,
@@ -371,7 +347,7 @@ def write_pipeline_error(
             "model": args.model,
             "model_revision": args.resolved_revision,
             "inference": {
-                "engine": f"{args.engine}_rendered_gif",
+                "engine": "transformers_rendered_gif",
                 "num_shards": args.num_shards,
                 "shard_id": args.shard_id,
             },
@@ -420,33 +396,6 @@ def run_dry_run(
         )
     finally:
         close_frames(frames)
-
-
-def generate_vllm_once(*, model, processor, frames, prompt, images, videos,
-                       video_metadata, video_kwargs, args, torch):
-    """Pass the same preprocessed frames and timestamps to offline vLLM."""
-    messages = make_messages(
-        frames, prompt, sample_fps=args.sample_fps,
-        min_pixels=args.min_pixels, max_pixels=args.max_pixels,
-        total_pixels=args.total_pixels,
-    )
-    if video_metadata is None or len(video_metadata) != len(videos):
-        raise ValueError("vLLM Qwen3-VL requires one metadata entry per video")
-    request = {
-        "prompt": processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True,
-        ),
-        "multi_modal_data": {"video": list(zip(videos, video_metadata))},
-        "mm_processor_kwargs": {
-            **video_kwargs, "do_resize": False, "do_sample_frames": False,
-        },
-    }
-    if images is not None:
-        request["multi_modal_data"]["image"] = images
-    outputs = model.generate([request], args.sampling_params, use_tqdm=False)
-    if len(outputs) != 1 or not outputs[0].outputs:
-        raise RuntimeError("vLLM returned no completion")
-    return outputs[0].outputs[0].text
 
 
 def main() -> None:
@@ -516,7 +465,7 @@ def main() -> None:
     }
     load_kwargs: Dict[str, Any] = {
         "dtype": dtype_map[args.dtype],
-        "device_map": {"": 0} if args.device_map == "cuda" else "auto",
+        "device_map": "auto",
         "low_cpu_mem_usage": True,
         "trust_remote_code": args.trust_remote_code,
     }
@@ -536,87 +485,16 @@ def main() -> None:
     )
     model_config = AutoConfig.from_pretrained(args.model, **config_kwargs)
     processor = AutoProcessor.from_pretrained(args.model, **processor_kwargs)
-    generate = generate_once
-    if args.engine == "vllm":
-        os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
-        import vllm
-        from vllm import LLM, SamplingParams
-
-        if args.attn_implementation:
-            raise ValueError("--attn_implementation is only for Transformers")
-        model = LLM(
-            model=args.model, revision=args.revision,
-            trust_remote_code=args.trust_remote_code,
-            dtype=args.dtype, tensor_parallel_size=1, max_num_seqs=1,
-            max_model_len=args.max_model_len,
-            gpu_memory_utilization=args.gpu_memory_utilization,
-            enforce_eager=args.enforce_eager,
-            limit_mm_per_prompt={"image": 0, "video": 1},
-            seed=0,
-        )
-        args.vllm_version = vllm.__version__
-        args.sampling_params = SamplingParams(
-            temperature=0.0, max_tokens=args.max_new_tokens, seed=0,
-        )
-        generate = generate_vllm_once
-    else:
-        if args.device_map == "cuda":
-            if not torch.cuda.is_available():
-                raise RuntimeError("--device_map cuda requires an available CUDA GPU")
-            free_bytes, total_bytes = torch.cuda.mem_get_info(0)
-            print(
-                f"Loading entirely on visible cuda:0 ({torch.cuda.get_device_name(0)}): "
-                f"free={free_bytes / 2**30:.2f} GiB, total={total_bytes / 2**30:.2f} GiB. "
-                "CPU/disk offload disabled; insufficient memory will raise CUDA OOM.",
-                flush=True,
-            )
-        if quantization_metadata(model_config)[0] == "awq":
-            from awq_compat import prepare_awq_imports
-
-            if prepare_awq_imports():
-                print("Enabled legacy AutoAWQ GELU import compatibility.", flush=True)
-        import faulthandler
-
-        if args.load_trace_seconds:
-            faulthandler.dump_traceback_later(args.load_trace_seconds, repeat=True)
-        loading_started = time.perf_counter()
-        try:
-            if quantization_metadata(model_config)[0] == "awq":
-                print("[load] Importing AutoAWQ GEMM backend...", flush=True)
-                from awq.modules.linear.gemm import TRITON_AVAILABLE
-
-                print(f"[load] AutoAWQ import complete; Triton={TRITON_AVAILABLE}.", flush=True)
-            print("[load] Building model, replacing quantized layers and loading weights...", flush=True)
-            from awq_compat import split_awq_experts
-
-            with split_awq_experts(args.model, model_config) as split_experts:
-                model, loading_info = AutoModelForImageTextToText.from_pretrained(
-                    args.model, output_loading_info=True, **load_kwargs,
-                )
-            if split_experts:
-                problems = {key: loading_info.get(key) for key in (
-                    "missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs"
-                ) if loading_info.get(key)}
-                if problems:
-                    raise RuntimeError(f"AWQ checkpoint did not load exactly; refusing inference: {problems}")
-                print("[load] AWQ checkpoint matched: no missing/unexpected/mismatched weights.", flush=True)
-        finally:
-            if args.load_trace_seconds:
-                faulthandler.cancel_dump_traceback_later()
-        print(f"[load] Model loaded in {time.perf_counter() - loading_started:.1f}s.", flush=True)
-        model.eval()
+    model = AutoModelForImageTextToText.from_pretrained(args.model, **load_kwargs)
+    model.eval()
     args.quantization, args.quantization_config = quantization_metadata(model_config)
     args.resolved_revision = args.revision or getattr(model_config, "_commit_hash", None)
     args.transformers_version = transformers.__version__
     args.torch_version = torch.__version__
     try:
-        if args.engine == "vllm":
-            args.resolved_dtype = str(model.llm_engine.model_config.dtype).replace("torch.", "")
-            args.resolved_device = "cuda:0"
-        else:
-            first_parameter = next(model.parameters())
-            args.resolved_dtype = str(first_parameter.dtype).replace("torch.", "")
-            args.resolved_device = str(first_parameter.device)
+        first_parameter = next(model.parameters())
+        args.resolved_dtype = str(first_parameter.dtype).replace("torch.", "")
+        args.resolved_device = str(first_parameter.device)
     except StopIteration:
         args.resolved_dtype = args.dtype
         args.resolved_device = str(model.device)
@@ -663,7 +541,7 @@ def main() -> None:
                     generation_started = time.perf_counter()
                     raw_text = ""
                     try:
-                        raw_text = generate(
+                        raw_text = generate_once(
                             model=model,
                             processor=processor,
                             frames=frames,
@@ -677,8 +555,6 @@ def main() -> None:
                         )
                         caption, errors = parse_response(raw_text, actor_count)
                     except Exception as exc:
-                        if args.engine == "vllm":
-                            raise  # Engine failures must not silently invalidate a full run.
                         caption = None
                         errors = [f"generation failed: {type(exc).__name__}: {exc}"]
                         if torch.cuda.is_available():
@@ -724,8 +600,6 @@ def main() -> None:
                     args=args,
                     prompt_hash=prompt_hash,
                 )
-                if args.engine == "vllm":
-                    raise
             finally:
                 close_frames(frames)
 
