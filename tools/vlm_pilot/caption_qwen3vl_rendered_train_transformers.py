@@ -52,6 +52,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--engine", choices=("transformers", "vllm"), default="transformers")
     parser.add_argument(
+        "--load_trace_seconds", type=int, default=0,
+        help="Print repeated Python thread stacks during Transformers loading; 0 disables.",
+    )
+    parser.add_argument(
         "--device_map", choices=("auto", "cuda"), default="auto",
         help="Transformers only: cuda places the entire model on visible GPU 0 without CPU offload.",
     )
@@ -91,6 +95,8 @@ def parse_args() -> argparse.Namespace:
 
 
 def validate_args(args: argparse.Namespace) -> None:
+    if args.load_trace_seconds < 0:
+        raise ValueError("--load_trace_seconds must be non-negative")
     if args.max_model_len <= args.max_new_tokens:
         raise ValueError("--max_model_len must exceed --max_new_tokens")
     if not 0 < args.gpu_memory_utilization < 1:
@@ -569,7 +575,23 @@ def main() -> None:
 
             if prepare_awq_imports():
                 print("Enabled legacy AutoAWQ GELU import compatibility.", flush=True)
-        model = AutoModelForImageTextToText.from_pretrained(args.model, **load_kwargs)
+        import faulthandler
+
+        if args.load_trace_seconds:
+            faulthandler.dump_traceback_later(args.load_trace_seconds, repeat=True)
+        loading_started = time.perf_counter()
+        try:
+            if quantization_metadata(model_config)[0] == "awq":
+                print("[load] Importing AutoAWQ GEMM backend...", flush=True)
+                from awq.modules.linear.gemm import TRITON_AVAILABLE
+
+                print(f"[load] AutoAWQ import complete; Triton={TRITON_AVAILABLE}.", flush=True)
+            print("[load] Building model, replacing quantized layers and loading weights...", flush=True)
+            model = AutoModelForImageTextToText.from_pretrained(args.model, **load_kwargs)
+        finally:
+            if args.load_trace_seconds:
+                faulthandler.cancel_dump_traceback_later()
+        print(f"[load] Model loaded in {time.perf_counter() - loading_started:.1f}s.", flush=True)
         model.eval()
     args.quantization, args.quantization_config = quantization_metadata(model_config)
     args.resolved_revision = args.revision or getattr(model_config, "_commit_hash", None)
