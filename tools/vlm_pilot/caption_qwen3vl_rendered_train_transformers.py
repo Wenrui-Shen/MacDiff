@@ -587,7 +587,19 @@ def main() -> None:
 
                 print(f"[load] AutoAWQ import complete; Triton={TRITON_AVAILABLE}.", flush=True)
             print("[load] Building model, replacing quantized layers and loading weights...", flush=True)
-            model = AutoModelForImageTextToText.from_pretrained(args.model, **load_kwargs)
+            from awq_compat import split_awq_experts
+
+            with split_awq_experts(args.model, model_config) as split_experts:
+                model, loading_info = AutoModelForImageTextToText.from_pretrained(
+                    args.model, output_loading_info=True, **load_kwargs,
+                )
+            if split_experts:
+                problems = {key: loading_info.get(key) for key in (
+                    "missing_keys", "unexpected_keys", "mismatched_keys", "error_msgs"
+                ) if loading_info.get(key)}
+                if problems:
+                    raise RuntimeError(f"AWQ checkpoint did not load exactly; refusing inference: {problems}")
+                print("[load] AWQ checkpoint matched: no missing/unexpected/mismatched weights.", flush=True)
         finally:
             if args.load_trace_seconds:
                 faulthandler.cancel_dump_traceback_later()
