@@ -596,10 +596,11 @@ def save_checkpoint(model, optimizer, scaler, args, completed_epochs):
 
 
 def checkpoint_schedule(args, completed_epochs):
-    """Separate costly resume checkpoints from lightweight LP backbones."""
+    """Save every early epoch, then periodically; allow extra LP backbones."""
     completed_epochs = int(completed_epochs)
     full_checkpoint = (
-        completed_epochs % int(args.save_interval) == 0
+        1 <= completed_epochs <= 10
+        or completed_epochs % int(args.save_interval) == 0
         or completed_epochs == int(args.epochs))
     lp_backbone = (
         full_checkpoint

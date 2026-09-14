@@ -120,10 +120,11 @@ class MacDiffStage2Test(unittest.TestCase):
             save_interval=10,
             lp_checkpoint_epochs=[1, 2, 3, 5, 8, 10, 15, 20],
         )
-        self.assertEqual(checkpoint_schedule(args, 1), (False, True))
-        self.assertEqual(checkpoint_schedule(args, 8), (False, True))
+        for epoch in range(1, 11):
+            self.assertEqual(checkpoint_schedule(args, epoch), (True, True))
         self.assertEqual(checkpoint_schedule(args, 10), (True, True))
         self.assertEqual(checkpoint_schedule(args, 11), (False, False))
+        self.assertEqual(checkpoint_schedule(args, 15), (False, True))
         self.assertEqual(checkpoint_schedule(args, 100), (True, True))
 
     def test_transfer_loads_only_stage1_online_encoder(self):

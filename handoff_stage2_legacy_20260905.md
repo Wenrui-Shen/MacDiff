@@ -1,0 +1,625 @@
+# MacDiff Joint-aware ReSA+OSE Stage2 交接
+
+更新时间：2026-09-05
+
+## 0. 2026-09-05 最新交接（新会话先读）
+
+本节是当前唯一执行基线，优先级高于后面第1-6节的历史计划。后续章节保留用于追溯
+为什么走到现在，不代表下一轮还要继续旧的masked ReSA实验。
+
+### 0.1 我们正在做什么
+
+目标是在原生MacDiff NTU60 XSub Stage1 encoder上设计一个真正以OSE为核心的Stage2，
+同时保住或超过Stage1约85.86%的linear-probe accuracy。当前要验证的不是ReSA，而是：
+
+1. 使用与LP完全一致的完整750-token、双person、6400维joint-aware encoder特征；
+2. 裁掉ReSA、mixed prototype/instance、predictor和Sinkhorn；
+3. 一个增强view走online encoder/projector，一个独立增强view走EMA teacher；
+4. 每类单exemplar做K=2增强并全部走EMA，每epoch刷新一次60类prototype cache；
+5. 只用teacher到student的prototype soft-target cross entropy训练；
+6. 保存密集的早期LP backbone，判断Stage2是不是训练过久；
+7. 用独立JSONL监控伪标签、prototype、encoder漂移、BN差异和6400维几何。
+
+Stage1权重固定为：
+
+```text
+./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+### 0.2 已经得到的实验事实
+
+- Stage1 `checkpoint-399.pth` 的LP约85.86%。
+- 高Stage2 backbone LR=0.25的完整ReSA+OSE严重破坏encoder：checkpoint-080最高
+  77.49%，最终checkpoint-100为77.27%。
+- 低backbone LR=0.001、head LR=0.25后，masked全局随机版本最终约85.22%。
+- OSE-only全局随机mask最终85.02%；ReSA+OSE且teacher tau从0.04改0.06为85.12。
+  这些结果没有证明温度0.06或OSE-only能解决问题。
+- per-joint每关节3-token mask下，ReSA-only为85.35%，ReSA+OSE为85.17%；在完全
+  相同协议中加入OSE下降0.18pp。差值可能含LP随机波动，但没有OSE正贡献证据。
+- Stage1冻结几何：full/masked cosine 0.7581，masked/masked 0.6882；full同异类gap
+  0.0301，masked gap 0.0214；full单exemplar top1 17.63%，masked K=2为7.79%。
+- 旧masked Stage2完整checkpoint的精确eval-BN OSE teacher曾出现top1约7.93%、
+  confidence约0.9987、entropy约0.00355，属于“可能高置信错误监督”的强烈红旗；
+  但它与训练态SyncBN有差异，所以不能只凭这一项定案。
+
+以上结果说明：ReSA在MacDiff上能基本保住LP，OSE至今没有展示稳定收益。当前dense
+实验的目的就是区分旧OSE失败究竟来自90% mask/特征维度错配，还是prototype目标本身。
+
+### 0.3 当前已经实现的dense OSE协议
+
+协议名：`dense_ose_proto_ema_v1`。
+
+- 模型类是`MacDiffDenseOSE`，结构上只有`encoder_q/encoder_k`和独立的
+  `ose_projector_q/ose_projector_k`；ReSA相关模块不是乘0，而是根本不存在。
+- `mask_ratio=0.0`；每个person输入完整30 x 25 = 750 token。
+- `one_person=False`；对person和时间求均值、保留25 joints，flatten为6400维，和
+  `linprobe2`的encoder输出使用方式一致。
+- projector为6400 -> 2048 -> 2048 -> 256，输出归一化。
+- teacher view先以eval模式、no-grad运行；online view只保留一个完整encoder计算图。
+- 60类exemplar每epoch开头生成两个独立增强view，走EMA encoder/projector，按4类
+  micro-batch编码；两个归一化anchor平均后形成固定一epoch的`[60,256]` cache。
+- loss只有`soft_cross_entropy(student_logits, teacher_target)`；teacher tau=0.04，
+  student tau=0.1。缓存prototype不可训练，所以dispersion只记录、不产生梯度。
+- backbone LR=0.001，projector LR=0.25，SGD；EMA base momentum=0.996并余弦升到1。
+- 每GPU micro-batch=4，两卡，`accum_iter=16`，AMP开启，有效optimizer batch=128。
+- 三种增强为temporal crop、shear、rotation，各自以0.5概率独立应用；这与旧的
+  no-augmentation masked实验不同，是因为full-token双view必须通过增强产生差异。
+
+主要实现文件：
+
+```text
+main_pretrain_stage2.py
+model/transformer_stage2.py
+util/dense_ose_diagnostics.py
+config/ntu60_xsub_joint/pretrain_madiff_stage2_dense_ose.yaml
+script_pretrain_stage2_dense_ose.sh
+tests/test_stage2.py
+```
+
+### 0.4 已完成的监控和checkpoint策略
+
+训练会单独生成：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/dense_ose_diagnostics.jsonl
+```
+
+JSONL event包括：
+
+- `run_start`：训练配置、固定600个类别均衡clean样本、Stage1原始6400维几何；
+- `prototype_refresh`：prototype非对角/最近邻cosine、effective rank、逐epoch漂移；
+- `optimizer_step`：每20个optimizer update记录target熵/置信度p10/p50/p90、teacher和
+  student prototype准确率、一致率、真实类概率、margin、两组梯度范数与相对step估计；
+- `epoch_summary`：完整60类teacher/student hard assignment histogram和teacher soft
+  class mass、usage、perplexity、KL-to-uniform；
+- `representation_geometry`：epoch 1、每5 epoch和最终epoch记录6400/256维class gap、
+  Stage1 cosine/linear CKA、online-EMA gap、clean prototype分类和online projector的
+  eval-BN/模拟全局micro-batch BN差距；
+- `checkpoint_saved`：把诊断epoch与实际LP backbone文件对应起来。
+
+真实标签只用于detached诊断，不进入loss和prototype构造。`ln(60)=4.094`是teacher
+target的最大熵。不要用每个micro-batch的`ose_prototype_usage`下结论：batch=4时它
+最多只有4/60；应查看`epoch_summary`中的整epoch分布。
+
+Stage1参考特征缓存为：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/dense_ose_diagnostic_reference.pth
+```
+
+它只用于resume后的漂移对比，不需要上传；但resume时不能删除，否则程序会明确报错。
+rank-0诊断前向会恢复Python/NumPy/Torch RNG和模块train/eval状态，不改变训练随机轨迹。
+
+LP-only backbone保存epoch为：
+
+```text
+1, 2, 3, 5, 8, 10, 15, 20, 30, 40, 50, 60, 70, 80, 90, 100
+```
+
+其中只有10、20、...、100保存完整EMA/optimizer/scaler/RNG checkpoint；额外早期节点
+只保存`checkpoint-XXX-backbone.pth`，控制磁盘占用。不要再只测最终checkpoint。
+
+### 0.5 当前卡在哪里
+
+代码和静态检查已经完成，但当前对话中还没有dense OSE服务器训练结果，也没有任何
+dense中间checkpoint的LP结果。因此现在无法判断：
+
+- full-token/6400维是否修复了OSE的语义错配；
+- OSE改进是否只被projector吸收，而没有进入encoder；
+- 随机初始化projector的train SyncBN和EMA/prototype的eval running-BN是否存在坐标错位；
+- tau=0.04是否仍造成高置信错误target；
+- prototype每epoch固定一次是否太陈旧；
+- Stage2最佳点是否只出现在前1-10 epoch，最终100 epoch已经过拟合或漂移。
+
+本地Codex环境没有PyTorch、NTU数据和checkpoint，无法运行GPU单测或真实训练。训练
+wrapper会先在服务器执行`python -m unittest tests.test_stage2`。当前只完成了
+`py_compile`和`git diff --check`。
+
+### 0.6 下一步计划（严格按顺序）
+
+1. 在服务器MacDiff根目录、已激活`macdiff`环境下，从Stage1 fresh run下面0.7命令。
+   fresh run会自动删除同名输出子目录；确认里面没有需要保留的旧结果。
+2. 观察启动阶段单测、Stage1 reference提取和epoch-1是否OOM。EMA/no-grad不会保存反向
+   激活，但仍有瞬时显存；完整750-token attention相对75-token约有100倍attention map。
+3. 如果batch4 OOM，只改为`BATCH_SIZE=2 ACCUM_ITER=32`，保持有效batch=128；不要同时
+   修改温度、增强、LR或prototype规则。
+4. 优先对epoch 1、2、3、5、8、10、15、20分别跑相同LP，而不是等到epoch100。
+   每个LP使用独立`log_dir`，`--output_dir ""`避免保存100轮LP模型。
+5. 把`dense_ose_diagnostics.jsonl`和`epoch -> LP best accuracy`列表上传给新会话分析。
+6. 判定规则：
+   - 早期LP升、后期降：保留最佳中间点并缩短Stage2/early stop；
+   - epoch1起就降：不是epoch太多，优先查BN、tau和错误teacher target；
+   - 256维gap升但6400维gap/LP不升：projector吸收了OSE，encoder没受益；
+   - Stage1 CKA快速降且teacher accuracy不升：backbone仍漂移，降低LR或先冻结encoder；
+   - teacher accuracy低、confidence接近1、entropy接近0：提高tau_t或重做target；
+   - prototype drift大：增加exemplar views/更新稳定性；不要直接再加ReSA掩盖问题。
+7. dense结果出来前不要开启新的多变量实验。先用日志和中间LP定位唯一主要故障。
+
+### 0.7 可直接复制的命令（每条本身均为单行）
+
+完整dense OSE预训练：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10240 OMP_NUM_THREADS=1 CONFIG=./config/ntu60_xsub_joint/pretrain_madiff_stage2_dense_ose.yaml BATCH_SIZE=4 ACCUM_ITER=16 ENABLE_AMP=true BACKBONE_LR=0.001 HEAD_LR=0.25 OSE_TAU_S=0.1 OSE_TAU_T=0.04 OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema LOG_DIR=./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/tensorboard bash script_pretrain_stage2_dense_ose.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+完整LP（以下精确测checkpoint-100；测中间点时把路径和log目录中的`100`同时替换为
+`001/002/003/005/008/010/015/020/...`，不要使用sweep）：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 OMP_NUM_THREADS=1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10241 main_linprobe.py --config ./config/ntu60_xsub_joint/linprobe_madiff.yaml --output_dir "" --log_dir ./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema_lp_checkpoint100/tensorboard --finetune ./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/checkpoint-100-backbone.pth --dist_eval --accum_iter 1 --batch_size 64 --epochs 100 --model model.transformer_downstream.Transformer
+```
+
+如果batch4明确OOM，唯一允许的第一步fallback：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10240 OMP_NUM_THREADS=1 CONFIG=./config/ntu60_xsub_joint/pretrain_madiff_stage2_dense_ose.yaml BATCH_SIZE=2 ACCUM_ITER=32 ENABLE_AMP=true BACKBONE_LR=0.001 HEAD_LR=0.25 OSE_TAU_S=0.1 OSE_TAU_T=0.04 OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema_bs2 LOG_DIR=./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema_bs2/tensorboard bash script_pretrain_stage2_dense_ose.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+### 0.8 绝对不要再踩的坑
+
+1. 不要把LP理解成256维全局均值；`linprobe2`用完整750 token并输出25 x 256=6400维，
+   再接无仿射BN和Linear(6400,60)。最终LP丢弃OSE projector、EMA和prototype。
+2. 不要认为EMA/no-grad完全不占显存；它不保留backward activation，但forward attention
+   workspace、参数和输出仍占瞬时显存。
+3. 不要把旧mask_ratio=0.9协议直接改成0后保留所有旧分支；full attention会爆显存。
+   当前dense能跑的前提是结构性裁掉ReSA、mixed和step内exemplar前向。
+4. 不要重新加入activation checkpoint、encoder chunk、手动梯度同步、BN广播或Stage2
+   queue；这些是用户明确要求移除的内容。
+5. 不要跨协议resume。dense只能resume dense完整checkpoint；masked global/per-joint、旧
+   256维、JMB/Motion/Bone checkpoint全部不兼容。结构变化必须从Stage1 fresh run。
+6. 不要把Stage1路径写成`ntu60_xsub_ose`；唯一正确源是
+   `./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth`。
+7. 不要只看OSE loss下降、256维projected gap或teacher/student agreement；三者都可能
+   在错误自蒸馏中变好。最终必须看raw 6400维gap、Stage1 CKA和逐checkpoint LP。
+8. 不要把单次0.1-0.2pp LP差异当显著结论；先看相同协议的趋势和多个checkpoint。
+9. 不要误解prototype dispersion：epoch cache来自EMA且detach，当前dispersion没有梯度，
+   loss就是alignment soft CE。
+10. 不要在训练中使用标签优化；标签仅用于独立日志中的detached诊断准确率。
+11. 不要删除`dense_ose_diagnostic_reference.pth`后继续resume；它是Stage1漂移基准。
+12. 不要直接跑旧的LP sweep。本轮要求逐个测选定的中间checkpoint，并记录best LP。
+13. 不要在同一实验里同时改LR、tau、增强、mask、K或BN；否则无法归因。
+14. 不要认为ST-GCN baseline上OSE有效就必然能迁移到MacDiff Transformer。两者的token
+   几何、预训练目标、容量、mask敏感性和projector/BN动力学均不同，必须以MacDiff日志
+   和LP证据为准。
+
+## 1. 当前任务
+
+在原生 MacDiff NTU60 XSub Stage1 checkpoint 上增加一个独立的100-epoch
+ReSA+OSE Stage2，并用原项目 `linprobe2` 协议评估。当前重点不是继续扩展模型，
+而是解决：Stage2 的 ReSA 已经恢复有效，但训练后的 LP accuracy 低于 Stage1
+checkpoint 的约85.86%。
+
+Stage1 权重必须使用：
+
+```text
+./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+不要改回 `ntu60_xsub_ose`。
+
+## 2. 已完成内容
+
+### 2.1 Stage2训练流程
+
+- 新增 `main_pretrain_stage2.py`、`model/transformer_stage2.py`、
+  `config/ntu60_xsub_joint/pretrain_madiff_stage2.yaml` 和启动脚本。
+- 仅从Stage1转移在线骨架encoder；diffusion decoder、optimizer、EMA和旧OSE状态
+  均不转移。
+- Stage2包含ReSA、独立OSE projector、K=2 Joint-only原型、mixed prototype loss和
+  mixed instance loss。
+- K=2表示每类Joint样本独立增强两次，共两个Joint embedding。Motion/Bone构造和
+  对应EMA exemplar分支已经删除，不能再按旧的六embedding语义理解。
+- 双卡使用标准DDP；关系矩阵、mixed permutation和instance keys跨卡构造；
+  projector/predictor的BN会转换为SyncBatchNorm，使无标签分支统计对应全局batch128。
+- fresh run若输出目录是 `./output_dir/` 下明确的子目录，会自动删除并重建；
+  resume不会删除。
+- 每10轮保存完整Stage2 checkpoint和仅含 `encoder_q` 的LP backbone。
+
+### 2.2 已明确移除的内容
+
+用户明确要求下列内容不要保留：
+
+- activation checkpoint / `checkpoint_blocks`；
+- encoder chunk；
+- checkpoint引入的手动梯度同步和BN广播；
+- Stage2 queue及所有enqueue、buffer、日志字段。
+
+不要擅自重新加入。
+
+### 2.3 当前mask协议
+
+- `mask_ratio=0.9`，每条样本保留75/750 token。
+- 同一个无标签view的online/EMA共享同一组mask indices。
+- 两个Joint-only exemplar增强分别使用独立mask；不再存在Motion/Bone mask。
+- 仍是全局随机75个token；尚未改成每joint固定抽3个token。用户要求本轮只改
+  joint-aware pooling，其他先不改。
+
+### 2.4 Joint-aware改造
+
+发现现有LP并不是256维全局均值：
+
+- `linprobe_madiff.yaml` 使用 `protocol: linprobe2`；
+- 下游先平均person/time，保留25个joint，再展平为 `25 x 256 = 6400` 维；
+- LP linear head前还有无仿射BatchNorm。
+
+原Stage2却将所有可见time/joint token一起平均成256维，导致ReSA Sinkhorn目标
+接近均匀。现在Stage2已改成：
+
+1. 根据mask保留下来的原始flattened token id恢复joint id；
+2. 每个joint内部对可见时间token求均值；
+3. 缺失joint填零；
+4. 按joint顺序展平为6400维；
+5. ReSA/OSE projector输入相应改为6400维。
+
+没有改变mask采样、loss权重或温度。对应测试位于 `tests/test_stage2.py`。
+
+### 2.5 ReSA 4.8问题结论
+
+双卡每卡64时全局关系batch为128。ReSA raw CE满足：
+
+```text
+ReSA = H(Sinkhorn target) + KL(target || prediction)
+ln(128) = 4.852
+```
+
+旧全局均值版本日志中 `H` 接近4.8且 `KL` 很小，说明target和prediction都接近
+均匀，ReSA几乎没有有效梯度。Joint-aware后用户确认ReSA已经正常。
+
+不要再把raw ReSA约4.8简单解释为loss权重错误；必须分别看H和KL。
+
+### 2.6 Joint-only原型与SyncBN改造
+
+2026-08-22新增两项对照修改：
+
+- `ExemplarProvider`只产生K个Joint增强，不再构造Motion和Bone；
+- 原型直接对K个归一化Joint anchor取均值；当前K=2即两个Joint anchor；
+- 删除已经无调用的teacher Motion/Bone exemplar projection和JMB融合逻辑；
+- DDP默认`sync_batchnorm: True`，在包装DDP前转换模型中的BN；
+- 额外Joint view仍使用batch statistics但不更新长期running buffers，且该逻辑兼容
+  `SyncBatchNorm`；
+- mask协议名更新为`shared_qk_joint_v1`，因此不能resume旧JMB Stage2 checkpoint。
+
+### 2.7 Stage2增强关闭
+
+为隔离MacDiff Stage1/Stage2增强分布跳变，当前配置已将
+`augmentation_probability`设为`0.0`。temporal crop、shear和rotation均不执行；
+基础`base_p_interval: [0.95]`裁剪/resize仍保留。无标签view A/B和K=2 Joint
+exemplar仍分别抽取独立的90%随机mask，因此训练并非两个完全相同的输入分支。
+
+## 3. 当前阻塞点：ReSA正常但LP下降
+
+Stage1 checkpoint的LP约85.86，joint-aware Stage2训练后LP仍下降。需要同时验证
+backbone更新速度、稀疏mask关系目标和原型质量。用户补充PSTL也存在Stage1 AdamW、
+Stage2 SGD且表现良好的先例，因此不要把“AdamW切换SGD”本身当作主要原因。
+当前仍保留低backbone LR对照，因为数值0.25相对MacDiff预训练LR仍可能造成漂移：
+
+- MacDiff Stage1：AdamW，backbone LR `1e-3`；
+- MacDiff finetune：LR `5e-4`；
+- 当前Stage2：SGD，backbone LR `0.25`，无warmup；
+- fresh ReSA/OSE heads同样使用LR `0.25`。
+
+Joint-aware之前ReSA是均匀退化目标，梯度接近零；joint-aware后ReSA真正产生梯度，
+`0.25` 很可能快速改写已经能LP 85.86的encoder。因此下一实验只降低backbone
+LR，不动head LR和其他协议：
+
+```text
+backbone lr = 0.001
+head lr     = 0.25
+```
+
+Stage2导出的backbone不包含6400维projector，因此LP下降不是checkpoint key或head
+shape加载错误，而是encoder参数本身发生了不利漂移。
+
+## 4. 新增LP sweep脚本
+
+`script_linprobe_stage2_sweep.sh` 会依次对
+`checkpoint-010-backbone.pth` 到 `checkpoint-100-backbone.pth` 跑完整100轮LP。
+
+特点：
+
+- 每个Stage2 checkpoint使用独立LP目录和TensorBoard；
+- `main_linprobe.py --output_dir ""`，避免每个LP epoch保存完整模型导致巨大磁盘占用；
+- console日志保存在各自run目录；
+- 从 `Max accuracy` 提取每个checkpoint的best acc；
+- 最后打印10个best acc和overall best；
+- CSV保存在 `${LP_ROOT}/best_acc_summary.csv`；
+- 若LP_ROOT已存在会拒绝运行，避免混合两次实验。换一个 `LP_ROOT` 即可。
+
+旧LR=0.25 Stage2的sweep命令：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 BATCH_SIZE=64 LP_ROOT=./output_dir/ntu60_xsub_macdiff_stage2_seed0_lp_sweep bash script_linprobe_stage2_sweep.sh ./output_dir/ntu60_xsub_macdiff_stage2_seed0
+```
+
+当前Joint-only + SyncBN低LR实验完成后的sweep命令：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 BATCH_SIZE=64 LP_ROOT=./output_dir/ntu60_xsub_macdiff_stage2_jointonly_noaug_syncbn_lr1e3_lp_sweep bash script_linprobe_stage2_sweep.sh ./output_dir/ntu60_xsub_macdiff_stage2_jointonly_noaug_syncbn_lr1e3
+```
+
+## 5. 低backbone LR训练命令
+
+`script_pretrain_stage2.sh` 现在支持 `BACKBONE_LR` 和 `HEAD_LR` 环境变量。
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 BACKBONE_LR=0.001 HEAD_LR=0.25 OUTPUT_DIR=./output_dir/ntu60_xsub_macdiff_stage2_jointonly_noaug_syncbn_lr1e3 OMP_NUM_THREADS=1 bash script_pretrain_stage2.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+## 6. 下一步计划
+
+1. 从Stage1 fresh run当前Joint-only + no-augmentation + SyncBN版本，不能resume任何
+   旧JMB或有增强Stage2。
+2. 优先用backbone LR `0.001`、head LR `0.25`训练，并逐10轮运行LP sweep。
+3. 如果需要严格拆变量，再用同一LR分别运行`sync_batchnorm=False`或K=1；不要把
+   多项改动混进同一个对照。
+4. 比较相同epoch：
+   - 若旧实验第10轮即大降而低LR保持，确认是catastrophic backbone drift；
+   - 若两者均前期高、后期下降，缩短Stage2或选择最佳中间checkpoint；
+   - 若低LR仍持续下降，再记录encoder parameter drift、ReSA/OSE backbone梯度范数
+     与梯度余弦，判断目标冲突。
+5. 在上述对照完成前，不继续修改Sinkhorn温度、loss权重或mask策略，
+   避免同时改变多个变量。
+
+### 6.1 OSE-only低LR对照
+
+低backbone LR最终checkpoint的LP达到85.22；若完整sweep确认这就是最高值，下一项
+单变量对照为关闭ReSA梯度、保留全部OSE目标：
+
+```text
+resa_weight          = 0.0
+ose_lambda           = 1.0
+ose_mix_proto_weight = 1.0
+ose_mix_ins_weight   = 1.0
+backbone lr          = 0.001
+head lr              = 0.25
+```
+
+启动命令：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 OMP_NUM_THREADS=1 bash script_pretrain_stage2_ose_only.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+该实验仍计算并记录ReSA指标用于诊断，但其权重为零，不向encoder或ReSA head提供
+梯度。必须从Stage1 fresh run，不能resume ReSA+OSE checkpoint。
+
+OSE-only最终checkpoint的LP为85.02，低于相同低LR的ReSA+OSE 85.22。该0.20pp
+差距说明ReSA可能有轻微帮助，但仍可能处于LP随机波动范围，不能视为显著结论。
+
+### 6.2 ReSA+OSE teacher温度0.06对照
+
+保留低LR完整ReSA+OSE，只将OSE EMA teacher温度从0.04提高到0.06：
+
+```text
+resa_weight = 1.0
+ose_tau_s   = 0.1
+ose_tau_t   = 0.06
+backbone lr = 0.001
+head lr     = 0.25
+```
+
+启动命令：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 OMP_NUM_THREADS=1 bash script_pretrain_stage2_resa_ose_taut006.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+必须fresh run并使用独立输出目录；除`ose_tau_t`外不要同时改变mask、loss权重、K、
+SyncBN或augmentation协议。
+
+该实验最终checkpoint的LP为85.12，低于`tau_t=0.04`完整ReSA+OSE的85.22；0.10pp
+差距处于LP波动量级，没有证据表明继续增大teacher温度能解决当前瓶颈。
+
+### 6.3 Stage1特征几何诊断
+
+新增`diagnose_stage1_geometry.py`，冻结Stage1 `checkpoint-399.pth`并在不训练的情况
+下检查：
+
+- full-token与90% mask特征的余弦一致性；
+- 两次独立mask之间的余弦一致性；
+- full/masked空间的同类、异类余弦及其间隔；
+- 当前单exemplar和masked K=2 exemplar的最近原型准确率；
+- `tau_t=0.04/0.06/0.1`对应的原型分布置信度与熵；
+- 全局随机75-token mask导致的缺失joint数量。
+
+原型准确率和温度统计位于冻结encoder输出空间，不经过尚未训练的OSE projector，
+因此用于判断Stage1几何是否适合单exemplar OSE，不等同于训练后OSE teacher的实测值。
+
+默认平衡抽取4096个非exemplar训练样本，使用单卡且不更新权重：
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python diagnose_stage1_geometry.py --checkpoint ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth --config ./config/ntu60_xsub_joint/pretrain_madiff_stage2.yaml --batch_size 32 --max_samples 4096 --output ./output_dir/stage1_geometry.json
+```
+
+本地工作区没有checkpoint和NTU数据，因此结果必须在训练服务器生成。
+
+Stage1的4096样本诊断结果：
+
+- full/masked cosine为0.7581，两次masked cosine为0.6882；
+- 每个masked样本平均缺失1.016个joint，67.18%的样本至少缺失一个joint；
+- full同异类cosine gap为0.0301，masked后降到0.0214；
+- full单exemplar最近原型准确率17.63%，masked K=2仅7.79%；
+- masked K=2在`tau=0.04`时平均top-1 confidence仅8.46%，entropy为3.759，
+  相对`ln(60)=4.094`仍接近均匀，因此现有证据不支持teacher target过尖。
+
+### 6.4 Stage1/Stage2同样本同mask对比
+
+新增`compare_stage1_stage2_geometry.py`，在相同4096个样本和相同随机mask下对比：
+
+- Stage1与Stage2各自的全部6.3指标；
+- full/masked表征的逐样本余弦和linear CKA；
+- encoder整体及逐block参数漂移；
+- 若输入完整Stage2 checkpoint，再测EMA encoder/projector相对online K=2 prototype的
+  实际伪标签准确率、置信度和熵（BN使用checkpoint running statistics）。
+
+```bash
+CUDA_VISIBLE_DEVICES=0 python compare_stage1_stage2_geometry.py --stage1_checkpoint ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth --stage2_checkpoint ./output_dir/ntu60_xsub_macdiff_stage2_jointonly_noaug_syncbn_lr1e3/checkpoint-100.pth --config ./config/ntu60_xsub_joint/pretrain_madiff_stage2.yaml --batch_size 32 --max_samples 4096 --output ./output_dir/stage1_vs_stage2_geometry.json
+```
+
+优先传入完整`checkpoint-100.pth`而不是`-backbone.pth`，否则无法诊断真实OSE teacher
+projector。
+
+### 6.5 ReSA-only + per-joint 3-token mask
+
+根据Stage1/Stage2几何诊断，新增协议`shared_qk_per_joint_v1`：在30个时间patch中
+为每个joint独立随机保留3个，合计仍为`25 x 3 = 75` token。每个view独立采样，
+同一view的online/EMA仍共享indices；K=2 exemplar分别独立采样，未显式传mask的
+mixed-view内部采样也使用相同per-joint策略。
+
+该实验同时关闭全部OSE梯度，只保留ReSA：
+
+```text
+backbone lr          = 0.001
+head lr              = 0.25
+resa_weight          = 1.0
+ose_lambda           = 0.0
+ose_mix_proto_weight = 0.0
+ose_mix_ins_weight   = 0.0
+mask_protocol        = shared_qk_per_joint_v1
+```
+
+启动命令：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10237 BATCH_SIZE=64 OMP_NUM_THREADS=1 bash script_pretrain_stage2_resa_only_perjoint.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+输出目录默认为：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_noaug_syncbn_lr1e3_resaonly_perjoint3
+```
+
+必须从Stage1 fresh run，不能resume任何`shared_qk_joint_v1` checkpoint。
+
+本节当时没有直接创建full-token Stage2：no-augmentation下view A/B和K=2 exemplar
+在取消mask后几乎相同，ReSA会退化为近似同输入自蒸馏；750相对75 token还会使
+attention矩阵约增大100倍。后续6.7已通过裁掉ReSA/mix、恢复独立增强和EMA prototype
+epoch cache建立单独的dense协议，并非只把`mask_ratio`改成0。
+
+### 6.6 ReSA+OSE + per-joint 3-token mask
+
+为隔离OSE在per-joint mask下的实际贡献，新增完整ReSA+OSE对照。相对6.5只将
+`ose_lambda`、`ose_mix_proto_weight`和`ose_mix_ins_weight`从0改为1；其余学习率、
+mask和训练协议不变。teacher温度使用当前结果更好的0.04，而不是LP略低的0.06。
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10238 BATCH_SIZE=64 OMP_NUM_THREADS=1 bash script_pretrain_stage2_resa_ose_perjoint.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+输出目录默认为：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_noaug_syncbn_lr1e3_resaose_perjoint3
+```
+
+该实验必须从同一Stage1 checkpoint fresh run。将它与6.5的ReSA-only/per-joint结果
+比较，才能判断OSE在per-joint mask下是正贡献还是负贡献；不要跨不同mask协议直接归因。
+
+### 6.7 Full-token prototype-only OSE + EMA epoch cache
+
+新增`dense_ose_proto_ema_v1`，真正从模型和forward中裁掉ReSA、Sinkhorn、predictor、
+`mix_proto`与`mix_ins`，而不是把loss权重乘0。每个训练step仅包含：
+
+- 一个独立增强view进入online encoder/projector并保留梯度；
+- 另一个独立增强view先进入EMA encoder/projector，使用eval BN且不保留梯度；
+- 60类exemplar只在每个epoch开头经过EMA encoder/projector，两次独立增强取平均后
+  缓存为`[60,256]` prototype，step内不重复编码；refresh使用eval-BN并按4类
+  micro-batch执行，只降低瞬时显存，不改变prototype结果；
+- 训练loss只有teacher soft target到student logits的prototype alignment。EMA缓存
+  prototype不可训练，因此prototype dispersion只记录为诊断量，不加入梯度。
+
+encoder输入完整30 x 25 = 750 token。`one_person=False`，对两个person及30个时间patch
+按LP2方式平均，保留25个joint并flatten为6400维。配置使用augmentation probability
+0.5、AMP、每卡micro-batch 4、梯度累积16；双卡有效样本batch仍为128。EMA仅在成功
+optimizer step后更新，浮点BN buffers也做EMA，整数counter直接复制；epoch cache不写入
+checkpoint，resume后在下一epoch开头按保存的RNG/EMA状态重新生成。
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 NPROC_PER_NODE=2 MASTER_PORT=10240 OMP_NUM_THREADS=1 bash script_pretrain_stage2_dense_ose.sh ./output_dir/ntu60_xsub_macdiff/checkpoint-399.pth
+```
+
+默认输出目录：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema
+```
+
+最终checkpoint LP：
+
+```bash
+CUDA_VISIBLE_DEVICES=0,1 OMP_NUM_THREADS=1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10241 main_linprobe.py --config ./config/ntu60_xsub_joint/linprobe_madiff.yaml --output_dir "" --log_dir ./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema_lp_checkpoint100/tensorboard --finetune ./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/checkpoint-100-backbone.pth --dist_eval --accum_iter 1 --batch_size 64 --epochs 100 --model model.transformer_downstream.Transformer
+```
+
+训练时另写一个可直接上传分析的独立JSONL：
+
+```text
+./output_dir/ntu60_xsub_macdiff_stage2_dense_ose_proto_ema/dense_ose_diagnostics.jsonl
+```
+
+该文件包含四类event：`run_start`保存固定600样本的Stage1参考几何；
+`prototype_refresh`保存prototype相似度、effective rank和逐epoch漂移；
+`optimizer_step`每20次更新保存target熵/置信度分位数、teacher/student准确率与一致率、
+真实类概率、margin，以及encoder/projector梯度范数和相对step估计；
+`epoch_summary`保存60类hard/soft assignment完整分布；`representation_geometry`在
+epoch 1及每5 epoch保存6400/256维class gap、Stage1 cosine/CKA、online-EMA差距、
+clean prototype分类和online projector的eval-BN/模拟全局micro-batch BN差距。
+
+固定Stage1 raw feature缓存为同目录下
+`dense_ose_diagnostic_reference.pth`，只供resume和漂移计算，不需要上传。诊断前向会
+恢复Python/NumPy/Torch RNG和模块train/eval状态，不改变训练随机轨迹。上传分析时只需
+提供`dense_ose_diagnostics.jsonl`；如果已有对应checkpoint的LP结果，同时附上更好。
+
+为检查Stage2是否训练过久，dense配置额外保存online encoder-only LP权重：
+epoch `1,2,3,5,8,10,15,20`，之后每10 epoch到100。文件名仍为
+`checkpoint-XXX-backbone.pth`；只有每10 epoch和最终epoch保存包含EMA、optimizer、
+scaler与RNG的完整`checkpoint-XXX.pth`，因此早期密集LP对比不会成倍增加完整checkpoint
+存储。每次保存也会写入独立诊断日志的`checkpoint_saved` event。
+
+## 7. 绝对不要再踩的坑
+
+1. 不要把LP 85.86理解成256维全局均值有效；LP2实际用6400维joint-aware特征、
+   全750 token以及分类头前BN。
+2. 旧K=2六embedding版本使用100% token时，6GB显卡即使每卡batch16也OOM；当前
+   Joint-only虽减少了原型分支，但本轮对照仍保持10%输入，不要同时切100%。
+3. 不要通过继续减普通batch掩盖原型分支的固定显存开销。
+4. 不要重新加入checkpoint blocks、encoder chunk、手动梯度同步或Stage2 queue。
+5. 不要把Stage1路径写回 `ntu60_xsub_ose`；必须是 `ntu60_xsub_macdiff`。
+6. `batch_size` 是每GPU micro-batch；masked协议双卡每卡64是全局128，dense协议
+   每卡4并用`accum_iter=16`得到有效全局128。
+7. 不要用旧的256维Stage2 checkpoint resume joint-aware版本；projector shape不兼容。
+8. mask协议或模型结构变化后必须fresh run；masked实验和
+   `dense_ose_proto_ema_v1`之间绝不能resume。
+9. 不要只看raw ReSA；同时看 `cluster_entropy(H)` 和 `cluster_kl`。
+10. 不要因为ReSA数值正常就断言表征更适合分类；最终必须逐checkpoint LP验证。
+
+## 8. 验证状态
+
+- `py_compile`静态语法检查通过。
+- `git diff --check` 通过，仅有Windows工作区LF/CRLF提示。
+- 本机默认Windows Python launcher不可执行，Codex bundled Python没有PyTorch，
+  因此没有在本机运行GPU/PyTorch单测。服务器启动脚本会先运行
+  `python -m unittest tests.test_stage2`。
+- PyTorch 1.8不支持SyncBatchNorm的CPU forward；相关测试已拆成CPU普通BN行为测试
+  与不执行forward的SyncBN结构转换测试。正式双卡SyncBN仍在CUDA DDP中运行。
