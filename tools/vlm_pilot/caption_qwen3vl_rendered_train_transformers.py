@@ -78,6 +78,8 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--dry_run", action="store_true")
+    parser.add_argument("--check_gifs", action="store_true",
+                        help="Validate all selected GIFs, including duration recovery, without loading a model.")
     return parser.parse_args()
 
 
@@ -175,11 +177,32 @@ def select_records(
     ]
 
 
-def load_gif_frames(path: Path, expected_frames: Optional[int]) -> List[Any]:
+def load_gif_frames(
+    path: Path, expected_frames: Optional[int], sample_fps: Optional[float] = None,
+) -> List[Any]:
     from PIL import Image, ImageSequence
 
     with Image.open(path) as animation:
-        frames = [frame.convert("RGB") for frame in ImageSequence.Iterator(animation)]
+        frames, durations = [], []
+        for frame in ImageSequence.Iterator(animation):
+            durations.append(frame.info.get("duration", 0))
+            frames.append(frame.convert("RGB"))
+    if (expected_frames is not None and len(frames) < expected_frames
+            and sample_fps is not None and sample_fps > 0):
+        # save_gif uses an integer millisecond duration; GIF stores centiseconds.
+        # Pillow combines identical consecutive frames BEFORE that quantization:
+        # at 8 fps, 125 ms -> 120 ms, but two combined frames -> 250 ms.
+        duration_ms = max(1, round(1000.0 / sample_fps))
+        repeats = [max(1, round(value / duration_ms)) for value in durations]
+        if (duration_ms >= 10 and sum(repeats) == expected_frames
+                and all(value == (count * duration_ms // 10) * 10
+                        for value, count in zip(durations, repeats))):
+            expanded = [frame.copy() for frame, count in zip(frames, repeats)
+                        for _ in range(count)]
+            print(f"[gif] Restored merged duplicate frames: {path}: "
+                  f"{len(frames)} -> {len(expanded)} using GIF durations.", flush=True)
+            close_frames(frames)
+            frames = expanded
     if len(frames) < 2:
         close_frames(frames)
         raise ValueError(f"Expected at least two GIF frames in {path}")
@@ -214,7 +237,7 @@ def prepare_rendered_media(
 ) -> Tuple[List[Any], int, str, Any, Any, Any, Dict[str, Any]]:
     config = record.get("config") or {}
     expected_frames = config.get("num_frames")
-    frames = load_gif_frames(record["_gif_path"], expected_frames)
+    frames = load_gif_frames(record["_gif_path"], expected_frames, config.get("sample_fps"))
     try:
         actor_count, sample_fps = render_settings(record)
         if sample_fps != args.sample_fps:
@@ -378,6 +401,7 @@ def run_dry_run(
         frames = load_gif_frames(
             record["_gif_path"],
             (record.get("config") or {}).get("num_frames"),
+            sample_fps,
         )
         print(
             json.dumps(
@@ -441,6 +465,20 @@ def main() -> None:
         f"sample_fps={args.sample_fps}.",
         flush=True,
     )
+    if args.check_gifs:
+        failures = []
+        for record in selected:
+            try:
+                config = record.get("config") or {}
+                frames = load_gif_frames(record["_gif_path"], config.get("num_frames"), args.sample_fps)
+                close_frames(frames)
+            except Exception as exc:
+                failures.append({"sample_index": record["sample_index"], "error": str(exc)})
+        print(json.dumps({"checked": len(selected), "passed": len(selected) - len(failures),
+                          "failures": failures}, ensure_ascii=False), flush=True)
+        if failures:
+            raise SystemExit(1)
+        return
     if args.dry_run:
         run_dry_run(selected[0], prompt_template, args)
         return
