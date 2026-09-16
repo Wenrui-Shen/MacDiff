@@ -15,6 +15,15 @@ HAS_TORCH = importlib.util.find_spec('torch') is not None
 @unittest.skipUnless(HAS_TORCH, 'PyTorch is required for diffusion/gradient checks')
 class TextStage1Tests(unittest.TestCase):
     @staticmethod
+    def tokens(batch, dim=6):
+        import torch
+        valid = torch.ones(batch, 6, dtype=torch.bool)
+        valid[0, -2:] = False
+        return dict(text_tokens=torch.randn(batch, 6, dim), text_token_mask=valid,
+                    text_person_ids=torch.tensor([[0, 0, 0, 1, 1, 1]]).expand(batch, -1),
+                    text_positions=torch.tensor([[1, 2, 3, 1, 2, 3]]).expand(batch, -1))
+
+    @staticmethod
     def model(**overrides):
         import torch
         from model.transformer_macdiff_text import Transformer
@@ -37,7 +46,8 @@ class TextStage1Tests(unittest.TestCase):
         handle = model.norm.register_forward_hook(lambda *args: calls.append(1))
         source = torch.randn(3, 3, 8, 25, 2)
         text = torch.randn(3, 6)
-        loss, pred, mask, metrics = model(source, source + .01, text_features=text, mask_ratio=.5)
+        loss, pred, mask, metrics = model(source, source + .01, text_features=text,
+                                          mask_ratio=.5, **self.tokens(3))
         handle.remove()
         self.assertEqual(len(calls), 1)
         self.assertEqual(pred.shape, (3, 50, 12))
@@ -85,8 +95,13 @@ class TextStage1Tests(unittest.TestCase):
         t = torch.tensor([2, 4, 7])
         noisy = model.diffusion.q_sample(x, t, noise=noise)
         r = model.text_remap(torch.randn(3, 6))
+        tokens = self.tokens(3)
+        token_condition = model.remap_tokens(tokens['text_tokens'], tokens['text_token_mask'],
+                                             tokens['text_person_ids'], tokens['text_positions'])
         loss = model.text_to_skeleton_loss(noisy, noise, t, torch.ones(3, 50),
-                                          r, torch.ones(3, dtype=torch.bool), people=1)
+                                          r, torch.ones(3, dtype=torch.bool), people=1,
+                                          token_condition=token_condition,
+                                          token_mask=tokens['text_token_mask'])
         loss.backward()
         self.assertGreater(model.text_remap[0].weight.grad.abs().sum().item(), 0)
         self.assertTrue(all(p.grad is None for p in model.blocks.parameters()))
@@ -107,7 +122,8 @@ class TextStage1Tests(unittest.TestCase):
 
         first = model.norm.register_forward_hook(capture_tokens)
         second = model.text_noise_decoder.register_forward_pre_hook(capture_condition)
-        loss, pred, _, _ = model(source, source.clone(), text_features=torch.randn(2, 6), mask_ratio=.5)
+        loss, pred, _, _ = model(source, source.clone(), text_features=torch.randn(2, 6),
+                                mask_ratio=.5, **self.tokens(2))
         first.remove()
         second.remove()
         self.assertEqual(pred.shape[0], 4)
@@ -152,7 +168,8 @@ class TextStage1Tests(unittest.TestCase):
         for t2s, s2t in ((0., 1.), (1., 0.)):
             model = self.model(lambda_text_to_skeleton=t2s, lambda_skeleton_to_text=s2t)
             x = torch.randn(2, 3, 8, 25, 2)
-            loss = model(x, x.clone(), text_features=torch.randn(2, 6), mask_ratio=.5)[0]
+            loss = model(x, x.clone(), text_features=torch.randn(2, 6),
+                         mask_ratio=.5, **self.tokens(2))[0]
             loss.backward()
             for name, p in model.named_parameters():
                 self.assertEqual(p.grad is not None, p.requires_grad, name)
@@ -167,8 +184,11 @@ class TextStage1Tests(unittest.TestCase):
         loader = torch.utils.data.DataLoader(data, batch_size=2)
         text = torch.randn(5, 6)
         observed = []
-        hook = model.text_remap[0].register_forward_pre_hook(
-            lambda module, inputs: observed.append(inputs[0].detach().clone()))
+        def record_global(module, inputs):
+            if inputs[0].ndim == 2:
+                observed.append(inputs[0].detach().clone())
+
+        hook = model.text_remap[0].register_forward_pre_hook(record_global)
         optimizer = torch.optim.AdamW(model.parameters(), lr=.001)
         before = model.joints_embed.proj.weight.detach().clone()
 
@@ -186,9 +206,21 @@ class TextStage1Tests(unittest.TestCase):
         args = types.SimpleNamespace(enable_ose=False, epochs=2, warmup_epochs=0,
             min_lr_epochs=0, lr=.001, min_lr=.0001, accum_iter=2, max_train_steps=0,
             mask_ratio=.5, motion_stride=1, motion_aware_tau=-1, enable_amp=False)
-        with contextlib.redirect_stdout(io.StringIO()):
-            stats = train_one_epoch(model, loader, optimizer, torch.device('cpu'),
-                                    0, scaler, args=args, text_features=text)
+        from util.clip_text_cache import TokenFeatureCache
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            features = np.zeros((5, 2, 7, 6), dtype=np.float16)
+            masks = np.zeros((5, 2, 7), dtype=bool)
+            features[:, 0, 1:4] = np.random.randn(5, 3, 6)
+            masks[:, 0, 1:4] = True
+            np.save(root / 'token_features.npy', features)
+            np.save(root / 'token_mask.npy', masks)
+            storage = TokenFeatureCache(root, text.numpy(), {})
+            with contextlib.redirect_stdout(io.StringIO()):
+                stats = train_one_epoch(model, loader, optimizer, torch.device('cpu'),
+                                        0, scaler, args=args, text_features=storage)
+            storage.features._mmap.close()
+            storage.mask._mmap.close()
         hook.remove()
         torch.testing.assert_close(torch.cat(observed), text[ids])
         self.assertEqual(scaler.steps, 2)  # includes the final incomplete accumulation window
@@ -208,6 +240,53 @@ class TextStage1Tests(unittest.TestCase):
                 text_cache_identity={'hash': 'new'}, text_training_weights=(1., 1.))
             with self.assertRaisesRegex(ValueError, 'text_cache_identity'):
                 load_model(args, model, None, None)
+
+    def test_padding_is_invisible_and_valid_tokens_affect_prediction(self):
+        import torch
+        model = self.model().eval()
+        x, t, r = torch.randn(2, 8, 25, 3), torch.tensor([2, 6]), torch.randn(2, 8)
+        data = self.tokens(2)
+        data['text_token_mask'][:, -2:] = False
+
+        def predict(values):
+            memory = model.remap_tokens(values['text_tokens'], values['text_token_mask'],
+                                        values['text_person_ids'], values['text_positions'])
+            return model.text_skeleton_decoder(x, t, r, memory, values['text_token_mask'])
+
+        with torch.no_grad():
+            expected = predict(data)
+            changed = {k: v.clone() for k, v in data.items()}
+            changed['text_tokens'][:, -2:] = float('nan')
+            changed['text_person_ids'][:, -2:] = 999
+            changed['text_positions'][:, -2:] = -999
+            torch.testing.assert_close(predict(changed), expected)
+            changed['text_tokens'][:, 0] += torch.arange(6).float() * 3
+            self.assertFalse(torch.allclose(predict(changed), expected))
+        for name in ('text_token_mask',):
+            invalid = dict(data)
+            invalid[name] = torch.zeros_like(data[name])
+            with self.assertRaises(ValueError):
+                predict(invalid)
+
+    def test_token_order_and_person_metadata_travel_together(self):
+        import torch
+        model = self.model().eval()
+        data = self.tokens(2)
+        x, t, r = torch.randn(2, 8, 25, 3), torch.tensor([2, 6]), torch.randn(2, 8)
+
+        def predict(values):
+            memory = model.remap_tokens(values['text_tokens'], values['text_token_mask'],
+                                        values['text_person_ids'], values['text_positions'])
+            return model.text_skeleton_decoder(x, t, r, memory, values['text_token_mask'])
+
+        with torch.no_grad():
+            expected = predict(data)
+            order = torch.tensor([4, 0, 2, 5, 1, 3])
+            # Packing order is irrelevant when original positions/person IDs follow tokens.
+            torch.testing.assert_close(predict({k: v[:, order] for k, v in data.items()}), expected)
+            changed = {k: v.clone() for k, v in data.items()}
+            changed['text_person_ids'] = 1 - changed['text_person_ids']
+            self.assertFalse(torch.allclose(predict(changed), expected))
 
 
 if __name__ == '__main__':

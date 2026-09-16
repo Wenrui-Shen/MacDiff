@@ -59,7 +59,7 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
                             optimizer: torch.optim.Optimizer,
                             device: torch.device, epoch: int, loss_scaler,
                             log_writer=None, args=None, text_features=None):
-    """Run native Stage1, optionally looking up cached global text by raw index."""
+    """Run native Stage1, optionally reading a v2 mmap token batch by raw index."""
     model.train(True)
     model_without_ddp = model.module if hasattr(model, 'module') else model
     model_without_ddp.update_diffusion_sampler(epoch, args.epochs)
@@ -87,8 +87,14 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
         samples, samples_aug, _, sample_indices = batch
         text_kwargs = {}
         if text_features is not None:
-            text_kwargs['text_features'] = text_features[sample_indices.long()].to(
-                device, non_blocking=True)
+            if hasattr(text_features, 'get_batch'):
+                arrays = text_features.get_batch(sample_indices.cpu().numpy())
+                text_kwargs = {name: torch.from_numpy(values).to(device, non_blocking=True)
+                               for name, values in arrays.items()}
+            else:
+                # Global-only inputs remain useful when T->S is disabled.
+                text_kwargs['text_features'] = text_features[sample_indices.long()].to(
+                    device, non_blocking=True)
 
         if data_iter_step % accum_iter == 0:
             lr_sched.adjust_learning_rate(

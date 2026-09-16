@@ -4,9 +4,24 @@
 
 ## 0. 最新进展：已授权实现文本条件 Stage1（优先于后文旧任务状态）
 
+### 最新 v2：多 token 缓存与文本→骨架已实现
+
+用户最新要求先修改 cache 和训练多 token 路径，文本 decoder 留待讨论。本地已完成：
+
+- 缓存协议 `macdiff_clip_token_cache_v2`，新目录 `vlm_pilot/ntu60_xsub_clip_cache_v2`；保留逐人句向量，同时缓存最终 CLIP token hidden state 经冻结 text_projection 和逐 token L2 后的 FP16 `[N,2,77,512]`、mask、token IDs。排除 BOS/padding、保留真实 EOS；保留人物与原始位置。旧缓存不能反推出 token，需重新编码已有描述，**不重新生成描述**。
+- 训练 mmap 按 batch 索引读取有效 token，形成 `[B,K,512]`（K≤152），共享两层 MLP 512→512→256，加入人物/位置 embedding 后非 affine FP32 LN。每层独立文本条件骨架 decoder 用带噪骨架位置作 Q、文本作 K/V，读取 `[B,750,256]`，加全局 r 后送入原生调制。原始 MacDiff encoder/decoder 未增加 cross-attention。
+- **反向文本 decoder 暂时不改**：仍为 3 块条件残差 MLP、全局 r 噪声预测，r 在加噪前 detach。全局 r 仍直接参与文本→骨架调制，与 token 共享 remap，故保留直接优化来源。后续讨论多 token 文本去噪时再改此分支。
+- 正式 batch 64、accum 1、GPU 1；新输出 `output_dir/ntu60_xsub_macdiff_text_tokens`。旧单向量训练 checkpoint 不能完整 resume 新架构。
+- 29 项本地测试通过，包括真实 Hugging Face 小型随机 CLIP 的 safetensors/bin 缓存往返、token/padding/元数据效果和梯度隔离；正式 YAML/参数解析、完整尺寸 CPU 前向 `[1,750,12]` 通过。测试依赖临时安装在 Windows TEMP 的独立目录（torch 2.5.1+cpu、Transformers 4.57.1），未改服务器环境。尚未执行官方预训练 CLIP 全量编码、CUDA AMP 或正式训练，batch 64 显存未实测。
+- 本地交付包 `handoff_artifacts/macdiff_stage1_text_tokens_20260916.zip`；完整命令与当前设计见 `tools/vlm_pilot/STAGE1_TEXT_DIFFUSION.md`。
+
+### v1 实现历史（单全局向量路径，已由上述 v2 扩展）
+
 用户在原预实验负结果后明确要求：先写全量冻结 CLIP 缓存脚本，再把全局文本条件接入原始 MacDiff Stage1。已确定 MLP remap、三个条件噪声预测目标、反向文本去噪在加噪前 stop-gradient；三个 loss 从第一步共同参与，固定权重后续消融，不加 loss warm-up。整段描述暂作为全局语义条件，保持原始时间裁剪。
 
 本地新增 `cache_clip_text.py`、`util/clip_text_cache.py`、`model/transformer_macdiff_text.py`、`config/ntu60_xsub_joint/pretrain_madiff_text.yaml`、`script_pretrain_macdiff_text.sh`，接入 `main_pretrain.py` 和 `engine_pretrain.py`。完整设计、缓存/训练单行命令见 **`tools/vlm_pilot/STAGE1_TEXT_DIFFUSION.md`**。
+
+用户随后指定训练 batch size 改为 64：启动脚本和 YAML 已统一为 `batch_size=64, accum_iter=1`，仅 GPU 1，有效 batch 仍为 64。两步 smoke 命令继续使用 batch 2；尚未实测正式 batch 64 的显存。
 
 - 缓存覆盖全部原始 x_train 行，按最后 accepted 去重；逐人保存投影后 FP32 L2 CLIP 特征和人物 mask。严格检查覆盖、提示词/生成模型版本、token 上限；支持中断续跑和完整缓存复用，有 SHA256 身份与完整性检查。
 - 训练时有效人物文本取均值再 L2，形成全局 e；`r = LN(MLP(e))`，512→512→256，最后 LN 无 affine 参数、FP32。缓存之前不会做这个可训练 remap。

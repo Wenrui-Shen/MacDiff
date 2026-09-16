@@ -291,14 +291,14 @@ def main(args):
     dataset_train = Feeder(**args.train_feeder_args)
     text_features = None
     if args.text_cache:
-        from util.clip_text_cache import load_cache
+        from util.clip_text_cache import load_token_cache
         if (args.feeder != 'feeder.feeder_ntu.Feeder'
                 or dataset_train.split != 'train'):
             raise ValueError('Text cache requires the native NTU training feeder and raw sample indices')
-        print('Validating global text cache against the training dataset...', flush=True)
-        global_text, manifest = load_cache(
+        print('Validating multi-token text cache against the training dataset...', flush=True)
+        text_features = load_token_cache(
             args.text_cache, dataset_train.data_path, expected_count=len(dataset_train))
-        text_features = torch.from_numpy(global_text)
+        manifest = text_features.manifest
         args.text_cache_identity = {'protocol': manifest['protocol'],
                                     'identity': manifest['identity'], 'files': manifest['files']}
     exemplar_mapping = None
@@ -353,8 +353,10 @@ def main(args):
             if not supports_text:
                 raise ValueError(name + ' requires the text Stage1 model')
             model_args[name] = value
-    if supports_text and model_args.get('text_input_dim', 512) != text_features.shape[1]:
+    if supports_text and model_args.get('text_input_dim', 512) != text_features.manifest['feature_dim']:
         raise ValueError('text_input_dim differs from cached CLIP projection dimension')
+    if supports_text and model_args.get('text_context_length', 77) != text_features.manifest['context_length']:
+        raise ValueError('text_context_length differs from the token cache')
     model = Model(**model_args)
     if supports_text:
         args.text_training_weights = (model.lambda_text_to_skeleton, model.lambda_skeleton_to_text)
