@@ -31,7 +31,8 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     mixup_fn: Optional[Mixup] = None, log_writer=None,
                     args=None):
     model.eval()
-    model.module.head.train(True)
+    model_without_ddp = model.module if hasattr(model, "module") else model
+    model_without_ddp.head.train(True)
 
     if args.motion_aware_tau > 0.:
         print(f'Use motion aware pooling, tau = {args.motion_aware_tau}')
@@ -117,7 +118,8 @@ def train_one_epoch_original(model: torch.nn.Module, criterion: torch.nn.Module,
                     mixup_fn: Optional[Mixup] = None, log_writer=None,
                     args=None):
     model.eval()
-    model.module.head.train(True)
+    model_without_ddp = model.module if hasattr(model, "module") else model
+    model_without_ddp.head.train(True)
 
     metric_logger = misc.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', misc.SmoothedValue(window_size=1, fmt='{value:.6f}'))
@@ -187,7 +189,8 @@ def train_one_epoch_original(model: torch.nn.Module, criterion: torch.nn.Module,
 
 @torch.no_grad()
 def evaluate(data_loader, model, device):
-    cls_meter = class_accuracy_meter(model.module.num_classes)
+    model_without_ddp = model.module if hasattr(model, "module") else model
+    cls_meter = class_accuracy_meter(model_without_ddp.num_classes)
     criterion = torch.nn.CrossEntropyLoss()
 
     metric_logger = misc.MetricLogger(delimiter="  ")

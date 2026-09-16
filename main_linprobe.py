@@ -269,7 +269,7 @@ def main(args):
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.gpu])
         model_without_ddp = model.module
 
-    print(f'Number of classes: {model.module.num_classes}')
+    print(f'Number of classes: {model_without_ddp.num_classes}')
     optimizer = torch.optim.SGD(model_without_ddp.head.parameters(), lr=args.lr, momentum=0.9, weight_decay=0)
     print(optimizer)
     
