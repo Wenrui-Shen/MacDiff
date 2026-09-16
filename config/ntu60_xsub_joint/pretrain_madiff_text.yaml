@@ -1,4 +1,4 @@
-# Native Stage1 plus multi-token text reading; S->T still denoises a global vector.
+# Native Stage1 plus multi-token text reading; S->T denoises global + local text tokens.
 feeder: feeder.feeder_ntu.Feeder
 train_feeder_args:
   data_path: ../data/MAMP/ntu/NTU60_XSub.npz
@@ -44,7 +44,8 @@ model_args:
   text_context_length: 77
   text_hidden_dim: 512
   text_decoder_hidden_dim: 256
-  text_decoder_depth: 3
+  text_decoder_depth: 5
+  share_skeleton_decoder: True  # False: independent native and text-conditioned skeleton decoders
 
 text_cache: vlm_pilot/ntu60_xsub_clip_cache_v2
 lambda_text_to_skeleton: 1.0
@@ -58,5 +59,5 @@ min_lr: 1.e-5  # match script_pretrain_madiff.sh baseline invocation
 weight_decay: 0.05
 mask_ratio: 0.9
 motion_aware_tau: -1
-output_dir: output_dir/ntu60_xsub_macdiff_text_tokens
-log_dir: output_dir/ntu60_xsub_macdiff_text_tokens/tensorboard
+output_dir: output_dir/ntu60_xsub_macdiff_bidirectional_tokens
+log_dir: output_dir/ntu60_xsub_macdiff_bidirectional_tokens/tensorboard

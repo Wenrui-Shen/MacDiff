@@ -2,7 +2,7 @@
 
 本实现使用全部 NTU60 XSub train accepted 描述；不重新生成文本、不用类别标签选择文本、不启用 OSE/Stage2。原始 MacDiff 配置和模型仍可单独运行。以下命令均在服务器项目根目录执行。
 
-本轮只扩展缓存和文本→骨架的多 token 条件路径。**骨架→文本仍使用原来的全局向量目标和 3 块残差 MLP decoder，暂不改成 token 序列去噪，等待后续讨论。**
+当前采用双向多 token。正向将全局 token 与局部 token 拼接；反向恢复同一套全局＋局部表示，文本 decoder 为 5 层 Transformer，所有有效 token 一起计算平均 MSE。`model_args.share_skeleton_decoder` 控制两个骨架去噪过程是否共享主体，当前 YAML 为 True。缓存仍用 v2，无需重新编码已有 v2 缓存。
 
 ## 1. 缓存冻结 CLIP
 
@@ -31,10 +31,12 @@ OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1
 共享两层 remap MLP：512→512→256，中间 GELU。全局路径 `r = LN(MLP(e))`；token 路径 `R = LN(MLP(tokens) + person_embedding + position_embedding)`，输出 `[B,K,256]`。人物与位置 embedding 可学习、std=0.02 初始化；最后 LN 无 affine 参数并用 FP32。无效输入在 remap 前清零、输出也清零，且被注意力 key padding mask 屏蔽。
 
 1. 原始分支：`D_S(x_t,t,h)` 预测骨架噪声，保留原有全局/局部条件、masked MSE、0.02 token uniformity、0.1 条件丢弃率。
-2. 文本→骨架：`D_TS(x_t,t,r,R,mask_text)` 预测相同骨架噪声。与原始分支复用本次 x_t、t、noise、mask，使用独立骨架 decoder。每个 block 新增一个 cross-attention 读取器：Q 来自当前带噪骨架 decoder 状态的 LN，K/V 来自 remap token R，排除无效 token。读取结果 `[B,750,256]` 与广播后的全局 r 相加形成 z，再送入原有 FeatureModulation → self-attention → FeatureModulation → MLP。它不读取干净骨架 encoder h；更新 remap、人物/位置 embedding 和该 decoder。
-3. 骨架→文本：先 `target = r.detach()`，独立采样 u、epsilon_r，`r_u = q_sample(target,u,epsilon_r)`；条件残差 MLP `D_ST(r_u,u,h_global)` 预测 epsilon_r。更新骨架 encoder 和文本 decoder，不更新 remap。向量 MSE 对 batch/维度取均值，不对 r_u 额外归一化。
+2. 文本→骨架：`D_TS(x_t,t,r,R,mask_text)` 预测相同骨架噪声。与原始分支复用本次 x_t、t、noise、mask，使用由共享开关决定的骨架 decoder。每个 block 新增一个 cross-attention 读取器：Q 来自当前带噪骨架 decoder 状态的 LN，K/V 来自拼接 memory `[r;R]`，形状 `[B,K+1,256]`，全局 token 始终有效，局部 padding 屏蔽。读取结果 `[B,750,256]` 直接形成 z，不再额外相加全局 r，再送入原有 FeatureModulation → self-attention → FeatureModulation → MLP。它不读取干净骨架 encoder h；更新 remap、人物/位置 embedding 和该 decoder。
+3. 骨架→文本：`M=[r;R]` 在加噪前整体 detach。每个样本采一个时间步，所有 token 共用该时间步，噪声按 token/通道独立采样。骨架 memory 为全局有效人物池化＋可见 encoder token，默认单人 `[B,76,256]`，不 detach；空人物 token 屏蔽。文本 decoder 每层以带噪文本状态为 Q、骨架 memory 为 K/V，读取条件后按 MacDiff 的 FeatureModulation → self-attention → FeatureModulation → FFN 顺序更新。输出 `[B,K+1,256]` 噪声。
 
-每次只编码一次骨架。文本 decoder 默认隐藏维数 256、3 个条件残差 MLP 块；每个块用骨架条件与时间步生成缩放/偏置。
+反向使用自身全局类型/人物/位置 embedding 提供结构信息，无干净文本内容输入。self-attention 不用因果 mask，使用有效 token mask。padding 在输入、层输出和损失中排除。损失为 `MSE(pred[valid], noise[valid])`，所有有效全局/局部 token 和通道一起平均，不单独加权，也不按样本长度归一化，长描述有更多有效项。反向更新骨架 encoder 和文本 decoder，不更新 remap 及正向人物/位置 embedding。
+
+每次只编码一次骨架。正式配置三个 decoder 都为 5 层。文本 decoder 使用支持 padding mask 的 PyTorch 多头注意力，复用 MacDiff FeatureModulation 和 FFN 顺序，非原始骨架 decoder 类的直接替换。
 
 `L = L_diff + 0.02 L_uniformity + lambda_text_to_skeleton L_TS + lambda_skeleton_to_text L_ST`
 
@@ -51,7 +53,7 @@ OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1
 先做两个真实 GPU 训练 step（独立输出目录，不占用正式 checkpoint）：
 
 ```bash
-OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=1 python -u main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text.yaml --batch_size 2 --accum_iter 1 --max_train_steps 2 --epochs 1 --warmup_epochs 0 --min_lr_epochs 0 --num_workers 0 --output_dir output_dir/ntu60_xsub_macdiff_text_tokens_smoke --log_dir output_dir/ntu60_xsub_macdiff_text_tokens_smoke/tensorboard
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=1 python -u main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text.yaml --batch_size 2 --accum_iter 1 --max_train_steps 2 --epochs 1 --warmup_epochs 0 --min_lr_epochs 0 --num_workers 0 --output_dir output_dir/ntu60_xsub_macdiff_bidirectional_tokens_smoke --log_dir output_dir/ntu60_xsub_macdiff_bidirectional_tokens_smoke/tensorboard
 ```
 
 正式训练（仅 GPU 1，batch size 64、梯度累积 1，有效 batch 64；显存峰值尚未在服务器验证）：
@@ -63,7 +65,7 @@ bash script_pretrain_macdiff_text.sh
 固定权重消融必须使用独立输出目录，例如：
 
 ```bash
-OUTPUT_DIR=output_dir/ntu60_xsub_macdiff_text_tokens_w01 bash script_pretrain_macdiff_text.sh --lambda_text_to_skeleton 0.1 --lambda_skeleton_to_text 0.1
+OUTPUT_DIR=output_dir/ntu60_xsub_macdiff_bidirectional_tokens_w01 bash script_pretrain_macdiff_text.sh --lambda_text_to_skeleton 0.1 --lambda_skeleton_to_text 0.1
 ```
 
 权重为零会关闭对应分支并冻结无训练来源的参数。特别是 `lambda_text_to_skeleton=0` 时 remap 保持随机初始化且冻结，这个消融**不等同于直接恢复原始 CLIP 特征**。两个权重都为零直接调用原始 forward。一般原始基线仍使用原来的脚本。
@@ -71,10 +73,10 @@ OUTPUT_DIR=output_dir/ntu60_xsub_macdiff_text_tokens_w01 bash script_pretrain_ma
 恢复训练使用本方案同架构、同缓存、同 loss 权重的 checkpoint：
 
 ```bash
-bash script_pretrain_macdiff_text.sh --resume output_dir/ntu60_xsub_macdiff_text_tokens/checkpoint-100.pth
+bash script_pretrain_macdiff_text.sh --resume output_dir/ntu60_xsub_macdiff_bidirectional_tokens/checkpoint-100.pth
 ```
 
-请指定真实存在的文件；实际保存按原有频率为 checkpoint-0、10、20…以及最后一轮。不能把原始 Stage1 或旧单向量版本 checkpoint 当作本方案完整 resume；新增模块及 optimizer 状态不同。下游线性评估仍可提取原生 encoder，新增模块保持独立前缀。
+请指定真实存在的文件；实际保存按原有频率为 checkpoint-0、10、20…以及最后一轮。不能把原始 Stage1 或旧单向量或旧反向全局 decoder 版本 checkpoint 当作本方案完整 resume；新增模块及 optimizer 状态不同。下游线性评估仍可提取原生 encoder，新增模块保持独立前缀。
 
 ## 4. 验证
 
@@ -82,4 +84,10 @@ bash script_pretrain_macdiff_text.sh --resume output_dir/ntu60_xsub_macdiff_text
 python -m unittest tests.test_clip_text_cache tests.test_stage1_text_geometry tests.test_macdiff_text tests.test_stage1_readout_torch -v
 ```
 
-本地共 29 项测试通过。缓存测试覆盖续跑、完整性检查、人物/位置/EOS 保留，并用真实 Hugging Face 小型随机 CLIP 验证 safetensors 和 bin 两种权重加载、编码、落盘及 EOS 特征一致性（没有下载官方预训练权重）。训练测试覆盖三个损失、梯度隔离、padding 不影响输出、有效 token 影响预测、人物元数据、空人物、关闭分支、原始模型等价性、encoder 转移、训练引擎索引查表和恢复身份检查。生产 YAML/参数解析和完整尺寸 CPU 前向也通过，输出为 `[1,750,12]`。真实预训练 CLIP 全量数据、CUDA AMP 和 batch 64 显存尚需在服务器验证。
+本地共 31 项测试通过。缓存测试覆盖续跑、完整性检查、人物/位置/EOS 保留，并用真实 Hugging Face 小型随机 CLIP 验证 safetensors 和 bin 两种权重加载、编码、落盘及 EOS 特征一致性（没有下载官方预训练权重）。训练测试覆盖三个损失、梯度隔离、padding 不影响输出、有效 token 影响预测、全局 token 注意力梯度、反向统一 MSE 与 padding 屏蔽、人物元数据、空人物、关闭分支、原始模型等价性、encoder 转移、训练引擎索引查表和恢复身份检查。生产 YAML/参数解析和完整尺寸 CPU 前向也通过，输出为 `[1,750,12]`。真实预训练 CLIP 全量数据、CUDA AMP 和 batch 64 显存尚需在服务器验证。
+
+## 5. 骨架 decoder 共享开关
+
+配置 `model_args.share_skeleton_decoder: True` 共享骨架输入投影、时空位置编码、5 层调制/self-attention/FFN、末尾归一化和输出层；False 使用独立副本。文本 cross-attention 读取器仍独立，反向文本 decoder 不共享。模型构造默认 False 以兼容旧调用，正式 YAML 已明确设 True。
+
+共享仍执行两次条件前向，两个损失共同更新主体；文本→骨架无直接骨架 encoder 梯度。主体只在原生名称下注册一次，避免 checkpoint 和优化器重复参数。关闭文本→骨架分支仅冻结其独立参数，原生主体继续训练。完整 resume 要求共享设置相同；旧 checkpoint 未记录此选项时按 False 处理。消融请使用不同 output_dir/log_dir。已有 v2 CLIP 缓存可复用，batch 64 不变。

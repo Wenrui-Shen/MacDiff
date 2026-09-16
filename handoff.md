@@ -4,6 +4,16 @@
 
 ## 0. 最新进展：已授权实现文本条件 Stage1（优先于后文旧任务状态）
 
+### 最新：可配置骨架 decoder 共享
+
+已加入 `model_args.share_skeleton_decoder`，当前 YAML 为 True，False 恢复两个独立骨架 decoder。共享输入/位置编码、decoder blocks、norm/pred；文本读取器和反向文本 decoder 保持独立，仍两次条件前向。共享主体只注册一次；关闭文本分支不会冻结主体。resume 显式校验共享配置，旧配置缺失按 False。新增梯度、分支冻结和恢复检查；14 项模型测试通过。交付包 `handoff_artifacts/macdiff_stage1_shared_decoder_20260916.zip`。缓存和 batch 64 不变。
+
+### 最新：全局拼接与反向多 token（优先于下方历史）
+
+用户确认反向多 token 方案，所有有效 token 一起平均 MSE，文本 Transformer decoder 5 层。已完成全局 token 与局部 token 拼接，正向 attention 输出直接调制骨架，不再额外相加全局向量；反向对同一 memory 加噪前 detach，查询全局池化＋可见骨架 token（默认 76 个），5 层调制 Transformer 输出 token 噪声。decoder 独立结构 embedding，无干净文本内容泄漏；padding、空人物完整屏蔽。
+
+用户同时询问两个骨架过程能否共享 decoder：可共享主体、保留不同条件处理；当前尚保留独立参数，未切换共享。缓存 v2 不变可复用；新输出 `output_dir/ntu60_xsub_macdiff_bidirectional_tokens`，旧反向全局 decoder checkpoint 不能完整 resume。batch 64、accum 1、GPU 1 保持。31 项本地测试通过，尚未服务器 CUDA/正式训练。交付包 `handoff_artifacts/macdiff_stage1_bidirectional_tokens_20260916.zip`。
+
 ### 最新 v2：多 token 缓存与文本→骨架已实现
 
 用户最新要求先修改 cache 和训练多 token 路径，文本 decoder 留待讨论。本地已完成：

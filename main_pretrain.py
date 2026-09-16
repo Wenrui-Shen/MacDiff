@@ -360,6 +360,7 @@ def main(args):
     model = Model(**model_args)
     if supports_text:
         args.text_training_weights = (model.lambda_text_to_skeleton, model.lambda_skeleton_to_text)
+        args.text_share_skeleton_decoder = model.share_skeleton_decoder
     if args.enable_ose:
         model.initialize_ose(
             exemplar_mapping=exemplar_mapping,

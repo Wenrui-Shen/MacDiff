@@ -69,8 +69,14 @@ class TextStage1Tests(unittest.TestCase):
         import torch
         model = self.model()
         x = torch.randn(3, 8, 25, 3)
-        _, pooled, _, _ = model.forward_encoder(x, x_orig=x, mask_ratio=.5, motion_aware_tau=-1)
+        latent, pooled, _, _ = model.forward_encoder(x, x_orig=x, mask_ratio=.5, motion_aware_tau=-1)
         r = model.text_remap(torch.randn(3, 6))
+        data = self.tokens(3)
+        local = model.remap_tokens(data["text_tokens"], data["text_token_mask"],
+                                   data["text_person_ids"], data["text_positions"])
+        memory = torch.cat([r[:, None], local], dim=1)
+        valid = torch.cat([torch.ones(3, 1, dtype=torch.bool), data["text_token_mask"]], dim=1)
+        h, hmask = model.skeleton_memory(latent, pooled, torch.ones(3, 1, dtype=torch.bool))
         recorded = []
         q_sample = model.diffusion.q_sample
 
@@ -79,7 +85,7 @@ class TextStage1Tests(unittest.TestCase):
             return q_sample(target, t, noise=noise)
 
         model.diffusion.q_sample = capture
-        loss = model.skeleton_to_text_loss(r, pooled.squeeze(1))
+        loss = model.skeleton_to_text_loss(memory, h, valid, hmask, data["text_person_ids"], data["text_positions"])
         loss.backward()
         self.assertEqual(recorded, [False])
         self.assertTrue(all(p.grad is None for p in model.text_remap.parameters()))
@@ -119,6 +125,7 @@ class TextStage1Tests(unittest.TestCase):
 
         def capture_condition(module, inputs):
             captured['condition'] = inputs[2].detach()
+            captured['valid'] = inputs[3].detach()
 
         first = model.norm.register_forward_hook(capture_tokens)
         second = model.text_noise_decoder.register_forward_pre_hook(capture_condition)
@@ -128,8 +135,10 @@ class TextStage1Tests(unittest.TestCase):
         second.remove()
         self.assertEqual(pred.shape[0], 4)
         pooled = captured['pooled'].reshape(2, 2, 8)
-        torch.testing.assert_close(captured['condition'][0], pooled[0, 0])
-        torch.testing.assert_close(captured['condition'][1], pooled[1].mean(dim=0))
+        torch.testing.assert_close(captured['condition'][0, 0], pooled[0, 0])
+        torch.testing.assert_close(captured['condition'][1, 0], pooled[1].mean(dim=0))
+        self.assertEqual(captured["valid"][0].sum().item(), 26)
+        self.assertEqual(captured["valid"][1].sum().item(), 51)
         loss.backward()
         self.assertTrue(torch.isfinite(loss))
 
@@ -287,6 +296,109 @@ class TextStage1Tests(unittest.TestCase):
             changed = {k: v.clone() for k, v in data.items()}
             changed['text_person_ids'] = 1 - changed['text_person_ids']
             self.assertFalse(torch.allclose(predict(changed), expected))
+
+
+    def test_reverse_padding_is_invisible_and_loss_is_single_valid_mean(self):
+        import torch
+        model = self.model().eval()
+        data = self.tokens(2)
+        valid = torch.cat([torch.ones(2, 1, dtype=torch.bool), data['text_token_mask']], dim=1)
+        memory = torch.randn(2, 7, 8, requires_grad=True)
+        h = torch.randn(2, 5, 8, requires_grad=True)
+        hm = torch.tensor([[True, True, True, False, False], [True]*5])
+        t = torch.tensor([2, 4])
+        args = (t, h, hm, valid, data['text_person_ids'], data['text_positions'])
+        with torch.no_grad():
+            expected = model.text_noise_decoder(memory, *args)
+            changed = memory.detach().clone().masked_fill(~valid[..., None], float('nan'))
+            changed_h = h.detach().clone().masked_fill(~hm[..., None], float('nan'))
+            actual = model.text_noise_decoder(changed, t, changed_h, hm, valid,
+                                              data['text_person_ids'], data['text_positions'])
+            torch.testing.assert_close(actual[valid], expected[valid])
+            changed_h[:, 0] += torch.arange(8).float()
+            actual = model.text_noise_decoder(memory, t, changed_h, hm, valid,
+                                              data['text_person_ids'], data['text_positions'])
+            self.assertFalse(torch.allclose(actual[valid], expected[valid]))
+        recorded = {}
+        original = model.diffusion.q_sample
+        def capture(target, times, noise=None):
+            recorded['noise'] = noise.detach()
+            return original(target, times, noise=noise)
+        model.diffusion.q_sample = capture
+        hook = model.text_noise_decoder.register_forward_hook(
+            lambda module, inputs, output: recorded.update(prediction=output))
+        loss = model.skeleton_to_text_loss(memory, h, valid, hm,
+            data['text_person_ids'], data['text_positions'])
+        hook.remove()
+        expected_loss = (recorded['prediction'][valid].float() - recorded['noise'][valid]).square().mean()
+        torch.testing.assert_close(loss, expected_loss)
+        loss.backward()
+        self.assertIsNone(memory.grad)
+        self.assertGreater(h.grad[hm].abs().sum().item(), 0)
+        self.assertEqual(h.grad[~hm].abs().sum().item(), 0)
+
+    def test_global_token_is_read_by_attention_and_gets_gradient(self):
+        import torch
+        model = self.model()
+        x = torch.randn(2, 8, 25, 3)
+        r = torch.randn(2, 8, requires_grad=True)
+        local = torch.randn(2, 4, 8, requires_grad=True)
+        mask = torch.ones(2, 4, dtype=torch.bool)
+        observed = []
+        hook = model.text_skeleton_decoder.text_readers[0].register_forward_pre_hook(
+            lambda module, inputs: observed.append(inputs[1].shape))
+        out = model.text_skeleton_decoder(x, torch.tensor([2, 4]), r, local, mask)
+        hook.remove()
+        self.assertEqual(observed, [torch.Size([5, 2, 8])])
+        out.square().mean().backward()
+        self.assertGreater(r.grad.abs().sum().item(), 0)
+        self.assertGreater(local.grad.abs().sum().item(), 0)
+
+    def test_shared_decoder_gradients_freezing_and_checkpoint(self):
+        import torch
+        for enabled in (False, True):
+            model = self.model(share_skeleton_decoder=enabled)
+            keys = model.state_dict()
+            self.assertEqual(any(k.startswith('text_skeleton_decoder.decoder_blocks.') for k in keys), not enabled)
+            x = torch.randn(2, 8, 25, 3)
+            t = torch.tensor([2, 4])
+            noise = torch.randn_like(x)
+            r = model.text_remap(torch.randn(2, 6))
+            local = torch.randn(2, 4, 8)
+            loss = model.text_to_skeleton_loss(x, noise, t, torch.ones(2, 50), r,
+                torch.ones(2, dtype=torch.bool), 1, local, torch.ones(2, 4, dtype=torch.bool))
+            loss.backward()
+            self.assertEqual(model.decoder_pred.weight.grad is not None, enabled)
+            self.assertTrue(all(p.grad is None for p in model.blocks.parameters()))
+            if enabled:
+                self.assertGreater(model.decoder_pred.weight.grad.abs().sum().item(), 0)
+                self.assertGreater(model.decoder_blocks[0].attn.qkv.weight.grad.abs().sum().item(), 0)
+                self.assertGreater(model.decoder_embed.proj.weight.grad.abs().sum().item(), 0)
+                self.assertIsNotNone(model.decoder_pos_embed.grad)
+            restored = self.model(share_skeleton_decoder=enabled)
+            restored.load_state_dict(keys)
+        for weights in ((1., 1.), (0., 1.), (1., 0.), (0., 0.)):
+            model = self.model(share_skeleton_decoder=True,
+                lambda_text_to_skeleton=weights[0], lambda_skeleton_to_text=weights[1])
+            self.assertTrue(all(p.requires_grad for p in model.decoder_blocks.parameters()))
+            x = torch.randn(2, 3, 8, 25, 2)
+            model(x, x.clone(), text_features=torch.randn(2, 6), mask_ratio=.5,
+                  **self.tokens(2))[0].backward()
+            for name, p in model.named_parameters():
+                self.assertEqual(p.grad is not None, p.requires_grad, name)
+
+    def test_resume_rejects_changed_decoder_sharing(self):
+        import torch
+        from util.misc import load_model
+        model = self.model(share_skeleton_decoder=True)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'checkpoint.pth'
+            saved = types.SimpleNamespace(text_cache_identity={}, text_training_weights=(1., 1.))
+            torch.save({'model': model.state_dict(), 'args': saved}, path)
+            args = types.SimpleNamespace(resume=str(path), text_cache='cache',
+                text_cache_identity={}, text_training_weights=(1., 1.), text_share_skeleton_decoder=True)
+            with self.assertRaisesRegex(ValueError, 'share_skeleton_decoder'):
+                load_model(args, model, None, None)
 
 
 if __name__ == '__main__':

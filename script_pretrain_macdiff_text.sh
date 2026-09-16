@@ -6,7 +6,7 @@ export CUDA_VISIBLE_DEVICES=${CUDA_VISIBLE_DEVICES:-1}
 
 # Single GPU; effective batch 64 matches the original 2 GPUs x 32 invocation.
 # These defaults have not been profiled on a 4090. Override batch/accum together.
-OUTPUT_DIR=${OUTPUT_DIR:-output_dir/ntu60_xsub_macdiff_text_tokens}
+OUTPUT_DIR=${OUTPUT_DIR:-output_dir/ntu60_xsub_macdiff_bidirectional_tokens}
 TEXT_CACHE=${TEXT_CACHE:-vlm_pilot/ntu60_xsub_clip_cache_v2}
 BATCH_SIZE=${BATCH_SIZE:-64}
 ACCUM_ITER=${ACCUM_ITER:-1}
