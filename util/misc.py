@@ -321,6 +321,8 @@ def load_model(args, model_without_ddp, optimizer, loss_scaler):
             checkpoint = torch.load(args.resume, map_location='cpu')
         if getattr(args, 'text_cache', ''):
             saved_args = checkpoint.get('args')
+            if getattr(saved_args, 'text_person_alignment', None) != getattr(args, 'text_person_alignment', None):
+                raise ValueError('Text Stage1 resume mismatch: text_person_alignment')
             if getattr(saved_args, 'text_share_skeleton_decoder', False) != getattr(args, 'text_share_skeleton_decoder', False):
                 raise ValueError('Text Stage1 resume mismatch: share_skeleton_decoder')
             for name in ('text_cache_identity', 'text_training_weights'):

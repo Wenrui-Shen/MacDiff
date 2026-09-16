@@ -24,27 +24,25 @@ OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1
 - 40,091 样本的固定长 FP16 token 数组约 5.89 GiB，另外保存原有句向量及少量元数据。训练使用 mmap，每个 batch 只读取对应样本并打包有效 token，不将全量 token 特征载入内存/显存。启动时会读取并校验文件。
 - 旧 v1 句向量不能恢复多 token，不能作为 v2 缓存使用；需要从已生成描述重新编码 CLIP，无需重新生成描述。旧目录不覆盖。
 
-## 2. 训练定义
+## 2. 当前训练定义：人物一一对应
 
-训练时对有效人物的句向量取均值并再次 L2，得到全局条件 e。同时按人物与原 token 位置顺序打包有效文本 token，得到 `[B,K,512]`；K 为当前 batch 中最大的有效 token 总数（最多 152），另传有效 mask、人物 ID 和原 token 位置。不对 token 平均，不做逐人骨架匹配或时间阶段强对齐。
+训练通过 `util/person_text_cache.py` 读取原 v2 文件，不修改缓存提取代码或缓存身份。`one_person=True` 时仅取人物 0 的句向量和 token，人物 1 的长度不影响 K、特征不参与任何文本目标。`one_person=False` 时按 sample0/person0、sample0/person1、sample1/person0…展开为 B×2 行；不在 token 维拼接不同人物，也不跨人物平均句向量。
 
-共享两层 remap MLP：512→512→256，中间 GELU。全局路径 `r = LN(MLP(e))`；token 路径 `R = LN(MLP(tokens) + person_embedding + position_embedding)`，输出 `[B,K,256]`。人物与位置 embedding 可学习、std=0.02 初始化；最后 LN 无 affine 参数并用 FP32。无效输入在 remap 前清零、输出也清零，且被注意力 key padding mask 屏蔽。
+每行是一个骨架及其描述：句向量 `[A,512]`；正文＋EOS token `[A,K,512]`，K 为所读取人物描述的最大有效长度，K≤76，保留原人物编号/位置及 padding mask。A 在模型过滤空骨架前为 B 或 2B；过滤后为有效骨架人数。有效骨架缺少对应文本时明确报错，不用另一个人的描述替代。空骨架不参与三个损失或 uniformity。
 
-1. 原始分支：`D_S(x_t,t,h)` 预测骨架噪声，保留原有全局/局部条件、masked MSE、0.02 token uniformity、0.1 条件丢弃率。
-2. 文本→骨架：`D_TS(x_t,t,r,R,mask_text)` 预测相同骨架噪声。与原始分支复用本次 x_t、t、noise、mask，使用由共享开关决定的骨架 decoder。每个 block 新增一个 cross-attention 读取器：Q 来自当前带噪骨架 decoder 状态的 LN，K/V 来自拼接 memory `[r;R]`，形状 `[B,K+1,256]`，全局 token 始终有效，局部 padding 屏蔽。读取结果 `[B,750,256]` 直接形成 z，不再额外相加全局 r，再送入原有 FeatureModulation → self-attention → FeatureModulation → MLP。它不读取干净骨架 encoder h；更新 remap、人物/位置 embedding 和该 decoder。
-3. 骨架→文本：`M=[r;R]` 在加噪前整体 detach。每个样本采一个时间步，所有 token 共用该时间步，噪声按 token/通道独立采样。骨架 memory 为全局有效人物池化＋可见 encoder token，默认单人 `[B,76,256]`，不 detach；空人物 token 屏蔽。文本 decoder 每层以带噪文本状态为 Q、骨架 memory 为 K/V，读取条件后按 MacDiff 的 FeatureModulation → self-attention → FeatureModulation → FFN 顺序更新。输出 `[B,K+1,256]` 噪声。
+共享两层 remap MLP：512→512→256，中间 GELU。全局 `r=LN(MLP(该人物句向量))`；局部 `R=LN(MLP(tokens)+person_embedding+position_embedding)`。LN 无 affine、FP32。拼接 `M=[r;R]` 得 `[A,K+1,256]`，每个人有自己的全局 token，padding 屏蔽。
 
-反向使用自身全局类型/人物/位置 embedding 提供结构信息，无干净文本内容输入。self-attention 不用因果 mask，使用有效 token mask。padding 在输入、层输出和损失中排除。损失为 `MSE(pred[valid], noise[valid])`，所有有效全局/局部 token 和通道一起平均，不单独加权，也不按样本长度归一化，长描述有更多有效项。反向更新骨架 encoder 和文本 decoder，不更新 remap 及正向人物/位置 embedding。
+1. 原始骨架去噪：每个人独立编码为 75 个可见 token，加平均池化全局特征；恢复 750 位置条件后预测骨架噪声，masked MSE 只计算遮挡位置。保留 0.1 条件丢弃和 0.02 uniformity。
+2. 文本→骨架：使用同一人的 M、同一份骨架噪声/time/mask。每层以当前带噪骨架状态为 Q、该人物文本 M 为 K/V，cross-attention 输出直接用作 MacDiff 调制条件，不额外广播相加 r。共享开关控制是否复用原生骨架 decoder 主体；不读取骨架 encoder 输出。
+3. 骨架→文本：该人物 `M.detach()` 后加噪；同一人的全局池化＋75 个可见 encoder token 形成 `[A,76,256]` 骨架 memory，不跨人物汇总，也不 detach 骨架特征。5 层文本 Transformer 每层 cross-attention 读取→调制→masked self-attention→调制/FFN，输出 `[A,K+1,256]` 噪声。每个人独立采样一个时间步，所有文本 token 共用该时间步，各 token/通道噪声独立。decoder 自有全局类型/人物/位置 embedding，无干净文本内容额外输入。
 
-每次只编码一次骨架。正式配置三个 decoder 都为 5 层。文本 decoder 使用支持 padding mask 的 PyTorch 多头注意力，复用 MacDiff FeatureModulation 和 FFN 顺序，非原始骨架 decoder 类的直接替换。
+反向损失为 `MSE(pred[valid], noise[valid])`，所有有效全局/局部 token 与通道一次平均，不单独加权。正向损失优化 remap；反向加噪前 detach 保证不优化 remap。每个保留人物的骨架只编码一次，三个任务同时参与，均预测噪声。正式 encoder 8 层，骨架/文本 decoder 均 5 层，256 维，8 heads。
 
-`L = L_diff + 0.02 L_uniformity + lambda_text_to_skeleton L_TS + lambda_skeleton_to_text L_ST`
+`L = L_native + 0.02 L_uniformity + 1.0 L_TS + 1.0 L_ST`
 
-两个新增权重默认均为 1.0，只是起始消融值，不表示已验证最优。三个目标从第一步同时参与，没有 loss warm-up/分阶段训练。保留原来的学习率 warm-up，这与 loss 权重调度不同。文本沿用 1000 步 inverse_cosine 日程和均匀时间步采样。
+保留 1000 步 inverse_cosine、均匀时间步采样和原学习率 warm-up。当前仍 `one_person=True`、共享骨架 decoder、batch 64。日志 text_energy/text_batch_variance 对应逐人全局 r；text_valid_tokens 对应参与文本任务人物的有效局部 token 数平均值。文本仍描述整段动作，不随骨架时间裁剪重新生成。
 
-原始训练模型 `one_person` 默认 True（只编码第一个人），新配置明确保留该值；文本条件包含样本内所有有效描述。若将来设置 False，两个骨架人物读取同一个样本级文本 memory，各自的 Q 不同；新增骨架去噪损失排除空人物，反向条件仅池化有效人物，原始分支保持原有人物处理。数据裁剪仍为 50%～100%，整段文本作为全局弱条件。
-
-日志分别记录 `loss_diff`、`loss_uniformity`、`loss_text_to_skeleton`、`loss_skeleton_to_text`、`text_energy`、`text_batch_variance` 和 `text_valid_tokens`。energy/variance 仍对应全局 r；token 数是每个样本有效 token 总数的 batch 均值。这些指标不能代替下游评估。
+旧跨人物混合文本训练 checkpoint 不允许直接完整 resume；现在校验人物配对协议与 one_person 设置。新输出目录使用 `output_dir/ntu60_xsub_macdiff_person_text`，缓存仍使用原 v2 目录。
 
 ## 3. 运行
 
@@ -53,7 +51,7 @@ OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1
 先做两个真实 GPU 训练 step（独立输出目录，不占用正式 checkpoint）：
 
 ```bash
-OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=1 python -u main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text.yaml --batch_size 2 --accum_iter 1 --max_train_steps 2 --epochs 1 --warmup_epochs 0 --min_lr_epochs 0 --num_workers 0 --output_dir output_dir/ntu60_xsub_macdiff_bidirectional_tokens_smoke --log_dir output_dir/ntu60_xsub_macdiff_bidirectional_tokens_smoke/tensorboard
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=1 python -u main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text.yaml --batch_size 2 --accum_iter 1 --max_train_steps 2 --epochs 1 --warmup_epochs 0 --min_lr_epochs 0 --num_workers 0 --output_dir output_dir/ntu60_xsub_macdiff_person_text_smoke --log_dir output_dir/ntu60_xsub_macdiff_person_text_smoke/tensorboard
 ```
 
 正式训练（仅 GPU 1，batch size 64、梯度累积 1，有效 batch 64；显存峰值尚未在服务器验证）：
@@ -65,7 +63,7 @@ bash script_pretrain_macdiff_text.sh
 固定权重消融必须使用独立输出目录，例如：
 
 ```bash
-OUTPUT_DIR=output_dir/ntu60_xsub_macdiff_bidirectional_tokens_w01 bash script_pretrain_macdiff_text.sh --lambda_text_to_skeleton 0.1 --lambda_skeleton_to_text 0.1
+OUTPUT_DIR=output_dir/ntu60_xsub_macdiff_person_text_w01 bash script_pretrain_macdiff_text.sh --lambda_text_to_skeleton 0.1 --lambda_skeleton_to_text 0.1
 ```
 
 权重为零会关闭对应分支并冻结无训练来源的参数。特别是 `lambda_text_to_skeleton=0` 时 remap 保持随机初始化且冻结，这个消融**不等同于直接恢复原始 CLIP 特征**。两个权重都为零直接调用原始 forward。一般原始基线仍使用原来的脚本。
@@ -73,7 +71,7 @@ OUTPUT_DIR=output_dir/ntu60_xsub_macdiff_bidirectional_tokens_w01 bash script_pr
 恢复训练使用本方案同架构、同缓存、同 loss 权重的 checkpoint：
 
 ```bash
-bash script_pretrain_macdiff_text.sh --resume output_dir/ntu60_xsub_macdiff_bidirectional_tokens/checkpoint-100.pth
+bash script_pretrain_macdiff_text.sh --resume output_dir/ntu60_xsub_macdiff_person_text/checkpoint-100.pth
 ```
 
 请指定真实存在的文件；实际保存按原有频率为 checkpoint-0、10、20…以及最后一轮。不能把原始 Stage1 或旧单向量或旧反向全局 decoder 版本 checkpoint 当作本方案完整 resume；新增模块及 optimizer 状态不同。下游线性评估仍可提取原生 encoder，新增模块保持独立前缀。
@@ -84,7 +82,7 @@ bash script_pretrain_macdiff_text.sh --resume output_dir/ntu60_xsub_macdiff_bidi
 python -m unittest tests.test_clip_text_cache tests.test_stage1_text_geometry tests.test_macdiff_text tests.test_stage1_readout_torch -v
 ```
 
-本地共 31 项测试通过。缓存测试覆盖续跑、完整性检查、人物/位置/EOS 保留，并用真实 Hugging Face 小型随机 CLIP 验证 safetensors 和 bin 两种权重加载、编码、落盘及 EOS 特征一致性（没有下载官方预训练权重）。训练测试覆盖三个损失、梯度隔离、padding 不影响输出、有效 token 影响预测、全局 token 注意力梯度、反向统一 MSE 与 padding 屏蔽、人物元数据、空人物、关闭分支、原始模型等价性、encoder 转移、训练引擎索引查表和恢复身份检查。生产 YAML/参数解析和完整尺寸 CPU 前向也通过，输出为 `[1,750,12]`。真实预训练 CLIP 全量数据、CUDA AMP 和 batch 64 显存尚需在服务器验证。
+本地共 35 项测试通过，包含人物配对、空人物、缺失描述与单人模式排除第二人。缓存测试覆盖续跑、完整性检查、人物/位置/EOS 保留，并用真实 Hugging Face 小型随机 CLIP 验证 safetensors 和 bin 两种权重加载、编码、落盘及 EOS 特征一致性（没有下载官方预训练权重）。训练测试覆盖三个损失、梯度隔离、padding 不影响输出、有效 token 影响预测、全局 token 注意力梯度、反向统一 MSE 与 padding 屏蔽、人物元数据、空人物、关闭分支、原始模型等价性、encoder 转移、训练引擎索引查表和恢复身份检查。生产 YAML/参数解析和完整尺寸 CPU 前向也通过，输出为 `[1,750,12]`。真实预训练 CLIP 全量数据、CUDA AMP 和 batch 64 显存尚需在服务器验证。
 
 ## 5. 骨架 decoder 共享开关
 

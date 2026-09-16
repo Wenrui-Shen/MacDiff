@@ -4,6 +4,12 @@
 
 ## 0. 最新进展：已授权实现文本条件 Stage1（优先于后文旧任务状态）
 
+### 最新：按人物配对，禁止跨人物文本混合
+
+用户要求 one_person 时不要第二个人描述，也不要用第一个骨架预测第二个人文本。新增 `util/person_text_cache.py` 读取原 v2 缓存；提取代码和旧缓存身份不变，无需重跑。True 时只读取人物 0 的句向量/token；False 时 B×2 人物分别展开，不再 k0+k1 拼接或句向量平均。每个骨架正向查询自己的文本，反向只用自己的 75＋1 骨架特征预测自己的文本 token。K≤76。空骨架在三个损失及 uniformity 排除；有效骨架缺匹配描述明确报错。
+
+当前 one_person=True、共享骨架 decoder、batch64 保持。resume 新增 `text_person_alignment=('per_person_v1', one_person)` 校验，拒绝旧混合协议恢复。新输出 `output_dir/ntu60_xsub_macdiff_person_text`。16 项模型测试通过，包含人物配对、单人忽略第二人、空人物、缺描述拒绝。用户要求今后只列修改文件，不再生成增量包。
+
 ### 最新：可配置骨架 decoder 共享
 
 已加入 `model_args.share_skeleton_decoder`，当前 YAML 为 True，False 恢复两个独立骨架 decoder。共享输入/位置编码、decoder blocks、norm/pred；文本读取器和反向文本 decoder 保持独立，仍两次条件前向。共享主体只注册一次；关闭文本分支不会冻结主体。resume 显式校验共享配置，旧配置缺失按 False。新增梯度、分支冻结和恢复检查；14 项模型测试通过。交付包 `handoff_artifacts/macdiff_stage1_shared_decoder_20260916.zip`。缓存和 batch 64 不变。

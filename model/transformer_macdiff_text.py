@@ -197,18 +197,6 @@ class Transformer(MacDiff):
         # One mean over all valid global/local tokens and channels, no separate weights.
         return F.mse_loss(predicted_noise.float()[valid], noise[valid])
 
-    @staticmethod
-    def skeleton_memory(latent, pooled, active):
-        batch, people = active.shape
-        dim, count = latent.shape[-1], latent.shape[1]
-        global_feature = (pooled.reshape(batch, people, dim) * active[..., None]).sum(1)
-        global_feature = global_feature / active.sum(1, keepdim=True)
-        local = latent.reshape(batch, people * count, dim)
-        valid = active[..., None].expand(-1, -1, count).reshape(batch, -1)
-        memory = torch.cat([global_feature[:, None], local], dim=1)
-        valid = torch.cat([torch.ones_like(valid[:, :1]), valid], dim=1)
-        return memory.masked_fill(~valid[..., None], 0), valid
-
     def forward(self, source, source_aug, text_features=None, mask_ratio=.9,
                 motion_stride=1, motion_aware_tau=-1, enable_ose=False,
                 text_tokens=None, text_token_mask=None, text_person_ids=None,
@@ -217,11 +205,12 @@ class Transformer(MacDiff):
             raise ValueError('Text Stage1 does not support OSE routing')
         if not 0 < mask_ratio < 1:
             raise ValueError('Text Stage1 requires 0 < mask_ratio < 1')
-        if text_features is None or text_features.shape != (source.shape[0], self.text_input_dim):
-            raise ValueError('Expected one cached global text vector per sample')
+        text_rows = source.shape[0] * (1 if self.one_person else source.shape[-1])
+        if text_features is None or text_features.shape != (text_rows, self.text_input_dim):
+            raise ValueError('Expected one cached sentence vector per retained skeleton person')
         if (self.lambda_text_to_skeleton or self.lambda_skeleton_to_text) and (any(value is None for value in (
                 text_tokens, text_token_mask, text_person_ids, text_positions))
-                or text_tokens.shape[0] != source.shape[0]):
+                or text_tokens.shape[0] != text_rows):
             raise ValueError('Multi-token training requires the v2 token cache and metadata')
         if not self.lambda_text_to_skeleton and not self.lambda_skeleton_to_text:
             loss, prediction, mask = self.forward_macdiff(
@@ -247,11 +236,19 @@ class Transformer(MacDiff):
 
         latent, pooled, mask, ids_restore = self.forward_encoder(
             aug, x_orig=raw, mask_ratio=mask_ratio, motion_aware_tau=motion_aware_tau)
-        uniformity = token_uniformity_loss(latent.reshape(batch, people, -1, latent.shape[-1])[:, 0])
+        active_rows = active.reshape(-1)
+        if not text_token_mask[active_rows].any(dim=1).all():
+            raise ValueError("An active skeleton person has no matching cached description")
+        uniformity = token_uniformity_loss(latent[active_rows])
         condition = self.build_global_local_condition(latent, pooled, ids_restore)
         prediction = self.forward_decoder(noisy, z=condition, t=t)
-        native = self.forward_loss(noise, prediction, mask, t)
+        native = self.forward_loss(noise[active_rows], prediction[active_rows], mask[active_rows], t[active_rows])
         # Keep normalization in FP32 so its unit-energy convention also holds under AMP.
+        text_features = text_features[active_rows]
+        text_tokens = text_tokens[active_rows]
+        text_token_mask = text_token_mask[active_rows]
+        text_person_ids = text_person_ids[active_rows]
+        text_positions = text_positions[active_rows]
         r = self.text_remap[:-1](text_features)
         r = self.text_remap[-1](r.float())
         token_condition = self.remap_tokens(
@@ -259,10 +256,12 @@ class Transformer(MacDiff):
         )
         memory = torch.cat([r[:, None], token_condition], dim=1)
         memory_mask = torch.cat([torch.ones_like(text_token_mask[:, :1]), text_token_mask], dim=1)
-        h, h_mask = self.skeleton_memory(latent, pooled, active)
+        h = torch.cat([pooled[active_rows], latent[active_rows]], dim=1)
+        h_mask = torch.ones(h.shape[:2], dtype=torch.bool, device=h.device)
         zero = native.new_zeros(())
         t2s = self.text_to_skeleton_loss(
-            noisy, noise, t, mask, r, active.reshape(-1), people,
+            noisy[active_rows], noise[active_rows], t[active_rows], mask[active_rows], r,
+            torch.ones(r.shape[0], dtype=torch.bool, device=r.device), 1,
             token_condition, text_token_mask
         ) if self.lambda_text_to_skeleton else zero
         s2t = self.skeleton_to_text_loss(

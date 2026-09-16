@@ -291,12 +291,12 @@ def main(args):
     dataset_train = Feeder(**args.train_feeder_args)
     text_features = None
     if args.text_cache:
-        from util.clip_text_cache import load_token_cache
+        from util.person_text_cache import load_person_token_cache
         if (args.feeder != 'feeder.feeder_ntu.Feeder'
                 or dataset_train.split != 'train'):
             raise ValueError('Text cache requires the native NTU training feeder and raw sample indices')
         print('Validating multi-token text cache against the training dataset...', flush=True)
-        text_features = load_token_cache(
+        text_features = load_person_token_cache(
             args.text_cache, dataset_train.data_path, expected_count=len(dataset_train))
         manifest = text_features.manifest
         args.text_cache_identity = {'protocol': manifest['protocol'],
@@ -361,6 +361,7 @@ def main(args):
     if supports_text:
         args.text_training_weights = (model.lambda_text_to_skeleton, model.lambda_skeleton_to_text)
         args.text_share_skeleton_decoder = model.share_skeleton_decoder
+        args.text_person_alignment = ('per_person_v1', model.one_person)
     if args.enable_ose:
         model.initialize_ose(
             exemplar_mapping=exemplar_mapping,

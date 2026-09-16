@@ -88,11 +88,12 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
         text_kwargs = {}
         if text_features is not None:
             if hasattr(text_features, 'get_batch'):
-                arrays = text_features.get_batch(sample_indices.cpu().numpy())
+                arrays = text_features.get_batch(
+                    sample_indices.cpu().numpy(), one_person=model_without_ddp.one_person)
                 text_kwargs = {name: torch.from_numpy(values).to(device, non_blocking=True)
                                for name, values in arrays.items()}
             else:
-                # Global-only inputs remain useful when T->S is disabled.
+                # Tensor fallback for callers supplying the complete model input themselves.
                 text_kwargs['text_features'] = text_features[sample_indices.long()].to(
                     device, non_blocking=True)
 

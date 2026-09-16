@@ -76,7 +76,8 @@ class TextStage1Tests(unittest.TestCase):
                                    data["text_person_ids"], data["text_positions"])
         memory = torch.cat([r[:, None], local], dim=1)
         valid = torch.cat([torch.ones(3, 1, dtype=torch.bool), data["text_token_mask"]], dim=1)
-        h, hmask = model.skeleton_memory(latent, pooled, torch.ones(3, 1, dtype=torch.bool))
+        h = torch.cat([pooled, latent], dim=1)
+        hmask = torch.ones(h.shape[:2], dtype=torch.bool)
         recorded = []
         q_sample = model.diffusion.q_sample
 
@@ -113,7 +114,7 @@ class TextStage1Tests(unittest.TestCase):
         self.assertTrue(all(p.grad is None for p in model.blocks.parameters()))
         self.assertTrue(all(p.grad is None for p in model.decoder_blocks.parameters()))
 
-    def test_global_pool_excludes_empty_second_person(self):
+    def test_reverse_conditions_are_per_person_and_exclude_empty_person(self):
         import torch
         model = self.model(one_person=False)
         source = torch.randn(2, 3, 8, 25, 2)
@@ -129,16 +130,18 @@ class TextStage1Tests(unittest.TestCase):
 
         first = model.norm.register_forward_hook(capture_tokens)
         second = model.text_noise_decoder.register_forward_pre_hook(capture_condition)
-        loss, pred, _, _ = model(source, source.clone(), text_features=torch.randn(2, 6),
-                                mask_ratio=.5, **self.tokens(2))
+        loss, pred, _, _ = model(source, source.clone(), text_features=torch.randn(4, 6),
+                                mask_ratio=.5, **self.tokens(4))
         first.remove()
         second.remove()
         self.assertEqual(pred.shape[0], 4)
         pooled = captured['pooled'].reshape(2, 2, 8)
         torch.testing.assert_close(captured['condition'][0, 0], pooled[0, 0])
-        torch.testing.assert_close(captured['condition'][1, 0], pooled[1].mean(dim=0))
+        torch.testing.assert_close(captured['condition'][1, 0], pooled[1, 0])
         self.assertEqual(captured["valid"][0].sum().item(), 26)
-        self.assertEqual(captured["valid"][1].sum().item(), 51)
+        self.assertEqual(captured["valid"][1].sum().item(), 26)
+        self.assertEqual(captured["condition"].shape, (3, 26, 8))
+        torch.testing.assert_close(captured["condition"][2, 0], pooled[1, 1])
         loss.backward()
         self.assertTrue(torch.isfinite(loss))
 
@@ -215,7 +218,7 @@ class TextStage1Tests(unittest.TestCase):
         args = types.SimpleNamespace(enable_ose=False, epochs=2, warmup_epochs=0,
             min_lr_epochs=0, lr=.001, min_lr=.0001, accum_iter=2, max_train_steps=0,
             mask_ratio=.5, motion_stride=1, motion_aware_tau=-1, enable_amp=False)
-        from util.clip_text_cache import TokenFeatureCache
+        from util.person_text_cache import PersonTokenFeatureCache
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             features = np.zeros((5, 2, 7, 6), dtype=np.float16)
@@ -224,10 +227,12 @@ class TextStage1Tests(unittest.TestCase):
             masks[:, 0, 1:4] = True
             np.save(root / 'token_features.npy', features)
             np.save(root / 'token_mask.npy', masks)
-            storage = TokenFeatureCache(root, text.numpy(), {})
+            np.save(root / "person_features.npy", np.stack([text.numpy(), np.zeros_like(text.numpy())], axis=1))
+            storage = PersonTokenFeatureCache(root, {})
             with contextlib.redirect_stdout(io.StringIO()):
                 stats = train_one_epoch(model, loader, optimizer, torch.device('cpu'),
                                         0, scaler, args=args, text_features=storage)
+            storage.global_text._mmap.close()
             storage.features._mmap.close()
             storage.mask._mmap.close()
         hook.remove()
@@ -399,6 +404,49 @@ class TextStage1Tests(unittest.TestCase):
                 text_cache_identity={}, text_training_weights=(1., 1.), text_share_skeleton_decoder=True)
             with self.assertRaisesRegex(ValueError, 'share_skeleton_decoder'):
                 load_model(args, model, None, None)
+
+
+    def test_person_cache_keeps_people_separate_and_one_person_ignores_second(self):
+        import torch
+        from util.person_text_cache import PersonTokenFeatureCache
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sentence = np.arange(24, dtype=np.float32).reshape(2, 2, 6)
+            features = np.arange(2*2*7*6, dtype=np.float16).reshape(2, 2, 7, 6)
+            mask = np.zeros((2,2,7), dtype=bool)
+            mask[:,0,1:3] = True
+            mask[:,1,1:6] = True
+            for name, value in [('person_features',sentence),('token_features',features),('token_mask',mask)]:
+                np.save(root / (name+'.npy'), value)
+            storage = PersonTokenFeatureCache(root, {})
+            single = storage.get_batch(np.array([1,0]), one_person=True)
+            dual = storage.get_batch(np.array([1,0]), one_person=False)
+            self.assertEqual(single['text_tokens'].shape, (2,2,6))
+            self.assertEqual(dual['text_tokens'].shape, (4,5,6))
+            np.testing.assert_array_equal(single['text_features'], sentence[[1,0],0])
+            np.testing.assert_array_equal(dual['text_features'], sentence[[1,0]].reshape(4,6))
+            np.testing.assert_array_equal(dual['text_tokens'][1], features[1,1,1:6])
+            np.testing.assert_array_equal(dual['text_token_mask'].sum(1), [2,5,2,5])
+            model = self.model().eval()
+            x = torch.randn(2,3,8,25,2)
+            kwargs = {k:torch.from_numpy(v) for k,v in single.items()}
+            torch.manual_seed(99); np.random.seed(99)
+            before = model(x,x.clone(),mask_ratio=.5,**kwargs)
+            changed = x.clone(); changed[...,1] = torch.randn_like(changed[...,1])*100
+            torch.manual_seed(99); np.random.seed(99)
+            after = model(changed,changed.clone(),mask_ratio=.5,**kwargs)
+            torch.testing.assert_close(before[0],after[0])
+            torch.testing.assert_close(before[1],after[1])
+            for array in (storage.global_text,storage.features,storage.mask): array._mmap.close()
+
+    def test_active_person_without_caption_fails_instead_of_using_other_person(self):
+        import torch
+        model = self.model(one_person=False)
+        data = self.tokens(4)
+        data['text_token_mask'][1] = False
+        x = torch.randn(2,3,8,25,2)
+        with self.assertRaisesRegex(ValueError, 'no matching cached description'):
+            model(x,x.clone(),text_features=torch.randn(4,6),mask_ratio=.5,**data)
 
 
 if __name__ == '__main__':
