@@ -1,0 +1,96 @@
+HE et al.: ENHANCING SKELETON-BASED ACTION RECOGNITION WITH LANGUAGE DESCRIPTIONS 2119
+Fig. 1. Comparison of our framework with other skeleton-based action
+recognition methods. Our approach fuses the complementary features of the
+language environment descriptions with skeleton data to achieve fine-grained
+action recognition.
+take advantage of the powerful ability of the GCN models
+to efficiently distinguish spatiotemporal differences in human
+motions.
+Over the past year or two, pre-trained Large Multimodal
+Models (LMMs) have undergone rapid development, and
+their capability to comprehend open-world images has been
+widely validated [19], [20], [21]. Concurrently, the success
+of models like Clip [26] demonstrates that language can
+serve as a universal interface, enabling various instructions
+to precisely guide end-to-end neural networks. Building upon
+this, we propose a novel framework that leverages the com-
+prehensive understanding capability of LMMs to generate
+instance-level language descriptions that facilitate fine-grained
+action recognition in skeleton-based models, as shown in
+Fig. 1. Specifically, we first propose the Language Envi-
+ronment Description Generation (LEDG) module to generate
+language descriptions of the action and its corresponding
+environments. For instance, during an individual’s action of
+drinking water, while holding a cup, the descriptions might
+indicate, “The person is holding a water cup.” By introducing
+related environment descriptions, actions that are similar yet
+distinct can be more accurately distinguished.
+The simple summation or concatenation of environment
+descriptions across different video frames can introduce sub-
+stantial noise, reducing its effectiveness. To address this
+concern, we introduce a Skeleton-supported Environment
+Feature Extraction (SEFE) module to extract important envi-
+ronmental information by leveraging the strong temporal
+correlation and subtle motion dependencies in the skeleton
+data. In addition, existing LMMs can not provide accurate
+environment descriptions for all video frames. Directly using
+environment descriptions for action recognition may decrease
+the recognition ability for certain actions. To tackle this
+issue, we introduce an Entropy-based Feature Fusion (EFF)
+module to effectively combine complementary features from
+skeleton data and environment descriptions. This enables us
+to selectively highlight reliable information from skeletal and
+environmental features while mitigating the impact of distract-
+ing ones.
+In summary, our main contributions are listed as follows:
+1) Our framework integrates environment information
+through language descriptions from LMMs with
+skeleton-based action recognition to improve action
+recognition performance. By utilizing pre-trained
+LMMs, action-related language environment descriptions
+are generated, which can help alleviate the problem
+of environmental information loss in skeleton-based
+methods.
+2) We propose a SEFE module between skeleton data and
+language environment descriptions to effectively extract
+action-related environmental information across different
+timestamps.
+3) We introduce an EFF module to dynamically fuse com-
+plementary features from skeleton data and environment
+descriptions for better action recognition.
+4) Experimentally, our framework improves the accuracy
+of existing skeleton-based action recognition models
+by a sizable margin and achieves state-of-the-art per-
+formance on popular skeleton-based action recognition
+benchmarks, including NTU RGB +D, NTU RGB+D
+120, PKU-MMD, and Toyota Smarthome.
+II. R ELATED WORKS
+A. Skeleton-Based Action Recognition
+In the earlier research on skeleton-based human action
+recognition, Convolutional Neural Networks (CNNs) [27],
+[28], [29] and Recurrent Neural Networks (RNNs) [30], [31],
+[32] were prevalent. Nonetheless, these models lack the ability
+to effectively capture the intricate topological structure of the
+human body, resulting in suboptimal recognition performance.
+The representation of human joints as graph nodes and the
+description of joint connections through an adjacency matrix
+has naturally led to a growing interest in methods based on
+Graph Convolutional Networks (GCNs). Popular GCN-based
+models employ convolution, pooling, or self-attention mech-
+anisms over human skeleton graphs [9], [11], [16], [33],
+[34], [35] or hypergraphs [2], [17], [36], [37] to capture the
+interrelated dependencies of the human joints across temporal
+and spatial dimensions. Although these models are capable
+of discerning differences in motions, the challenge persists in
+distinguishing actions that exhibit similar movement patterns.
+B. Multimodal Action Recognition
+In most studies on multimodal human action recognition,
+skeleton data is used to guide visual encoders to better under-
+stand the RGB features related to actions. Reference [38],
+[39], [40]. For example, [22] utilized a teacher network to
+transfer the structural knowledge of the skeleton modality
+to a student network for the RGB modality. Reference [23]
+proposed a spatial embedding to project the visual features
+and the skeleton 3D poses in the same referential space,
+and then an attention network is designed to capture joint
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

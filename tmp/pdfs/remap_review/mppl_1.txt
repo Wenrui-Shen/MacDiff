@@ -1,0 +1,89 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 1
+Multi-modality Progressive Prompt Learning for
+Enhancing Skeleton-Based Action Recognition
+Xin Wang, Long Liu,Member, IEEE,Siying Ren, Kai Lu, Zhiyong Ma, and Peng Sheng
+Abstract—Skeleton-based action recognition has achieved sig-
+nificant progress due to the efficiency and robustness of skeletons.
+However, the absence of environmental descriptions limits the
+ability of the model to distinguish actions weakly correlated
+with labels. Multimodal approaches enhance accuracy by in-
+corporating vision or language features, but often generate
+inaccurate or incomplete action descriptions. Moreover, mul-
+timodal features are only used as auxiliary signals during
+training and remain underutilized at inference. To address these
+issues, we propose a Multi-modality Progressive Prompt Learning
+(MPPL) framework to enhance the representational capacity
+of skeleton encoders. Specifically, we employ the Multimodal
+Generation (MM-Gen) module to extract informative RGB
+frames and action-related language descriptions from videos,
+enhancing environmental awareness and fine-grained details in
+the skeleton feature space. We design an Entropy-based Cross-
+Modal Alignment (ECMA) module to suppress irrelevant noise in
+vision and language features via entropy-weighted suppression.
+This achieves bidirectional cross-modal alignment and guides
+the learning of global skeleton representations. The Prompt
+Refinement Branch (PRB) module adaptively refines classification
+features and provides multimodal supervision during training.
+Specifically, PRB further exploits learnable prompts to bridge
+skeleton representations with category semantics, enabling a
+progressive guidance mechanism with ECMA for skeleton fea-
+ture learning. Extensive experiments on public datasets vali-
+date the effectiveness of our approach. Code is available at:
+https://github.com/imustwangxin/MPPL.
+Index Terms—Skeleton-based action recognition, Large multi-
+modal models, Prompt learning, Multi-modality.
+I. INTRODUCTION
+H
+UMAN action recognition (HAR) is a fundamental
+task in computer vision with broad applications in
+sports analysis, human–computer interaction, entertainment,
+and video surveillance [1]. Skeletal data provides a compact
+and robust representation, ensuring computational efficiency
+while remaining resilient to complex backgrounds and varying
+illumination [2]. As a result, skeleton-based single-modal
+HAR methods [3], [4], [5] have achieved remarkable progress
+in recent years. However, these methods often ignore inter-
+actions with the environment and lack fine-grained motion
+semantics, making skeletal information alone insufficient to
+This work is supported by the Xi’an Science and Technology Project under
+Grant NO. 22GXFW0096 and the Key Industry Chain Project of Shaanxi
+Province under Grant NO. 2020ZDLGY04-04.(Corresponding author: Long
+Liu.)
+Xin Wang, Long Liu, Siying Ren, Kai Lu, Zhiyong Ma, and Peng Sheng are
+with the School of Automation and Information Engineering, Xi’an Univer-
+sity of Technology, Xi’an 710048, China (e-mail: wangxin2168@163.com;
+liulong@xaut.edu.cn; rensiying126@gmail.com; lk15550345071@163.com,
+m2872634574@outlook.com, tsinghua341223@outlook.com).
+Fig. 1. Comparison of multimodal HAR methods. Early multimodal methods
+(a) suffer from weak inter-modal interactions, leading to limited understanding
+of complex human motions. Existing vision-language frameworks (b) typically
+rely on fixed prompts, learnable prompts, or language descriptions. However,
+these methods are highly sensitive to textual variations and lack direct
+interaction with the external environment. In contrast, our proposed MPPL
+(c) simultaneously integrates textual descriptions with RGB images to achieve
+sufficient environment interaction.
+distinguish highly similar actions, such as “playing with
+phone/tablet” and “typing on a keyboard.”
+Early multimodal approaches [6], [7] address these limi-
+tations by combining skeleton sequences with RGB or in-
+frared data. Typically, these approaches employ independent
+Convolutional Neural Networks (CNNs) to model RGB or
+infrared images, while utilizing Graph Convolutional Net-
+works (GCNs) to extract spatiotemporal skeleton features. The
+multimodal features are then fused at either the feature or
+the decision layer. As shown in Fig. 1(a), this dual-branch
+architecture introduces additional environmental awareness
+and improved accuracy. However, the simple feature fusion
+strategies lack deep semantic alignment and cross-modal in-
+teraction, limiting generalization and robustness in complex
+backgrounds, occlusions, or dynamic scenarios [8], [9], [10].
+Recently, researchers have drawn on advances in natural
+language processing to improve computer vision tasks, particu-
+larly through CLIP and its variants [11]. Trained on large-scale
+image–text datasets, these models exhibit strong visual gener-
+alization and semantic alignment for the open world. Building
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

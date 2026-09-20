@@ -130,6 +130,47 @@ class CacheTests(unittest.TestCase):
         np.testing.assert_allclose(features[2], expected / np.linalg.norm(expected))
         self.assertTrue(manifest['complete'])
 
+    def test_person_cache_fast_load_skips_scans_and_preserves_batches(self):
+        from util.person_text_cache import load_person_token_cache
+        self.run_fake()
+        full = load_person_token_cache(self.args.output_dir, self.args.data_path, 3)
+        self.addCleanup(lambda: [array._mmap.close() for array in
+                               (full.global_text, full.features, full.mask)])
+        with patch('util.person_text_cache.load_cache', side_effect=AssertionError('No full scan')), \
+                patch('util.clip_text_cache.file_identity', side_effect=AssertionError('No hash')):
+            fast = load_person_token_cache(self.args.output_dir, self.args.data_path, 3,
+                                          skip_full_validation=True)
+        self.addCleanup(lambda: [array._mmap.close() for array in
+                               (fast.global_text, fast.features, fast.mask)])
+        self.assertEqual(full.manifest, fast.manifest)
+        for one_person in (True, False):
+            expected = full.get_batch(np.array([2, 0]), one_person=one_person)
+            actual = fast.get_batch(np.array([2, 0]), one_person=one_person)
+            for key in expected:
+                np.testing.assert_array_equal(actual[key], expected[key])
+
+    def test_person_cache_fast_load_still_checks_count_sizes_and_headers(self):
+        from util.person_text_cache import load_person_token_cache
+        self.run_fake()
+        with self.assertRaisesRegex(ValueError, 'sample count'):
+            load_person_token_cache(self.args.output_dir, expected_count=4, skip_full_validation=True)
+        different = self.root / 'different.npz'
+        different.write_bytes(b'wrong size')
+        with self.assertRaisesRegex(ValueError, 'Dataset file size'):
+            load_person_token_cache(self.args.output_dir, different, 3, skip_full_validation=True)
+        path = self.root / 'out/token_features.npy'
+        original = path.read_bytes()
+        path.write_bytes(original[:-1])
+        with self.assertRaisesRegex(ValueError, 'Cache file size'):
+            load_person_token_cache(self.args.output_dir, skip_full_validation=True)
+        path.write_bytes(original)
+        values = np.load(path)
+        # Different shape, same data byte count and header length.
+        np.save(path, values.reshape(2, 3, 77, 3))
+        self.assertEqual(path.stat().st_size, len(original))
+        with self.assertRaisesRegex(ValueError, 'shape/dtype'):
+            load_person_token_cache(self.args.output_dir, skip_full_validation=True)
+
     def test_interrupted_run_resumes_and_complete_run_needs_no_encoder(self):
         with self.assertRaisesRegex(RuntimeError, 'interruption'):
             self.run_fake(Encoder(fail_on_call=2))

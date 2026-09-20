@@ -103,6 +103,14 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
 
         samples = samples.float().to(device, non_blocking=True)
         samples_aug = samples_aug.float().to(device, non_blocking=True)
+        if text_features is not None:
+            retained = samples[..., :1] if model_without_ddp.one_person else samples
+            empty = retained.abs().sum(dim=(1, 2, 3)) == 0
+            if empty.any():
+                rows, people = empty.nonzero(as_tuple=True)
+                raw_indices = sample_indices[rows.cpu()].tolist()
+                print('Empty cropped skeletons excluded from losses: sample_indices={}, person_ids={}'.format(
+                    raw_indices, people.cpu().tolist()))
         mask_ratio = args.mask_ratio
         if isinstance(mask_ratio, list):
             if len(mask_ratio) == 1:

@@ -1,0 +1,112 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 7
+TABLE II
+ACCURACY COMPARISON WITH SKELETON-BASED SINGLE-MODAL AND
+MULTIMODAL METHODS ON THEN-UCLAANDKINETICS-SKELETON
+DATASET.BOLDINDICATES THE BEST RESULT,underline INDICATES THE
+SECOND BEST. SREPRESENTS SKELETON, RREPRESENTSRGBIMAGE,
+ANDLREPRESENTS LANGUAGE.
+Method Publisher Modality N-UCLA Kinetics-skeleton
+Top-1(%)Top-1(%)Top-5(%)
+Single-modal (GCN-Based):
+ST-GCN [3] AAAI 18 S - 30.7 52.8
+2s-AGCN [30] CVPR 19 S - 36.1 58.7
+2s-AAGCN [50] TIP 20 S - 37.4 60.4
+CTR-GCN [4] ICCV 21 S 96.5 - -
+Graph2Net [51] TCSVT 21 S - 36.8 -
+InfoGCN [31] CVPR 22 S 96.6 - -
+SAN-GCN [33] TMM 23 S 96.8 - -
+MSS-GCN [36] TCSVT 24 S 96.6 - -
+BlockGCN [15] CVPR 24 S 96.9 - -
+DeGCN [37] TIP 24 S 97.2 - -
+SCA-GCN [38] CIS 25 S - 37.3 60.6
+Hyper-Net [39] DSP 25 S 96.8 - -
+TSGCNeXt [40] ESW A 25 S 96.7 - -
+AGMS-GCN [41] KBS 25 S 97.4 - -
+Single-modal (Attention-Based):
+SiT-MLP [52] TCSVT 24 S 96.5 - -
+SelfGCN [16] TIP 24 S 96.8 36.2 57.8
+S3GAAR [44] TMM 25 S 94.7 - -
+LG-SGNet [2] PR 25 S 96.8 - -
+EMS-TAGCN [45] CHB 25 S - 39.2 62.3
+UGSTM [46] ASC 25 S 97.2 38.8 62.6
+AG-HGNN [47] KBS 25 S 97.1 - -
+MPPL (Ours) 25 S+R+L 98.4 41.3 64.6
+Multimodal:
+VPN [6] ECCV 20 S+R 93.5 - -
+GAP [17] ICCV 23 S+L 97.2 - -
+MMNet [8] TPAMI 23 S+R 93.7 - -
+MMCL [12] ACMMM 24 S+R+L 97.5 - -
+CFVL [13] TMM 25 S+L 98.1 - -
+LA-GCN [49] TMM 25 S+L 97.6 - -
+MPPL (Ours) 25 S+R+L 98.4 - -
+TABLE III
+ACCURACY COMPARISON OF SKELETON-BASED MICRO-ACTION
+RECOGNITION METHODS ON THEMICRO-ACTION52AND IMIGUE
+DATASETS.BOLDINDICATES THE BEST RESULT,underline INDICATES
+THE SECOND BEST.
+Method Publisher Modality Micro-Action 52 iMiGUE
+Top-1 Top-5 Top-1 Top-5
+ST-GCN [3] AAAI 18 S 59.3 86.0 54.0 87.7
+2s-AAGCN [50] TIP 20 S 57.0 84.4 56.2 87.6
+MS-G3D [5] CVPR 20 S 52.7 82.3 55.8 87.1
+CTR-GCN [4] ICCV 21 S 59.1 86.1 56.1 88.4
+ST-GCN++ [53] ACMMM 22 S 54.8 82.0 53.9 87.2
+HD-GCN [54] ICCV 23 S 60.2 86.9 53.4 87.3
+Koopman [55] CVPR 23 S 59.7 86.8 52.1 86.4
+SkateFormer [56] ICCV 24 S 59.8 87.3 47.7 85.4
+MMN [57] ACMMM 25 S 62.7 89.8 60.2 90.1
+PCAN [58] AAAI 25 S+R 66.7 91.6- -
+MPPL (Ours) 25 S+R+L 67.1 90.7 61.1 90.5
+the green boxes), which are crucial for accurately recognizing
+delicate actions. For multimodal methods, our model outper-
+forms MMCL and C2VL, which also use three modalities, by
+0.6%/0.5% and 2.3%/2.2% in the two settings. Furthermore,
+we employ t-SNE to visualize the inter-class separability
+and intra-class compactness of three multimodal methods on
+similar action categories, as shown in Fig. 5. The incorporation
+of visual and language modalities significantly enhances inter-
+class separability (highlighted by the red circles) and improves
+intra-class compactness to a certain extent (highlighted by
+the blue circles). In particular, MMCL achieves the best
+clustering performance, further validating the effectiveness of
+our feature fusion strategy. Overall, our method achieves the
+second-best performance, ranking only behind the latest LDFP.
+Fig. 4. Spatial and temporal attention heatmaps for the “writing” action in
+SelfGCN, MPPL (S), and MPPL (S+R+L). In contrast, MPPL (S+R+L) that
+incorporates both visual and language modalities demonstrates stronger focus
+capabilities on local regions and key frames.
+TABLE IV
+PERFORMANCE IMPACT OFLMMS INMM-GEN ON LANGUAGE
+GENERATION QUALITY AND ACCURACY.BOLDINDICATES THE BEST
+RESULT,underline INDICATES THE SECOND BEST.
+LMMs (RIR) IOU LMMs (LPG) PPL SB Acc.(%)
+What does the person in the picture have on his/her hands? What is the
+person going to do with these items? Answer the questions concisely.
+YOLOv5 0.58 LLaV A 971 0.57 91.9
+GroundingDINO 0.64 MiniGPT-v2 1041 0.66 92.5
+MiniGPT-v20.65 MiniGPT4 897 0.53 92.4
+This is a continuous sequence of actions. Is this action{}? What is
+the movement state of the person in the picture? Please answer briefly.
+YOLOv5 0.58 LLaV A 733 0.63 93.3
+GroundingDINO 0.64 MiniGPT-v2 832 0.56 93.2
+MiniGPT-v20.65 MiniGPT47120.6093.5
+The performance gap may be partly due to our emphasis
+on generality and extensibility, as reflected in the objective
+function, which only includes classification and contrastive
+losses without additional entropy-based terms. Nevertheless,
+incorporating such task-specific regularization could further
+enhance performance, suggesting a promising direction for
+future work.
+On the more challenging NTU-RGB+D 120 dataset, our
+method exhibits a more pronounced performance advantage.
+Specifically, our method outperforms the state-of-the-art mod-
+els (Table I). Among single-modal approaches, our model
+surpasses DeGCN by 2.8% and 3.0% under the X-Sub and
+X-Set, respectively, and exceeds AGMS-GCN by 3.1% and
+3.5%, highlighting the advantage of multimodal methods. For
+multimodal approaches, MPPL outperforms MMCL by 3.2%
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

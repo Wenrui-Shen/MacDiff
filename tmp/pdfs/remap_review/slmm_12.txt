@@ -1,0 +1,102 @@
+HE et al.: ENHANCING SKELETON-BASED ACTION RECOGNITION WITH LANGUAGE DESCRIPTIONS 2129
+TABLE XIII
+RECOGNITION ACCURACY IMPROVEMENTS FOR GCN M ODELS
+TABLE XIV
+PARMAS AND GFlops OF PROPOSED FRAMEWORK
+reduced upon integrating crucial environmental information
+related to actions using LED, as shown in Fig. 9(b).
+F . Computational Complexity
+The proposed framework consists of four main compo-
+nents: GroundingDINO for human activity ROI segmentation,
+LLaV A for generating environment-related language descrip-
+tions of actions, CLIP-text-encoder for encoding these descrip-
+tions, and the trainable neural networks (skeleton encoder,
+SEFE module, and EFF module). The Params and GFlops
+for each component are listed in Table XIV. As shown,
+LLaV A accounts for the majority of the Params and GFlops
+in our proposed framework, requiring higher demands on
+hardware. However, it is worth noting that the trainable neural
+networks account for only 10M parameters and 6 GFlops,
+which is comparable to other skeleton-based action recognition
+networks. Our post-processing fusion approach maximizes
+the utilization of the LMMs while avoiding the significant
+resources required for fine-tuning LMMs. During inference,
+a single GPU with 32GB of memory is sufficient to meet the
+inference requirements. While our approach does incur higher
+computational costs, this increase is justified by the significant
+improvement in recognition accuracy.
+V. D ISCUSSION
+Our model demonstrates exceptional performance in action
+recognition. However, the reliance on LMMs like LLaV A
+poses challenges for deployment in resource-constrained envi-
+ronments due to their high computational demands. To address
+this, we plan to explore knowledge distillation techniques in
+future work to develop a more efficient, smaller model that
+retains the core functionality of our LEDG module. In this
+approach, LLaV A will act as the teacher model, while the
+smaller student model will be trained to specifically recognize
+environment features relevant to actions, thereby streamlining
+the process. The student model will process input images
+and directly output action-related environmental features in
+an end-to-end manner. This bypasses the need for the Visual
+Question Answering (VQA) paradigm and reduces depen-
+dence on LMMs and CLIP text encoders. We expect this
+strategy to significantly lower the computational requirements,
+making the model more feasible for deployment in resource-
+limited settings, while maintaining its strong action recognition
+performance and low reliance on training data.
+VI. C ONCLUSION
+In this work, we propose a novel framework that combines
+skeleton-based action recognition with language environment
+descriptions. We first utilize LMMs to construct a Language
+Environment Description Generation (LEDG) module, which
+automatically generates action-related language environment
+descriptions based on images. Additionally, we introduce a
+Skeleton-supported Environment Feature Extraction (SEFE)
+module to efficiently extract descriptive environment infor-
+mation from language environment descriptions through the
+guidance of the skeleton movements. Then, we design an
+Entropy-based Feature Fusion (EFF) module to dynamically
+combine the complementary skeleton feature and the envi-
+ronment feature in the action recognition feature space. The
+combined features are used to train an MLP action classi-
+fier. With experiments on four popular skeleton-based action
+recognition datasets, we show that our framework improves
+existing skeleton-based GCN methods by a sizable margin
+and achieves state-of-the-art performance among multimodal
+action recognition models.
+REFERENCES
+[1] F. Patrona, A. Chatzitofis, D. Zarpalas, and P. Daras, “Motion analysis:
+Action detection, recognition and evaluation based on motion capture
+data,” Pattern Recognit., vol. 76, pp. 612–622, Apr. 2018.
+[2] P. Koniusz, L. Wang, and A. Cherian, “Tensor representations for action
+recognition,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 44, no. 2,
+pp. 648–665, Feb. 2022.
+[3] M. H. Siddiqi et al., “A unified approach for patient activity recog-
+nition in healthcare using depth camera,” IEEE Access, vol. 9,
+pp. 92300–92317, 2021.
+[4] C. I. Nwakanma, F. B. Islam, M. P. Maharani, D.-S. Kim, and J.-M. Lee,
+“IoT-based vibration sensor data collection and emergency detection
+classification using long short term memory (LSTM),” inProc. Int. Conf.
+Artif. Intell. Inf. Commun. (ICAIIC), Apr. 2021, pp. 273–278.
+[5] Y . Yan, J. Xu, B. Ni, W. Zhang, and X. Yang, “Skeleton-aided articulated
+motion generation,” inProc. 25th ACM Int. Conf. Multimedia, Oct. 2017,
+pp. 199–207.
+[6] C. Li, Q. Zhong, D. Xie, and S. Pu, “Co-occurrence feature learning
+from skeleton data for action recognition and detection with hierarchical
+aggregation,” 2018, arXiv:1804.06055.
+[7] W. Xiang, C. Li, Y . Zhou, B. Wang, and L. Zhang, “Generative action
+description prompts for skeleton-based action recognition,” in Proc.
+IEEE Int. Conf. Comput. Vis. (ICCV), Oct. 2023, pp. 10276–10285.
+[8] L. Shi, Y . Zhang, J. Cheng, and H. Lu, “Two-stream adaptive graph
+convolutional networks for skeleton-based action recognition,” in Proc.
+IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR) , Oct. 2019,
+pp. 12026–12035.
+[9] P. Zhang, C. Lan, W. Zeng, J. Xing, J. Xue, and N. Zheng, “Semantics-
+guided neural networks for efficient skeleton-based human action
+recognition,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), Jun. 2020, pp. 1112–1121.
+[10] S. Yan, Y . Xiong, and D. Lin, “Spatial temporal graph convolutional
+networks for skeleton-based action recognition,” in Proc. AAAI Conf.
+Artif. Intell., 2018, vol. 32, no. 1.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

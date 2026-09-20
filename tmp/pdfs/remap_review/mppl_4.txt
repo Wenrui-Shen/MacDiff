@@ -1,0 +1,100 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 4
+Fig. 3. Multimodal Generation (MM-Gen) module. MM-Gen employs the [detection] function of MiniGPT-v2 to extract human regions from video frames
+and concatenate them into a temporally structured composite RGB image. Based on the composite RGB images and category-specific textual instructions,
+LMMs generate action-related language prompts. We further explore two composition strategies for constructing the composite RGB image. Compared to (b),
+(a) is better at fully presenting motion trajectories with large amplitudes, such as ”jump up” and ”sit down.” The generated language descriptions are also
+more accurate.
+whereS i denotes a skeleton sequence andU i is the cor-
+responding video frames. To ensure strict cross-modal con-
+sistency, the video frames are temporally aligned with the
+skeleton input sequence, where each video frame corresponds
+exactly to the skeleton frame at the same timestamp. We em-
+ploy pre-trained LMMs (MiniGPT-4 [21], MiniGPT-v2 [22], or
+LLaV A) to generate composite RGB imagesV i and language
+descriptionsL i fromU i. This produces a new multimodal
+datasetM= (S i, Vi, Li)D
+i=1 with strictly aligned modalities.
+1) RGB Image Reconstruction (RIR):Previous multimodal
+methods rely on raw video frames that contain substan-
+tial background interference, weakening motion-related cues.
+Moreover, directly using multiple video frame embeddings
+leads to cross-modal misalignment between visual and lan-
+guage representations, while naive compression risks obscur-
+ing subtle motion dynamics. Therefore, we construct a com-
+pact composite image as the visual input to achieve motion-
+focused, modality-aligned representations.
+Specifically, we employ the[detection]function of
+MiniGPT-v2 with the instruction “person” to extract human
+regions of interest (ROIs). For two-person interactive actions,
+we first obtain the respective detection boxes for each person,
+then compute their bounding union to crop a region that
+contains both individuals, thereby ensuring the completeness
+of the interaction information. Since LMMs cannot describe
+full videos, frame-by-frame descriptions cause redundancy
+and lose temporal context. Therefore, we sparsely samplem
+human ROIs fromnframes and concatenate them into a tem-
+porally structured composite RGB image. Specifically, given
+a video sequenceU i ={u 1
+i , u2
+i , ..., un
+i }withnframes and a
+category instructionc= ”person”, the image reconstruction
+process is defined as:
+Vi =Concat({Γ(ε v(ujk
+i , c))|k= 1,2, ..., m}),(1)
+whereε v denotes the LMM used to extract ROIs andj k = 1+
+⌊ (k−1)(n−1)
+m−1 ⌋. To ensure consistency in frame concatenation,
+we applyΓto rescale human images and explore two strate-
+gies. Fixed bounding boxes may miss critical motion, such
+as a jump trajectory (Fig. 3 (b)). We instead track the body’s
+lowest and highest positions across frames to adaptively set
+bounding boxes, preserving motion trajectories and improving
+action description accuracy (Fig. 3 (a)).
+2) Language Prompt Generation (LPG):Natural language
+is highly abstract and generalizable, capable of conveying
+semantics, action intentions, or context. To generate descrip-
+tions closely aligned with actions, many approaches use Visual
+Question Answering (VQA) within LMMs to reason over
+visual content and produce responses. Similarly, we employ
+LMMs to extract action-relevant semantic information from
+the reconstructed RGB images. We design a sequence of query
+instructionsQ:“This is a continuous sequence of actions. Is
+this action{CLS}? What is the movement state of the person
+in the picture? Please answer briefly.”to extract information:
+Li =ε l(Vi, Q),(2)
+Whereε l denotes the LMM used to generate the language
+description. Because reconstructed RGB images contain tem-
+poral information, a simple prompt like“What are the people
+in the image doing?”may be insufficient, especially when
+multiple subjects are involved. To address this, we explicitly
+include image properties in the instructions to enable the
+model to critically understand the dynamic states of actions.
+C. Skeleton Stream Branch
+In the SSB, the skeleton encoder acts as a plug-and-play
+module that can be replaced with any mainstream action
+encoder, such as a GCN or Transformer. GCNs model data
+with graph structures to capture spatial dependencies, while
+Transformers use self-attention to capture long-range temporal
+or feature relationships. Building on the above, we adopt our
+self-developed STI-MSA network as the skeleton encoder in
+this paper (see Supplementary Materials). STI-MSA captures
+both local and global spatiotemporal dependencies in skeleton
+actions using a GCN-based spatiotemporal feature interaction
+mechanism and a multiple self-attention architecture. For
+comprehensive evaluation, we also include several mainstream
+GCN- and self-attention-based models.
+D. Entropy-based Cross-Modal Alignment
+LMM-based methods typically rely on feature remapping or
+contrastive constraints for cross-modal alignment. However,
+they often overlook semantic bias, visual noise, and model
+ambiguity. To address this issue, we propose the Entropy-based
+Cross-Modal Alignment (ECMA) module, which guides the
+learning of visual and language features using an entropy-
+aware weighting strategy. Specifically, the composite image
+Vi and languageL i are fed into pre-trained encodersE v and
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

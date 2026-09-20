@@ -1,0 +1,110 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 9
+TABLE VI
+ANALYSIS OF THE ENTROPY CONSTRAINT AND THE DECAY FACTOR IN
+ECMAON THENTU-RGB+D 120 X-SET.BOLDINDICATES THE BEST
+RESULT,underline INDICATES THE SECOND BEST.
+Methods Ll→rv Lv→rl Acc.(%) ˆfv Weig. ˆfl Weig. Acc.(%)
+MPPL w/o ECMA 93.4 - - 93.4
+MPPL w/ ECMA ✓94.7 e−H 1−H93.9
+MPPL w/ ECMA ✓ 94.6 1−H e −H 94.0
+MPPL w/ ECMA ✓ ✓95.1 e−H e−H 95.1
+Fig. 8. Boxplot of vision-language feature entropy for simple and complex
+actions.
+descriptions are evaluated using perplexity (PPL) and Self-
+BLEU (SB). PPL, measured with GPT-2, reflects the fluency
+and grammatical consistency of generated text, with lower
+values indicating better quality. SB evaluates text diversity
+by comparing generated sentences with each other; higher
+SB scores indicate greater similarity and lower diversity.
+Excessively high SB scores limit semantic richness, while ex-
+cessively low scores increase variability, potentially disrupting
+alignment with images. Therefore, we aim to maintain the SB
+score within a reasonable range.
+Table IV shows that different combinations of LMMs
+exhibit varying language generation quality and accuracy.
+Overall, MiniGPT4 in LPG achieves the lowest PPL (897/712)
+under both instruction scenarios, indicating the most fluent
+text generation. Concurrently, the SB scores (0.53/0.60) reflect
+substantial textual diversity. For LMMs in RIR, MiniGPT-
+v2 achieves relatively accurate person detection (IOU 0.65)
+compared to YOLOv5 (0.58) and GroundingDINO (0.64). Ad-
+ditionally, incorporating dynamic judgment information in text
+instructions leads to superior language descriptions. Therefore,
+we adopt MiniGPT-v2 and MiniGPT4 in the MM-Gen mod-
+ule, as this combination offers the best balance of fluency,
+diversity, and detection accuracy. Figure 7 illustrates two RGB
+image reconstruction strategies. The first row employs adaptive
+bounding boxes, which better preserve action integrity, pro-
+ducing language prompts that align more accurately with the
+actual movements. In contrast, the standard bounding boxes
+in the second row fail to capture the full motion trajectory for
+certain actions, leading to language descriptions that deviate
+from the actual semantics. For example, “Pick Up” as tying
+shoelaces and “Nod Head/Bow” as simply looking down.
+In MM-Gen, frame preprocessing and sampling strategies
+are critical for the quality of both visual and language
+modalities. Therefore, we compare three input configurations
+TABLE VII
+COMPARISON OF DIFFERENT VISION AND LANGUAGE ENCODERS ON THE
+NTU-RGB+D 120 X-SET.BOLDINDICATES THE BEST RESULT,
+underline INDICATES THE SECOND BEST.
+Methods Vision Enc. Language Enc. Acc.(%)
+MPPL w/o ECMA - - 93.4
+MPPL w/ ECMA ResNet50 BERT 94.9
+MPPL w/ ECMA Inception-V3 BERT95.1
+MPPL w/ ECMA CLIP (ViT-B/32 img/text) 95.0
+MPPL w/ ECMA CLIP (ViT-B/16 img/text) 95.0
+MPPL w/ ECMA CLIP (ViT-L/14 img/text)95.1
+TABLE VIII
+COMPARISON OF DIFFERENT PROMPT MODES ON THENTU-RGB+D 120.
+Methods Prompt mode X-sub (%) X-Set (%)
+MPPL w/o PRB - 92.4 93.5
+MPPL w/ PRB Prefix (Fixed) 92.8 94.6
+MPPL w/ PRB Cloze (Fixed) 93.3 94.1
+MPPL w/ PRB Suffix (Fixed) 92.8 94.4
+MPPL w/ PRB Prefix (Learned) 93.4 95.0
+MPPL w/ PRB Cloze (Learned) 93.4 94.9
+MPPL w/ PRB Suffix (Learned)93.5 95.1
+under four sampling strategies. The input configurations in-
+clude composite RGB images, ROI frames, and raw frames,
+where ROI frames refer to ROI-extracted frames that are
+independently encoded at the frame level. Due to the input
+constraints of LMMs, ROI frames and raw frames are not used
+for language generation. As shown in Table V, raw frames
+achieve the lowest performance, indicating that background in-
+terference and fragmented representations hinder cross-modal
+alignment and motion modeling. ROI frames consistently
+outperform raw frames, showing the benefit of removing
+background noise. Composite RGB images achieve the best
+performance, suggesting that spatially stitching ROI-extracted
+frames provides a more coherent representation than inde-
+pendently encoding frames followed by feature aggregation.
+Regarding sampling strategies, random sampling performs the
+worst due to the lack of temporal structure. Joint velocity prior-
+itizes frames with high instantaneous joint speed, while motion
+magnitude selects frames with large global pose displacement.
+Both improve accuracy by focusing on salient motion but may
+overlook transitional stages, leading to slightly higher PPL. In
+contrast, uniform sampling selects frames at equal temporal
+intervals, ensuring balanced temporal coverage and achieving
+the best overall performance with the lowest PPL, highest
+accuracy, and minimal computational complexity. Its moderate
+SB score indicates a balanced trade-off between linguistic
+diversity and semantic alignment. Therefore, uniform sampling
+on composite RGB images is adopted as the default setting in
+MM-Gen.
+2) Effectiveness of ECMA:To validate the effectiveness of
+the ECMA module, we conduct ablation studies on the entropy
+constraint and the decay factor. As shown in Table VI, the
+baseline without ECMA achieves 93.4% accuracy. Introducing
+onlyL l→rv orL v→rl improves the accuracy to 94.7% and
+94.6%, respectively, indicating that cross-guidance through
+language and visual features helps reduce intra-modal noise.
+When both constraints are applied simultaneously, the accu-
+racy further increases to 95.1%, outperforming either single-
+direction setting. This result demonstrates the complementary
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

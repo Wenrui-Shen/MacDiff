@@ -1,0 +1,85 @@
+HE et al.: ENHANCING SKELETON-BASED ACTION RECOGNITION WITH LANGUAGE DESCRIPTIONS 2125
+TABLE II
+COMPARISON OF RECOGNITION ACCURACY WHEN SELECTING
+DIFFERENT NUMBER OF FRAMES
+TABLE III
+COMPARISON WITH DIFFERENT LED A GGREGATION METHODS
+shows adopting the LEDG module to selectively incorporate
+action-relevant LED emerges as a strategic approach. We also
+conduct an ablation experiment to analyze the impact of
+different frame selection strategies on action recognition accu-
+racy on the NTU RGB+D dataset under the X-Sub protocol.
+As shown in Table II, increasing the number of image frames
+extracted from the action videos from 4 to 16 leads to a
+small improvement in action recognition accuracy. However,
+further increasing the number of image frames has little
+effect on recognition accuracy. Considering the computational
+efficiency, we decide to select 16 frames per action video to
+generate language descriptions.
+3) Effectiveness of SEFE: To demonstrate the superiority
+of the SEFE module, we conduct a comparative analysis
+of different LED aggregation methods while maintaining
+the CTR-GCN component fixed. Specifically, we employ a
+CTR-GCN to extract human motion features from skeleton
+data. These skeleton features are directly added with the
+aggregated environment features obtained through the mean
+method, self-attention method, and our SEFE method, respec-
+tively, to train MLP classifiers with the same structure. The
+evaluation results are presented in Table III. Our SEFE method
+demonstrates a greater ability to aggregate language infor-
+mation at different timestamps, surpassing the performance
+of self-attention, which is only marginally superior to the
+simplest mean method. This emphasizes the importance of
+incorporating the skeleton data to extract key LED features,
+especially when actions exhibit strong temporal dependencies
+that are challenging to capture by LED.
+4) Discussion of EFF: To explore the importance of our
+proposed EFF module, we initiate a comparative analy-
+sis between the MLP classifiers trained on the different
+combinations of the skeleton features (Z ske ), original LED
+features (Ztext ), original SEFE features (Z cr oss), action recog-
+nition space mapping features (M ske , Mtext , Mcr oss), and
+entropy-based fusion features ( Z f use ). The outcomes of these
+experiments are presented in Table IV. From the table, we can
+figure out that mapping LED and SEFE features into the
+action recognition space can notably improve the recognition
+accuracy from 91.71% to 93.34%. Meanwhile, Z f use increases
+TABLE IV
+EFFECT OF ENTROPY -BASED FEATURE FUSION
+Fig. 6. Largest 5 positive and negative action recognition accuracy difference
+between Zske +Ztext +Zcr oss and Zske .
+the recognition accuracy to 93.96%, which is 0.62% greater
+than simply adding features from different modalities together.
+To further demonstrate the ability of EFF module, we per-
+form a detailed analysis of the recognition accuracy of each
+action. From the comparison, Zske with environment features
+Ztext and Zcr oss outperform Zske in 38 action categories, while
+22 actions exhibit decreased recognition accuracy. Fig. 6 dis-
+plays the top 5 actions with the highest increase in recognition
+accuracy and the bottom 5 actions with the most noteworthy
+decline. This visualization shows the significant role of the
+environment features Ztext and Zcr oss in providing criti-
+cal environmental information, leading to obvious accuracy
+improvements in actions like “reading”, “play with phone”,
+and “drink water”. However, actions such as “take off jacket”
+and “stand up” demonstrate an opposite trend, where the envi-
+ronment features Ztext and Zcr oss introduce distracting noise,
+contributing to a reduction in recognition accuracy. As shown
+in Fig. 7, the language descriptions for “put on jacket” and
+“take off jacket” are extremely similar. The introduction of
+this type of environment language description has blurred
+the boundaries of the features used to identify the action,
+which in turn has reduced the recognition accuracy. One
+primary cause of such inaccurate descriptions is temporary
+relationship unawareness. The generated environment descrip-
+tions are based on a single image, without considering the
+temporal relationships between adjacent images. By incorpo-
+rating EFF module, we can reduce the influence of distracting
+environmental features, allowing the model to focus more on
+the discriminative skeleton features, resulting in a significant
+improvement in overall action recognition accuracy. With EFF
+module, our method outperforms Zske in 47 action types,
+with only 13 actions exhibiting slightly lower recognition
+accuracy. Fig. 8 exhibits that the improved action recognition
+becomes more accurate, while the accuracy of adversely
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

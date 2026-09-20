@@ -1,0 +1,95 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 13
+[46] K. Wu, B. Peng, and D. Zhai, “Leveraging uncertainty-guided spatial–
+temporal mutuality for skeleton-based action recognition,”Applied Soft
+Computing, vol. 171, p. 112797, 2025.
+[47] T. Li, P. Geng, X. Lu, W. Li, and L. Lyu, “Skeleton-based action recog-
+nition through attention guided heterogeneous graph neural network,”
+Knowl. Based Syst., vol. 309, p. 112868, 2025.
+[48] H. Wu, X. Ma, and Y . Li, “Spatiotemporal multimodal learning with
+3d cnns for video action recognition,”IEEE Trans. Circuits Syst. Video
+Technol., vol. 32, no. 3, pp. 1250–1261, 2021.
+[49] H. Xu, Y . Gao, Z. Hui, J. Li, and X. Gao, “Language knowledge-
+assisted representation learning for skeleton-based action recognition,”
+IEEE Trans. Multimedia, pp. 1–16, 2025.
+[50] L. Shi, Y . Zhang, J. Cheng, and H. Lu, “Skeleton-based action recog-
+nition with multi-stream adaptive graph convolutional networks,”IEEE
+Trans. Image Process., vol. 29, pp. 9532–9545, 2020.
+[51] C. Wu, X.-J. Wu, and J. Kittler, “Graph2net: Perceptually-enriched graph
+learning for skeleton-based action recognition,”IEEE Trans. Circuits
+Syst. Video Technol., vol. 32, no. 4, pp. 2120–2132, 2021.
+[52] S. Zhang, J. Yin, Y . Dang, and J. Fu, “Sit-mlp: A simple mlp with point-
+wise topology feature learning for skeleton-based action recognition,”
+IEEE Trans. Circuits Syst. Video Technol., vol. 34, no. 9, pp. 8122–
+8134, 2024.
+[53] H. Duan, J. Wang, K. Chen, and D. Lin, “Pyskl: Towards good practices
+for skeleton action recognition,” inProc. ACM Int. Conf. Multimedia,
+2022, pp. 7351–7354.
+[54] J. Lee, M. Lee, D. Lee, and S. Lee, “Hierarchically decomposed graph
+convolutional networks for skeleton-based action recognition,” inProc.
+IEEE/CVF Int. Conf. Comput. Vis., 2023, pp. 10 444–10 453.
+[55] X. Wang, X. Xu, and Y . Mu, “Neural koopman pooling: Control-inspired
+temporal dynamics encoding for skeleton-based action recognition,” in
+Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recog., 2023, pp. 10 597–
+10 607.
+[56] J. Do and M. Kim, “Skateformer: skeletal-temporal transformer for
+human action recognition,” inProc. Eur. Conf. Comput. Vis.Springer,
+2024, pp. 401–420.
+[57] J. Gu, K. Li, F. Wang, Y . Wei, Z. Wu, H. Fan, and M. Wang, “Motion
+matters: Motion-guided modulation network for skeleton-based micro-
+action recognition,” inProc. ACM Int. Conf. Multimedia, New York,
+NY , USA, 2025, p. 5461–5470.
+[58] K. Li, D. Guo, G. Chen, C. Fan, J. Xu, Z. Wu, H. Fan, and M. Wang,
+“Prototypical calibrating ambiguous samples for micro-action recogni-
+tion,” inProc. AAAI Conf. Artif. Intell., vol. 39, no. 5, 2025, pp. 4815–
+4823.
+Xin Wang(Student Member, IEEE) received the
+B.S. and M.S. degree from the Inner Mongolia Uni-
+versity of Science and Technology, Baotou, China,
+in 2019 and 2022, respectively. He is currently
+pursuing a Ph.D. degree in control theory and control
+engineering at the Xi’an University of Technology,
+Xi’an, China. His research interests include action
+recognition, estimation, and generation.
+Long Liu(Member, IEEE) received the Ph.D. de-
+gree from Xi’an Jiaotong University in 2005. He
+has attended the School of Computer Science of
+Carnegie Mellon University in the United States for
+research. He is currently a professor in the School
+of Automation and Information Engineering at Xi’an
+University of Technology. His research interests in-
+clude vision action recognition, vision tracking and
+detection, and deep transfer learning.
+Siying Renreceived the B.S. degree from Xi’an
+University of Technology, Xi’an, China, in 2023.
+She is pursuing a master’s degree at the School
+of Automa tion and Infomation Engineering, Xi’an
+University of Technology, Xi’an, China. Her re-
+search interests include computer vision, image
+recognition and action recognition.
+Kai Lureceived the B.S. degree from University
+of Jinan, Jinan, China, in 2023. He is currently
+pursuing a Ph.D. degree at the School of Automation
+and Information Engineering, Xi’an University of
+Technology, Xi’an, China. His research interests
+lie in the fields of computer vision, human pose
+estimation, and action generation.
+Zhiyong Mareceived the B.S. degree from Xi’an
+University of Technology, Xi’an, China, in 2024.
+He is pursuing a master’s degree at the School
+of Automation and Information Engineering, Xi’an
+University of Technology, Xi’an, China. His research
+interests include computer vision, image recognition,
+and human action recognition.
+Peng Shengreceived the B.S. degree in Engineering
+from Anhui University of Science and Technology
+in Anhui, China, in 2023. He is currently pursuing
+his Master’s degree at the School of Automation and
+Information Engineering, Xi’an University of Tech-
+nology, Xi’an, China. His research interests include
+computer vision, image recognition, and human pose
+estimation.
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

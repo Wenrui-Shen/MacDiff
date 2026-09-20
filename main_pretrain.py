@@ -99,6 +99,8 @@ def get_args_parser():
     parser.add_argument('--train_feeder_args', default=dict(), help='the arguments of data loader for training')
 
     parser.add_argument('--text_cache', default='', help='Complete cache_clip_text.py output directory')
+    parser.add_argument('--skip_text_cache_validation', action='store_true', default=False,
+                        help='Reuse a trusted text cache with only file-size/header checks; skip hashes and row scans')
     parser.add_argument('--lambda_text_to_skeleton', type=float, default=None,
                         help='Override the fixed text-to-skeleton loss weight')
     parser.add_argument('--lambda_skeleton_to_text', type=float, default=None,
@@ -295,9 +297,15 @@ def main(args):
         if (args.feeder != 'feeder.feeder_ntu.Feeder'
                 or dataset_train.split != 'train'):
             raise ValueError('Text cache requires the native NTU training feeder and raw sample indices')
-        print('Validating multi-token text cache against the training dataset...', flush=True)
+        cache_start = time.time()
+        if args.skip_text_cache_validation:
+            print('Loading text cache with header/size checks only (full validation skipped)...', flush=True)
+        else:
+            print('Validating multi-token text cache against the training dataset...', flush=True)
         text_features = load_person_token_cache(
-            args.text_cache, dataset_train.data_path, expected_count=len(dataset_train))
+            args.text_cache, dataset_train.data_path, expected_count=len(dataset_train),
+            skip_full_validation=args.skip_text_cache_validation)
+        print('Text cache ready in {:.1f}s.'.format(time.time() - cache_start), flush=True)
         manifest = text_features.manifest
         args.text_cache_identity = {'protocol': manifest['protocol'],
                                     'identity': manifest['identity'], 'files': manifest['files']}
@@ -362,6 +370,7 @@ def main(args):
         args.text_training_weights = (model.lambda_text_to_skeleton, model.lambda_skeleton_to_text)
         args.text_share_skeleton_decoder = model.share_skeleton_decoder
         args.text_person_alignment = ('per_person_v1', model.one_person)
+        args.text_target_mode = model.text_target_mode
     if args.enable_ose:
         model.initialize_ose(
             exemplar_mapping=exemplar_mapping,

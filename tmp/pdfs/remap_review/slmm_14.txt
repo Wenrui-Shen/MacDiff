@@ -1,0 +1,130 @@
+HE et al.: ENHANCING SKELETON-BASED ACTION RECOGNITION WITH LANGUAGE DESCRIPTIONS 2131
+[57] J. Choi, C. Gao, J. C. Messou, and J.-B. Huang, “Why can’t I dance
+in the mall? Learning to mitigate scene bias in action recognition,” in
+Proc. Adv. Neural Inf. Process. Syst., vol. 32, 2019.
+[58] C. Wu, X. Wu, and J. Kittler, “Graph2Net: Perceptually-enriched
+graph learning for skeleton-based action recognition,” IEEE Trans.
+Circuits Syst. Video Technol., vol. 32, no. 4, pp. 2120–2132,
+Apr. 2022.
+[59] K. Cheng, Y . Zhang, X. He, W. Chen, J. Cheng, and H. Lu, “Skeleton-
+based action recognition with shift graph convolutional network,” in
+Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit., Jun. 2020,
+pp. 183–192.
+[60] K. Cheng, Y . Zhang, C. Cao, L. Shi, J. Cheng, and H. Lu, “Decoupling
+GCN with dropgraph module for skeleton-based action recognition,”
+in Proc. Eur . Conf. Comput. Vis., Glasgow, U.K. Cham, Switzerland:
+Springer, Aug. 2020, pp. 536–553.
+[61] Y .-F. Song, Z. Zhang, C. Shan, and L. Wang, “Stronger, faster and
+more explainable: A graph convolutional baseline for skeleton-based
+action recognition,” in Proc. 28th ACM Int. Conf. Multimedia, Oct. 2020,
+pp. 1625–1633.
+[62] Y . Liu, H. Zhang, D. Xu, and K. He, “Graph transformer network with
+temporal kernel attention for skeleton-based action recognition,” Knowl.-
+Based Syst., vol. 240, Mar. 2022, Art. no. 108146.
+[63] F. Li et al., “Frequency-driven channel attention-augmented full-scale
+temporal modeling network for skeleton-based action recognition,”
+Knowledge-Based Syst., vol. 256, Nov. 2022, Art. no. 109854.
+[64] Z. Liu, H. Zhang, Z. Chen, Z. Wang, and W. Ouyang, “Disentangling
+and unifying graph convolutions for skeleton-based action recognition,”
+in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR),
+Jun. 2020, pp. 143–152.
+[65] Z. Chen, S. Li, B. Yang, Q. Li, and H. Liu, “Multi-scale spatial temporal
+graph convolutional network for skeleton-based action recognition,” in
+Proc. AAAI Conf. Artif. Intell., 2021, vol. 35, no. 2, pp. 1113–1122.
+[66] S. Li, X. Xiang, J. Fang, J. Zhang, S. Cheng, and K. Wang, “Explor-
+ing incomplete decoupling modeling with window and cross-window
+mechanism for skeleton-based action recognition,” Knowl.-Based Syst.,
+vol. 281, Dec. 2023, Art. no. 111074.
+[67] H. Zhou, Q. Liu, and Y . Wang, “Learning discriminative representa-
+tions for skeleton based action recognition,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit., Jun. 2023, pp. 10608–10617.
+[68] H. Liu, Y . Liu, Y . Chen, C. Yuan, B. Li, and W. Hu, “TranSkele-
+ton: Hierarchical spatial–temporal transformer for skeleton-based action
+recognition,” IEEE Trans. Circuits Syst. Video Technol. , vol. 33, no. 8,
+pp. 4137–4148, Aug. 2023.
+[69] J. Lee, M. Lee, S. Cho, S. Woo, S. Jang, and S. Lee, “Leveraging
+spatio-temporal dependency for skeleton-based action recognition,” in
+Proc. Int. Conf. Comput. Vis. (ICCV), Jun. 2023, pp. 10255–10264.
+[70] J. Zhang, L. Lin, and J. Liu, “Shap-mix: Shapley value guided mixing for
+long-tailed skeleton based action recognition,” 2024, arXiv:2407.12312.
+[71] J. Liu, C. Chen, and M. Liu, “Multi-modality co-learning for efficient
+skeleton-based action recognition,” 2024, arXiv:2407.15706.
+[72] B. Li, H. Chen, Y . Chen, Y . Dai, and M. He, “Skeleton boxes:
+Solving skeleton based action detection with a single deep convolutional
+neural network,” in Proc. IEEE Int. Conf. Multimedia Expo Workshops
+(ICMEW), Jul. 2017, pp. 613–616.
+[73] S. Song, C. Lan, J. Xing, W. Zeng, and J. Liu, “Spatio-temporal
+attention-based LSTM networks for 3D action recognition and detec-
+tion,” IEEE Trans. Image Process. , vol. 27, no. 7, pp. 3459–3471,
+Jul. 2018.
+[74] T. Li, L. Fan, M. Zhao, Y . Liu, and D. Katabi, “Making the
+invisible visible: Action recognition through walls and occlusions,”
+in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV), Oct. 2019,
+pp. 872–881.
+[75] W. Nie, W. Wang, and X. Huang, “SRNet: Structured relevance feature
+learning network from skeleton data for human action recognition,”
+IEEE Access, vol. 7, pp. 132161–132172, 2019.
+[76] S. R. Gunasekara, W. Li, J. Yang, and P. Ogunbona, “Joint temporal
+pooling for improving skeleton-based action recognition,” in Proc.
+Int. Conf. Digit. Image Comput., Techn. Appl. (DICTA), Nov. 2023,
+pp. 403–410.
+[77] D. Yang, Y . Wang, A. Dantcheva, L. Garattoni, G. Francesca, and
+F. Bremond, “UNIK: A unified framework for real-world skeleton-based
+action recognition,” 2021, arXiv:2107.08580.
+[78] Y . Zhu, H. Shuai, G. Liu, and Q. Liu, “Multilevel spatial–temporal
+excited graph network for skeleton-based action recognition,” IEEE
+Trans. Image Process., vol. 32, pp. 496–508, 2023.
+[79] J. Liu, A. Shahroudy, D. Xu, A. C. Kot, and G. Wang, “Skeleton-
+based action recognition using spatio-temporal LSTM network with
+trust gates,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 40, no. 12,
+pp. 3007–3021, Dec. 2018.
+[80] F. Baradel, C. Wolf, and J. Mille, “Human action recognition: Pose-based
+attention draws focus to hands,” in Proc. IEEE Int. Conf. Comput. Vis.
+Workshops (ICCVW), Oct. 2017, pp. 604–613.
+[81] S. Song, J. Liu, Y . Li, and Z. Guo, “Modality compensation network:
+Cross-modal adaptation for action recognition,” IEEE Trans. Image
+Process., vol. 29, pp. 3957–3969, 2020.
+[82] Q. Ke, M. Bennamoun, S. An, F. Sohel, and F. Boussaid, “Learning clip
+representations for skeleton-based 3D action recognition,” IEEE Trans.
+Image Process., vol. 27, no. 6, pp. 2842–2855, Jun. 2018.
+[83] S. Das, R. Dai, D. Yang, and F. Bremond, “VPN++: Rethinking video-
+pose embeddings for understanding activities of daily living,” IEEE
+Trans. Pattern Anal. Mach. Intell., vol. 44, no. 12, pp. 9703–9717,
+Dec. 2022.
+[84] Q. Cheng, J. Cheng, Z. Liu, Z. Ren, and J. Liu, “A dense-sparse
+complementary network for human action recognition based on RGB
+and skeleton modalities,” Expert Syst. Appl., vol. 244, Jun. 2024,
+Art. no. 123061.
+[85] S. Das, A. Chaudhary, F. Bremond, and M. Thonnat, “Where to focus
+on for human action recognition?” in Proc. IEEE Winter Conf. Appl.
+Comput. Vis. (WACV), Jan. 2019, pp. 71–80.
+[86] D. Reilly and S. Das, “Just add π! pose induced video transformers
+for understanding activities of daily living,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit. (CVPR), Jun. 2024, pp. 18340–18350.
+Tian He received the B.E. degree from Southeast
+University, Jiangsu, China, in 2013, the M.S. degree
+from the University of Pittsburgh, Pittsburgh, USA,
+in 2019. He is currently Pursuing the Ph.D. degree
+in automation control engineering with the School
+of Automation, University of Electronic Science and
+Technology of China (UESTC). His research inter-
+ests include computer version, action recognition,
+and action evaluation.
+Yang Chen received the B.Sc. degree from the
+School of Physics, University of Electronic Sci-
+ence and Technology of China (UESTC), the
+B.B.A. degree from the School of Management
+and Economics, UESTC, and the M.Eng. degree in
+information and communication engineering from
+the School of Information and Communication
+Engineering, UESTC. He is currently pursuing the
+Ph.D. degree with the Department of Computing,
+The Hong Kong Polytechnic University (PolyU).
+His research interests include action recognition,
+zero-shot learning, and AI for Health.
+Xu Gao is currently pursuing the M.S. degree
+majoring in automation control engineering with
+the School of Automation, University of Electronic
+Science and Technology. His main research interests
+include computer vision, pattern recognition, and
+medical image analysis.Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

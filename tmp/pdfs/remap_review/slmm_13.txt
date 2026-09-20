@@ -1,0 +1,151 @@
+2130 IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY , VOL. 35, NO. 3, MARCH 2025
+[11] M. Li, S. Chen, X. Chen, Y . Zhang, Y . Wang, and Q. Tian,
+“Actional-structural graph convolutional networks for skeleton-based
+action recognition,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit. (CVPR), Jun. 2019, pp. 3595–3603.
+[12] X. Xiong, W. Min, Q. Wang, and C. Zha, “Human skeleton feature opti-
+mizer and adaptive structure enhancement graph convolution network for
+action recognition,” IEEE Trans. Circuits Syst. Video Technol., vol. 33,
+no. 1, pp. 342–353, Jan. 2023.
+[13] Z. Huang, Y . Qin, X. Lin, T. Liu, Z. Feng, and Y . Liu, “Motion-
+driven spatial and temporal adaptive high-resolution graph con-
+volutional networks for skeleton-based action recognition,” IEEE
+Trans. Circuits Syst. Video Technol., vol. 33, no. 4, pp. 1868–1883,
+Apr. 2023.
+[14] Z. Zhao et al., “Glimpse and zoom: Spatio-temporal focused
+dynamic network for skeleton-based action recognition,” IEEE Trans.
+Circuits Syst. Video Technol., vol. 34, no. 7, pp. 5616–5629,
+Jul. 2024.
+[15] F. Ye, S. Pu, Q. Zhong, C. Li, D. Xie, and H. Tang, “Dynamic
+GCN: Context-enriched topology learning for skeleton-based action
+recognition,” in Proc. 28th ACM Int. Conf. Multimedia, Oct. 2020,
+pp. 55–63.
+[16] C. Si, W. Chen, W. Wang, L. Wang, and T. Tan, “An attention
+enhanced graph convolutional LSTM network for skeleton-based action
+recognition,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), Jun. 2019, pp. 1227–1236.
+[17] L. Wang and P. Koniusz, “3Mformer: Multi-order multi-mode trans-
+former for skeletal action recognition,” in Proc. IEEE/CVF Conf.
+Comput. Vis. Pattern Recognit. (CVPR), Jun. 2023, pp. 5620–5631.
+[18] Y .-B. Cheng, X. Chen, D. Zhang, and L. Lin, “Motion-transformer: Self-
+supervised pre-training for skeleton-based action recognition,” in Proc.
+2nd ACM Int. Conf. Multimedia Asia, Mar. 2021, pp. 1–6.
+[19] X. Zou et al., “Generalized decoding for pixel, image, and language,”
+in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR),
+Jun. 2023, pp. 15116–15127.
+[20] J. Li, D. Li, C. Xiong, and S. Hoi, “BLIP: Bootstrapping language-image
+pre-training for unified vision-language understanding and generation,”
+in Proc. Int. Conf. Mach. Learn., 2022, pp. 12888–12900.
+[21] J. Li, D. Li, S. Savarese, and S. Hoi, “BLIP-2: Bootstrapping language-
+image pre-training with frozen image encoders and large language
+models,” 2023, arXiv:2301.12597.
+[22] X. Bruce, Y . Liu, and K. C. Chan, “Multimodal fusion via teacher–
+student network for indoor action recognition,” in Proc. AAAI Conf.
+Artif. Intell., 2021, vol. 35, no. 4, pp. 3199–3207.
+[23] S. Das, S. Sharma, R. Dai, F. Brémond, and M. Thonnat, “VPN:
+Learning video-pose embedding for activities of daily living,” in Proc.
+Eur . Conf. Comput. Vis., Glasgow, U.K. Cham, Switzerland: Springer,
+2020, pp. 72–90.
+[24] B. X. B. Yu, Y . Liu, X. Zhang, S.-H. Zhong, and K. C. C. Chan,
+“MMNet: A model-based multimodal network for human action recogni-
+tion in RGB-D videos,” IEEE Trans. Pattern Anal. Mach. Intell., vol. 45,
+no. 3, pp. 3522–3538, Mar. 2023.
+[25] R. Ding, Y . Wen, J. Liu, N. Dai, F. Meng, and M. Liu, “Integrating
+human parsing and pose network for human action recognition,” in
+Proc. CAAI Int. Conf. Artif. Intell. Cham, Switzerland: Springer, 2023,
+pp. 182–194.
+[26] A. Radford et al., “Learning transferable visual models from natural
+language supervision,” in Proc. Int. Conf. Mach. Learn., vol. 139, 2021,
+pp. 8748–8763.
+[27] G. Chéron, I. Laptev, and C. Schmid, “P-CNN: Pose-based CNN features
+for action recognition,” in Proc. IEEE Int. Conf. Comput. Vis. (ICCV),
+Dec. 2015, pp. 3218–3226.
+[28] M. Liu, H. Liu, and C. Chen, “Enhanced skeleton visualization for
+view invariant human action recognition,” Pattern Recognit. , vol. 68,
+pp. 346–362, Aug. 2017.
+[29] K. Simonyan and A. Zisserman, “Two-stream convolutional networks for
+action recognition in videos,” in Proc. Adv. Neural Inf. Process. Syst.,
+vol. 27, 2014, pp. 1–9.
+[30] Y . Du, W. Wang, and L. Wang, “Hierarchical recurrent neural network
+for skeleton based action recognition,” in Proc. IEEE Conf. Comput. Vis.
+Pattern Recognit. (CVPR), Jun. 2015, pp. 1110–1118.
+[31] J. Liu, G. Wang, P. Hu, L.-Y . Duan, and A. C. Kot, “Global
+context-aware attention LSTM networks for 3D action recognition,” in
+Proc. IEEE Conf. Comput. Vis. Pattern Recognit. (CVPR), Jun. 2017,
+pp. 1647–1656.
+[32] H. Wang and L. Wang, “Modeling temporal dynamics and spatial
+configurations of actions using two-stream recurrent neural networks,”
+in Proc. IEEE Conf. Comput. Vis. Pattern Recognit. (CVPR), Jul. 2017,
+pp. 3633–3642.
+[33] M. Korban and X. Li, “DDGCN: A dynamic directed graph convolu-
+tional network for action recognition,” in Proc. 16th Eur . Conf. Comput.
+Vis. (ECCV), Glasgow, U.K. Cham, Switzerland: Springer, Aug. 2020,
+pp. 761–776.
+[34] H.-G. Chi, M. H. Ha, S. Chi, S. W. Lee, Q. Huang, and K. Ramani,
+“InfoGCN: Representation learning for human skeleton-based action
+recognition,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit.
+(CVPR), Jun. 2022, pp. 20154–20164.
+[35] Y .-F. Song, Z. Zhang, C. Shan, and L. Wang, “Constructing stronger
+and faster baselines for skeleton-based action recognition,” IEEE Trans.
+Pattern Anal. Mach. Intell., vol. 45, no. 2, pp. 1474–1488, Feb. 2023.
+[36] S. Liu et al., “Semi-dynamic hypergraph neural network for 3D pose
+estimation,” in Proc. 29th Int. Joint Conf. Artif. Intell., Jul. 2020,
+pp. 782–788.
+[37] X. Hao, J. Li, Y . Guo, T. Jiang, and M. Yu, “Hypergraph neural network
+for skeleton-based action recognition,” IEEE Trans. Image Process.,
+vol. 30, pp. 2263–2275, 2021.
+[38] F. Baradel, C. Wolf, and J. Mille, “Human activity recognition with
+pose-driven attention to rgb,” inProc. BMVC 29th Brit. Mach. Vis. Conf.,
+2018, pp. 1–14.
+[39] M. Liu and J. Yuan, “Recognizing human actions as the evolution of
+pose estimation maps,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit., Jun. 2018, pp. 1159–1168.
+[40] H. Duan, Y . Zhao, K. Chen, D. Lin, and B. Dai, “Revisiting skeleton-
+based action recognition,” inProc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit., Jun. 2022, pp. 2969–2978.
+[41] H. Liu, C. Li, Y . Li, and Y . J. Lee, “Improved baselines with visual
+instruction tuning,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern
+Recognit. (CVPR), Jun. 2024, pp. 26286–26296.
+[42] J. Yang et al., “Unified contrastive learning in image-text-label space,”
+in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recogn., Jul. 2022,
+pp. 19163–19173.
+[43] H. Pham et al., “Combined scaling for zero-shot transfer learning,” 2021,
+arXiv:2111.10050.
+[44] L. H. Li et al., “Grounded language-image pre-training,” in
+Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit., Oct. 2022,
+pp. 10965–10975.
+[45] Y . Zhong et al., “RegionCLIP: Region-based language-image pretrain-
+ing,” in Proc. IEEE/CVF Conf. Comput. Vis. Pattern Recognit. (CVPR),
+Jun. 2022, pp. 16793–16803.
+[46] H. Zhang et al., “A simple framework for open-vocabulary segmentation
+and detection,” in Proc. IEEE/CVF Int. Conf. Comput. Vis. (ICCV),
+Oct. 2023, pp. 1020–1031.
+[47] H. Liu, C. Li, Q. Wu, and Y . J. Lee, “Visual instruction tuning,” in Proc.
+Adv. Neural Inf. Process. Syst., 2023, pp. 34892–34916.
+[48] J. Wang et al., “GIT: A generative Image-to-text transformer for vision
+and language,” 2022, arXiv:2205.14100.
+[49] S. Liu et al., “Grounding DINO: Marrying DINO with grounded pre-
+training for open-set object detection,” 2023, arXiv:2303.05499.
+[50] Q. Wu, D. Teney, P. Wang, C. Shen, A. Dick, and A. van den Hengel,
+“Visual question answering: A survey of methods and datasets,”Comput.
+Vis. Image Understand., vol. 163, pp. 21–40, Oct. 2017.
+[51] Y . Chen, Z. Zhang, C. Yuan, B. Li, Y . Deng, and W. Hu, “Channel-
+wise topology refinement graph convolution for skeleton-based action
+recognition,” in Proc. IEEE/CVF Int. Conf. Comput. Vis., May 2021,
+pp. 13359–13368.
+[52] A. Vaswani et al., “Attention is all you need,” in Proc. Adv. Neural Inf.
+Process. Syst., vol. 30, 2017.
+[53] A. Shahroudy, J. Liu, T.-T. Ng, and G. Wang, “NTU RGB+D: A large
+scale dataset for 3D human activity analysis,” in Proc. IEEE Conf.
+Comput. Vis. Pattern Recognit. (CVPR), Jun. 2016, pp. 1010–1019.
+[54] J. Liu, A. Shahroudy, M. Perez, G. Wang, L.-Y . Duan, and A. C. Kot,
+“NTU RGB+D 120: A large-scale benchmark for 3D human activity
+understanding,” IEEE Trans. Pattern Anal. Mach. Intell. , vol. 42, no. 10,
+pp. 2684–2701, Oct. 2020.
+[55] C. Liu, Y . Hu, Y . Li, S. Song, and J. Liu, “PKU-MMD: A large scale
+benchmark for continuous multi-modal human action understanding,”
+2017, arXiv:1703.07475.
+[56] R. Dai et al., “Toyota smarthome untrimmed: Real-world untrimmed
+videos for activity detection,” IEEE Trans. Pattern Anal. Mach. Intell.,
+vol. 45, no. 2, pp. 2533–2550, Feb. 2022.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

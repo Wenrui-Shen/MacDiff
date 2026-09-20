@@ -1,0 +1,35 @@
+2126 IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY , VOL. 35, NO. 3, MARCH 2025
+Fig. 7. Examples of incorrect language descriptions due to temporal
+relationship unawareness.
+Fig. 8. Largest 5 positive and negative action recognition accuracy difference
+between Z f use and Zske .
+affected action recognition shows significant improvement. For
+instance, the accuracy difference for “take off jacket” increases
+from −13.01% to −2.2%, and the accuracy difference for
+“play with phone” increases from +20.36% to +22.18%. Our
+analysis revealed that the proposed EFF module effectively
+mitigates the influence of inaccurate environment descriptions
+and emphasizes the importance of informative Ztext and Zcr oss
+features.
+D. Comparison With State-of-the-Arts
+1) Comparison With Skeleton-Based Methods: We conduct
+a comprehensive comparison of our method with state-of-
+the-art skeleton-based approaches, as presented in Table V,
+Table VI, Table VII and Table VIII. Most preceding method-
+ologies adopt a multi-stream fusion framework [59], [67].
+To ensure a fair assessment, we adhere to the same ensemble
+strategy(Joint, Bone, Joint-Motion, Bone-Motion). As shown
+in Table V, across the NTU RGB+D dataset, our method
+surpasses all prior works, excelling in both X-Sub and X-View
+configurations. Notably, our method achieves remarkable accu-
+racy with single joint (94.0% in X-sub, 97.7% in X-View) or
+TABLE V
+RECOGNITION ACCURACY ON THE NTU RGB +D DATASET
+FOR SKELETON -BASED MODELS
+TABLE VI
+RECOGNITION ACCURACY ON THE NTU RGB +D 120 D ATASET
+FOR SKELETON -BASED MODELS
+bone (93.8% in X-sub, 97.5% in X-View) as input. In the case
+of 4 ensemble setup, our model exhibits a substantial leap in
+accuracy compared to other models, outperforming the very
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

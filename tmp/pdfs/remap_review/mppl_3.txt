@@ -1,0 +1,79 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 3
+Fig. 2. The overall framework of the proposed MPPL. The Multimodal Generation (MM-Gen) module reconstructs RGB images and generates action-
+related language descriptions. The Entropy-based Cross-Modal Alignment (ECMA) module reduces text bias and visual interference through entropy-guided
+alignment loss. The Prompt Refinement Branch (PRB) combines multimodal classification features with skeletal classification features to achieve complementary
+classification decisions.
+joints, limiting the modeling of complex actions. MMNet [8]
+designs a two-branch GCN to model sparse skeletal joints
+and bones, while using a CNN to process RGB images. Star-
+Transformer [9] encodes RGB features and 2D joint heatmaps
+as tokens and concatenates them for the Transformer network.
+However, such methods achieve only shallow integration and
+miss deep semantic correlations. To address this, Kim et al.
+[10] propose cross-modal fusion where modalities exchange
+features and interact through attention. However, their vision
+encoders require large and high-quality data and still show
+limited semantic alignment. With the stronger generalization
+of LMMs in open-world settings, integrating vision and lan-
+guage for action recognition is an emerging trend.
+C. Assisted Learning with Large Multimodal Models
+In recent years, LMMs [11], [17] have shown strong gener-
+alization in computer vision. Using techniques such as prompt
+and instruction learning [11], LMMs fuse vision and language
+features to achieve a deep understanding of images and gener-
+ate corresponding textual descriptions. As a result, researchers
+have increasingly applied LMMs to action recognition. For ex-
+ample, MMFR [18] uses pre-trained vision–language models
+for masked skeleton feature reconstruction, improving fine-
+grained recognition. To overcome the lack of visual context
+in label-based descriptions, LDFP [19] employs LMMs to
+generate image-based text and fuse it with skeleton features
+via entropy-based fusion. However, this approach still lacks
+direct interaction with visual context. C2VL [20] establishes
+multimodal contrastive learning across skeleton, vision, and
+language features by the pre-trained LMMs, enriching skeleton
+details. Similarly, MMCL [12] employs LMMs as auxiliary
+networks for co-learning with skeleton encoders, improving
+robustness and generalization. However, these methods are not
+optimized for language ambiguity and bias, which are critical
+for robustness and reliability. Our MPPL framework addresses
+this by suppressing language bias and visual interference via
+an entropy-based cross-modal alignment module and refining
+classification features through a prompt branch, fully exploit-
+ing multimodal information in action recognition.
+III. METHODOLOGY
+In this section, we first present an overview of MPPL
+framework. We then describe the multimodal generation mod-
+ule and the skeleton encoder, followed by the entropy-based
+cross-modal alignment module and the collaborative learning
+objectives across modalities. Finally, we introduce the prompt
+refinement branch together with its optimization objective.
+A. Overview
+Fig. 2 illustrates the overall framework of the Multi-
+modality Progressive Prompt Learning (MPPL). MPPL en-
+hances skeleton representation learning by progressively in-
+jecting semantic knowledge and visual cues from auxiliary
+modalities through large multimodal models. The Multimodal
+Generation (MM-Gen) module provides structured semantic
+and visual guidance by reconstructing representative RGB
+composite images and generating concise action-related lan-
+guage descriptions. Based on these features, the Entropy-based
+Cross-Modal Alignment (ECMA) module performs bidirec-
+tional cross-modal alignment to suppress semantic ambiguity
+and modality-specific noise, producing more consistent rep-
+resentations. To ensure that auxiliary information effectively
+contributes to final decisions, a Prompt Refinement Branch
+(PRB) further refines prompt-aware features and strengthens
+discrimination between visually similar actions. Through pro-
+gressive cross-modal guidance and prompt refinement, MPPL
+improves fine-grained action recognition while maintaining
+low inference complexity.
+B. Multimodal Generation
+In multimodal data, visual images and natural language
+complement each other. Given a datasetD={(S i, Ui)}D
+i=1,
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

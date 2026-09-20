@@ -1,4 +1,4 @@
-"""Stage1 with global/local text memory and bidirectional token noise prediction.
+"""Stage1 with fixed CLIP targets or legacy bidirectional text noise prediction.
 
 Native encoder/decoder names are unchanged for downstream encoder transfer.
 The skeleton decoder body can be shared; only S->T sends a direct
@@ -77,11 +77,12 @@ class TextNoiseBlock(nn.Module):
 
 class TextNoiseDecoder(nn.Module):
     """Denoise global + local text tokens conditioned on visible skeleton tokens."""
-    def __init__(self, dim, time_dim, hidden_dim, depth, heads, context_length):
+    def __init__(self, dim, time_dim, hidden_dim, depth, heads, context_length,
+                 skeleton_dim=None):
         super().__init__()
         self.time_dim = time_dim
         self.input = nn.Linear(dim, hidden_dim)
-        self.skeleton_input = nn.Linear(dim, hidden_dim)
+        self.skeleton_input = nn.Linear(dim if skeleton_dim is None else skeleton_dim, hidden_dim)
         # Decoder-owned structural hints; no clean text feature enters this branch.
         self.person_embedding = nn.Embedding(2, hidden_dim)
         self.position_embedding = nn.Embedding(context_length, hidden_dim)
@@ -112,6 +113,7 @@ class Transformer(MacDiff):
                  text_context_length=77,
                  text_decoder_hidden_dim=256, text_decoder_depth=5,
                  share_skeleton_decoder=False,
+                 text_target_mode='remap',
                  lambda_text_to_skeleton=1., lambda_skeleton_to_text=1., **kwargs):
         super().__init__(**kwargs)
         if not isinstance(share_skeleton_decoder, bool):
@@ -132,24 +134,33 @@ class Transformer(MacDiff):
         self.text_context_length = text_context_length
         self.lambda_text_to_skeleton = float(lambda_text_to_skeleton)
         self.lambda_skeleton_to_text = float(lambda_skeleton_to_text)
-        self.text_remap = nn.Sequential(
-            nn.Linear(text_input_dim, text_hidden_dim), nn.GELU(),
-            nn.Linear(text_hidden_dim, self.dim_feat),
-            nn.LayerNorm(self.dim_feat, elementwise_affine=False))
-        self.text_person_embedding = nn.Embedding(2, self.dim_feat)
-        self.text_position_embedding = nn.Embedding(text_context_length, self.dim_feat)
-        nn.init.normal_(self.text_person_embedding.weight, std=.02)
-        nn.init.normal_(self.text_position_embedding.weight, std=.02)
-        self.text_skeleton_decoder = TextConditionedSkeletonDecoder(self, share_skeleton_decoder)
+        if text_target_mode not in ('remap', 'fixed_clip'):
+            raise ValueError('text_target_mode must be remap or fixed_clip')
+        if text_target_mode == 'fixed_clip' and self.lambda_text_to_skeleton:
+            raise ValueError('fixed_clip requires lambda_text_to_skeleton=0')
+        self.text_target_mode = text_target_mode
+        if text_target_mode == 'remap':
+            self.text_remap = nn.Sequential(
+                nn.Linear(text_input_dim, text_hidden_dim), nn.GELU(),
+                nn.Linear(text_hidden_dim, self.dim_feat),
+                nn.LayerNorm(self.dim_feat, elementwise_affine=False))
+            self.text_person_embedding = nn.Embedding(2, self.dim_feat)
+            self.text_position_embedding = nn.Embedding(text_context_length, self.dim_feat)
+            nn.init.normal_(self.text_person_embedding.weight, std=.02)
+            nn.init.normal_(self.text_position_embedding.weight, std=.02)
+            self.text_skeleton_decoder = TextConditionedSkeletonDecoder(self, share_skeleton_decoder)
+        target_dim = text_input_dim if text_target_mode == 'fixed_clip' else self.dim_feat
         self.text_noise_decoder = TextNoiseDecoder(
-            self.dim_feat, self.dim_t_embed, text_decoder_hidden_dim, text_decoder_depth,
-            self.decoder_blocks[0].attn.num_heads, text_context_length)
-        self.text_remap.apply(self._init_weights)
+            target_dim, self.dim_t_embed, text_decoder_hidden_dim, text_decoder_depth,
+            self.decoder_blocks[0].attn.num_heads, text_context_length,
+            skeleton_dim=self.dim_feat)
+        if text_target_mode == 'remap':
+            self.text_remap.apply(self._init_weights)
         self.text_noise_decoder.apply(self._init_weights)
         # Disabled branches have no optimizer/DDP parameters awaiting gradients.
         # With T->S disabled the remap stays at its fixed initialization; it cannot
         # learn from S->T because that branch deliberately detaches its target.
-        if not self.lambda_text_to_skeleton:
+        if text_target_mode == 'remap' and not self.lambda_text_to_skeleton:
             self.text_remap.requires_grad_(False)
             self.text_person_embedding.requires_grad_(False)
             self.text_position_embedding.requires_grad_(False)
@@ -157,7 +168,7 @@ class Transformer(MacDiff):
         if not self.lambda_skeleton_to_text:
             self.text_noise_decoder.requires_grad_(False)
 
-    def remap_tokens(self, features, valid, person_ids, positions):
+    def validate_text_tokens(self, features, valid, person_ids, positions):
         if (features.ndim != 3 or features.shape[-1] != self.text_input_dim
                 or valid.shape != features.shape[:2] or valid.dtype != torch.bool
                 or person_ids.shape != valid.shape or positions.shape != valid.shape
@@ -168,6 +179,9 @@ class Transformer(MacDiff):
                 or torch.any(positions[valid] < 1)
                 or torch.any(positions[valid] >= self.text_context_length)):
             raise ValueError('Invalid text person/position IDs')
+
+    def remap_tokens(self, features, valid, person_ids, positions):
+        self.validate_text_tokens(features, valid, person_ids, positions)
         # Padding must be irrelevant even if its caller-supplied values are nonzero.
         features = features.masked_fill(~valid[..., None], 0)
         person_ids = person_ids.masked_fill(~valid, 0)
@@ -223,8 +237,10 @@ class Transformer(MacDiff):
             batch, channels, frames, joints, people = source.shape
             # Detect padded people before centering/standardization makes zeros nonzero.
             active = source.abs().sum(dim=(1, 2, 3)) > 0
-            if not active.any(dim=1).all():
-                raise ValueError('A training sample contains no active skeleton person')
+            # A crop can have an empty retained person. Existing active-row
+            # masks exclude it from all losses; do not reject the whole batch.
+            if not active.any():
+                raise ValueError('The entire batch contains no active retained skeleton person')
             raw = source.permute(0, 4, 2, 3, 1).reshape(batch * people, frames, joints, channels)
             aug = source_aug.permute(0, 4, 2, 3, 1).reshape_as(raw)
             center = raw.mean(dim=(1, 2), keepdim=True) if self.self_shift else None
@@ -243,17 +259,23 @@ class Transformer(MacDiff):
         condition = self.build_global_local_condition(latent, pooled, ids_restore)
         prediction = self.forward_decoder(noisy, z=condition, t=t)
         native = self.forward_loss(noise[active_rows], prediction[active_rows], mask[active_rows], t[active_rows])
-        # Keep normalization in FP32 so its unit-energy convention also holds under AMP.
         text_features = text_features[active_rows]
         text_tokens = text_tokens[active_rows]
         text_token_mask = text_token_mask[active_rows]
         text_person_ids = text_person_ids[active_rows]
         text_positions = text_positions[active_rows]
-        r = self.text_remap[:-1](text_features)
-        r = self.text_remap[-1](r.float())
-        token_condition = self.remap_tokens(
-            text_tokens, text_token_mask, text_person_ids, text_positions
-        )
+        if self.text_target_mode == 'fixed_clip':
+            self.validate_text_tokens(text_tokens, text_token_mask, text_person_ids, text_positions)
+            # Preserve the cache's L2-normalized CLIP coordinates and scale exactly.
+            # Structure belongs only to the decoder, never to the clean target.
+            r = text_features.detach().float()
+            token_condition = text_tokens.detach().float().masked_fill(~text_token_mask[..., None], 0)
+        else:
+            # Keep legacy normalization in FP32 under AMP.
+            r = self.text_remap[:-1](text_features)
+            r = self.text_remap[-1](r.float())
+            token_condition = self.remap_tokens(
+                text_tokens, text_token_mask, text_person_ids, text_positions)
         memory = torch.cat([r[:, None], token_condition], dim=1)
         memory_mask = torch.cat([torch.ones_like(text_token_mask[:, :1]), text_token_mask], dim=1)
         h = torch.cat([pooled[active_rows], latent[active_rows]], dim=1)
@@ -270,9 +292,10 @@ class Transformer(MacDiff):
         loss = (native + self.lambda_loss_uni * uniformity
                 + self.lambda_text_to_skeleton * t2s + self.lambda_skeleton_to_text * s2t)
         metrics = {'loss_diff': native.detach(), 'loss_uniformity': uniformity.detach(),
+                   'empty_skeleton_persons': (~active_rows).sum().detach(),
                    'loss_text_to_skeleton': t2s.detach(), 'loss_skeleton_to_text': s2t.detach(),
                    'text_energy': r.detach().square().mean(),
                    'text_batch_variance': r.detach().var(dim=0, unbiased=False).mean()}
-        if self.lambda_text_to_skeleton:
+        if self.lambda_text_to_skeleton or self.lambda_skeleton_to_text:
             metrics['text_valid_tokens'] = text_token_mask.sum(dim=1).float().mean()
         return loss, prediction, mask, metrics

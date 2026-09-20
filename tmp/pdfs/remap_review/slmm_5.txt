@@ -1,0 +1,152 @@
+2122 IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY , VOL. 35, NO. 3, MARCH 2025
+feature extraction yields limited effectiveness. To overcome
+this limitation, we leverage the strong temporal relationships
+and subtle motion dependencies inherent in skeleton data to
+formulate the Query (Q ske ) to guide the environment feature
+extraction. We calculate a new cross-attention coefficients
+matrix and perform a weighted fusion according to the Key
+(Ktext ) and Value (V text ) derived from the environmental
+information. This approach enables a more efficient extraction
+of informative environment features. The calculation formula
+is as follows:
+Qske = WqZske , (6)
+Ktext = WkZtext , (7)
+Vtext = WvZtext , (8)
+ˆA = so f tmax
+(
+Qske KT
+text
+√dk
+)
+, (9)
+Zcr oss = Vtext ˆA. (10)
+From another perspective, our proposed skeleton-supported
+extracted feature is a component of the self-attention mecha-
+nism applied to the concatenated feature of Ztext and Zske . Let
+Z′ = [Zske , Ztext ], the self-attention of Z′ can be expressed
+as:
+Oz′ =
+(
+Qske KT
+ske Vske + Qske KT
+text Vtext
+Qtext KT
+text Vtext + Qtext KT
+ske Vske
+)
+. (11)
+The output of our SEFE module Zcr oss equals to the underline
+part of Oz′. Thus, Zcr oss can be viewed as a precise and
+effective supplement to the skeleton feature.
+D. Entropy-Based Feature Fusion
+While environment descriptions can help improve the per-
+formance of action recognition, in some cases the descriptions
+can be misleading, affecting recognition accuracy. LMMs
+might generate inaccurate descriptions of objects and their
+usage for some images, such as potato chips mistaken for
+bananas, and combs mistaken for mobile phones. Additionally,
+environment descriptions often face challenges in distinguish-
+ing similar actions with strong temporal dependencies, such
+as “putting on shoes” and “taking off shoes”. To make
+maximum use of accurate environment descriptions, elimi-
+nate the negative impact of inaccurate descriptions, and fuse
+the complementary information from skeletal features and
+environmental features, we propose an Entropy-based Feature
+Fusion (EFF) module.
+1) Action Recognition Feature Space Mapping: The skele-
+ton features and the environment description features are
+embedded in different feature spaces, exhibiting heterogeneity.
+Simply concatenating or summing up these heterogeneous
+features would make it difficult for the MLP classifier to
+effectively utilize the information from different modalities.
+Therefore, the first step of our feature fusion module is
+to separately map the skeleton features, the environment
+description features, and extracted environment features into
+the action recognition feature space, aiming to reduce the
+gap in the feature subspace while preserving the integrity of
+modality-specific semantics. We constructed three widely-used
+Transformer [52] encoder with identical structures as feature
+mapping encoders to respectively map Ztext , Zske , and Zcr oss
+into the action recognition feature space. The mapping process
+can be expressed as follows:
+Mtext = Ftext (Ztext ) , (12)
+Mske = Fske (Zske ) , (13)
+Mcr oss = Fcr oss (Zcr oss) , (14)
+where Ftext , Fske , Fcr oss represents the feature mapping
+encoders, and Mtext , Mske , Mske are the encoded features in
+the action recognition feature space. The mapping processes
+are guided through three loss terms supervised by the action
+label, which can be represented as:
+ˆytext = So f tmax (Wtext Mtext ) , (15)
+arg min
+Wtext ,Ftext
+Nd∑
+i=1
+Nc∑
+c=1
+−ylog
+(
+ˆytext )
+
+ 
+Ltext
+, (16)
+ˆyske = So f tmax (Wske Mske ) , (17)
+arg min
+Wske ,Fske
+Nd∑
+i=1
+Nc∑
+c=1
+−ylog
+(
+ˆyske
+)
+  
+Lske
+, (18)
+ˆycr oss = So f tmax (Wcr ossMcr oss) , (19)
+arg min
+Wcr oss,Fcr oss
+Nd∑
+i=1
+Nc∑
+c=1
+−ylog
+(
+ˆycr oss)
+  
+Lcr oss
+, (20)
+where Ltext , Lske and Lcr oss are the cross-entropy loss that
+enforces multimodal features to be embedded into the action
+recognition space. Nc is the number of action classes in
+a specific dataset. Nd denotes the number of samples in
+the training set. Wtext , Wske , and Wcr oss represent MLP
+classifiers. y is the one-hot ground-truth action label.
+2) Entropy Calculation: When the features from different
+modalities are mapped into the action recognition space, the
+predicted discrete probability distribution of actions can be
+generated. A notably high probability for a specific action,
+coupled with lower probabilities for others, signifies a highly
+reliable recognition, and vice versa. Therefore, we can use
+the entropy of the probability distributions to measure the
+reliability of different modal features. The entropy can be
+formulated as:
+H ˆytext = −
+Nc∑
+c=1
+ˆytext log ( ˆytext ), (21)
+H ˆyske = −
+Nc∑
+c=1
+ˆyske log ( ˆyske ), (22)
+H ˆycr oss = −
+Nc∑
+c=1
+ˆycr osslog ( ˆycr oss). (23)
+When the recognition results are reliable and consistent, the
+probability distribution will have low entropy because one or a
+few outcomes dominate the distribution. Conversely, when the
+prediction results are unreliable or ambiguous, the distribution
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

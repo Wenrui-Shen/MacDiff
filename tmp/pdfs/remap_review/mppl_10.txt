@@ -1,0 +1,81 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 10
+Fig. 9. The impact of hyperparameters on model performance in NTU-
+RGB+D 120 X-View. (a) hyperparametersλ 1,λ 2, andλ 3, (b) Video sampling
+framemin MM-Gen.
+TABLE IX
+COMPARISON OF ACCURACY FOR DIFFERENT SKELETON ENCODERS IN
+MPPLON THENTU-RGB+D 120DATASET.
+Method Publisher w/o MPPL (%) w/ MPPL (%)
+X-Sub X-View X-Sub X-View
+GCN-Based:
+ST-GCN [3] AAAI 18 70.7 73.2 81.6 ↑10.9 84.2↑11.0
+2s-AGCN [30] CVPR 19 82.5 84.2 88.6 ↑6.1 89.3↑5.1
+MS-G3D [5] CVPR 20 86.9 88.4 89.5 ↑2.6 90.2↑1.8
+CTR-GCN [4] ICCV 21 88.9 90.6 92.3 ↑3.4 93.4↑2.8
+InfoGCN [31] CVPR 22 89.4 90.7 91.6 ↑2.2 92.8↑2.1
+MSS-GCN [36] TCSVT 24 88.9 90.6 91.1 ↑2.2 92.5↑1.9
+BlockGCN [15] CVPR 24 90.3 91.5 92.0 ↑1.7 92.7↑1.2
+DeGCN [37] TIP 24 91.0 92.1 92.7 ↑1.7 93.6↑1.5
+Hyper-Net [39] DSP 25 89.6 91.2 91.9 ↑2.3 92.6↑1.4
+TSGCNeXt [40] ESW A 25 90.2 91.7 92.6 ↑2.4 94.1↑2.4
+AGMS-GCN [41] KBS 25 90.4 91.6 93.1 ↑2.7 94.9↑3.2
+Attention-Based:
+DSTA [42] ACCV 20 86.6 89.0 91.6 ↑5.0 92.5↑3.5
+SiT-MLP [52] TCSVT 24 89.0 90.5 92.7 ↑3.7 93.1↑2.6
+SelfGCN [16] TIP 24 89.4 91.0 93.7 ↑4.3 95.0↑4.0
+SPIANet [43] PR 24 89.2 90.4 92.9 ↑3.7 94.1↑3.7
+S3GAAR [44] TMM 25 88.8 90.4 92.8 ↑4.0 93.6↑3.2
+LG-SGNet [2] PR 25 89.4 91.0 93.3 ↑3.9 93.4↑2.4
+UGSTM [46] ASC 25 89.6 91.1 91.6 ↑2.0 94.6↑3.5
+AG-HGNN [47] KBS 25 90.3 91.5 92.1 ↑1.8 94.9↑3.4
+effect of bidirectional guidance in mitigating modality discrep-
+ancies and enhancing semantic consistency. Additionally, we
+also evaluate different decay functions: the exponential decay
+e−H and the linear decay1−H. When linear decay is applied
+to either modality, the performance slightly drops (93.9% and
+94.0%). In contrast, using exponential decay to both modalities
+achieves the best performance of 95.1%, suggesting that it
+suppresses uncertain features more smoothly than linear decay
+while better preserving informative motion cues.
+To analyze entropy distributions across different sample
+types, we randomly sample instances from simple actions
+(single-person with low interaction) and complex actions (two-
+person or high interaction), and visualize the results using box-
+plots, as shown in Fig. 8. No significant difference is observed
+between the two groups in either modality (Vision:p= 0.725,
+Language:p= 0.662), indicating that higher entropy is not
+inherently caused by action complexity. Although complex
+actions exhibit slightly larger IQRs, suggesting greater vari-
+ability, their median entropy remains comparable to that of
+simple actions. Notably, high-entropy outliers appear in both
+groups and are often associated with noisy or ambiguous
+samples (e.g., background clutter or occlusion), implying that
+extreme entropy values mainly reflect uncertainty rather than
+informative complexity.
+Fig. 10. Confusion matrices for some similar actions in the skeleton encoder,
+MPPL w/ ECMA, MPPL w/ PRB, and MPPL on NTU RGB+D 120 X-Set
+setting.
+Fig. 11. RGB reconstruction and language prompt generation for two-
+person interactive actions. While the language prompts for two-person actions
+generally capture the movement characteristics, they lack certain details. For
+example, the language prompt for the “pushing” action conveys the concept
+of pushing, but the object being pushed is incorrect.
+We further compare different vision and language encoders
+to verify the adaptability and robustness of the ECMA module
+(Table VII). The results show that after introducing ECMA,
+performance improves significantly across all setups, whether
+using a combination of ResNet50, Inception-V3, and BERT,
+or pre-trained CLIP models such as ViT-B/32, ViT-B/16, and
+ViT-L/14, stabilizing around 95.0%. The best performance
+of 95.1% is achieved with Inception-V3 + BERT combined
+with CLIP (ViT-L/14). These results demonstrate that ECMA
+effectively suppresses semantic noise and enhances cross-
+modal alignment across different encoders, exhibiting strong
+versatility and robustness.
+3) Effectiveness of PRB:After guiding the skeleton encoder
+with visual-language features, we introduce the PRB to refine
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

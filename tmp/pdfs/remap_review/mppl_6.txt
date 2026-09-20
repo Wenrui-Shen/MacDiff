@@ -1,0 +1,130 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 6
+IV. EXPERIMENTS
+We conducted extensive comparative experiments, ablation
+studies, and specialized analyses to comprehensively evaluate
+the effectiveness of the proposed method on four mainstream
+datasets: NTU-RGB+D 60 [14] / 120 [25], Kinetics-skeleton
+[26], and Northwestern-UCLA [27].
+A. Datasets
+1) NTU-RGB+D [14]:The NTU-RGB+D 60 dataset con-
+tains 60 action classes with 56,880 video samples collected
+from 40 subjects and three camera views, providing RGB,
+depth, infrared, and 25-joint skeleton modalities. We evaluate
+action recognition performance using classification accuracy
+across all datasets, defined as the ratio of correctly predicted
+samples to the total number of samples. For NTU-RGB+D 60,
+two standard evaluation protocols are adopted: Cross-Subject
+(X-Sub) with 40,320 training and 16,560 testing samples, and
+Cross-View (X-View) with 37,920 training (cameras 2–3) and
+18,960 testing (camera 1) samples.
+2) NTU-RGB+D 120 [25]:The NTU-RGB+D 120 dataset
+expands NTU-RGB+D 60 to 120 action classes with 114,480
+videos from 106 subjects captured by multiple Kinect V2
+cameras. The evaluation metrics employ two official proto-
+cols: Cross-Subject (X-Sub), with 63,026 training and 50,922
+testing samples, and Cross-Setup (X-Set), with 59,477 training
+and 54,471 testing samples.
+3) Kinetics-skeleton [26]:This dataset contains 300,000
+video clips from Kinetics-400 with 18-joint skeletons extracted
+using OpenPose, providing a large and challenging benchmark
+for action recognition. Following common practice, we report
+Top-1/-5 accuracy as the evaluation metrics for action classi-
+fication.
+4) Northwestern-UCLA [27]:The N-UCLA dataset in-
+cludes 1,494 skeletons of 10 classes from 10 subjects, captured
+by three cameras. Following the NTU X-View protocol, cam-
+eras 1–2 are for training and camera 3 is for testing. Due to
+the relatively small scale of this dataset, only Top-1 accuracy
+is reported.
+5) Micro-action dataset:Micro-Action 52 [28] is a large-
+scale micro-action dataset capturing unconscious human be-
+haviors through professional interviews. The dataset com-
+prises 52 categories and contains 22,422 samples. In addition,
+we also evaluate our method on iMiGUE [29], a micro-
+gesture dataset collected from post-competition athlete inter-
+views, consisting of 32 upper-body gesture categories, totaling
+18,232 samples. Following standard practice, we evaluate
+these datasets using Top-1/-5 accuracy.
+B. Implementation detail
+All experiments are conducted on a server with four
+NVIDIA RTX 4090 GPUs using PyTorch. In the MM-Gen
+module, MiniGPT-V2 and MiniGPT-4 generate images and
+language descriptions, respectively. The ECMA module uses
+pre-trained CLIP [11] ViT-L/14 vision and text encoders, and
+the PRB employs CLIP’s text encoder. The models are trained
+with SGD (momentum 0.9, weight decay 0.0005) for 150
+TABLE I
+ACCURACY COMPARISON OF SKELETON-BASED SINGLE-MODAL AND
+MULTIMODAL METHODS ON THENTU-RGB+D 60 (NTU60)AND THE
+NTU-RGB+D 120 (NTU120)DATASET.BOLDINDICATES THE BEST
+RESULT,underline INDICATES THE SECOND BEST. SREPRESENTS
+SKELETON, RREPRESENTSRGBIMAGE,ANDLREPRESENTS LANGUAGE.
+Method Publisher Modality NTU 60 (%) NTU 120 (%)
+X-Sub X-View X-Sub X-Set
+Single-modal (GCN-Based):
+ST-GCN [3] AAAI 18 S 81.5 88.3 70.7 73.2
+2s-AGCN [30] CVPR 19 S 88.5 95.1 82.5 84.2
+MS-G3D [5] CVPR 20 S 91.5 96.2 86.9 88.4
+CTR-GCN [4] ICCV 21 S 92.4 96.8 88.9 90.6
+InfoGCN [31] CVPR 22 S 92.7 96.9 89.4 90.7
+EfficientGCN [32] TPAMI 22 S 92.1 96.1 88.7 88.9
+SAN-GCN [33] TMM 23 S 92.1 96.2 88.7 90.1
+TD-GCN [34] TMM 23 S 92.8 96.8 - -
+FRF-GCN [35] AAAI 24 S 91.3 96.5 87.1 88.4
+MSS-GCN [36] TCSVT 24 S 92.7 96.9 88.9 90.6
+BlockGCN [15] CVPR 24 S 93.1 97.0 90.3 91.5
+DeGCN [37] TIP 24 S 93.6 97.4 91.0 92.1
+SCA-GCN [38] CIS 25 S 89.8 96.0 - -
+Hyper-Net [39] DSP 25 S 92.8 96.9 89.6 91.2
+TSGCNeXt [40] ESW A 25 S 93.2 97.0 90.2 91.7
+AGMS-GCN [41] KBS 25 S 93.9 97.8 90.4 91.6
+Single-modal (Attention-Based):
+DSTA [42] ACCV 20 S 91.5 96.4 86.6 89.0
+SelfGCN [16] TIP 24 S 93.1 96.6 89.4 91.0
+SPIANet [43] PR 24 S 92.8 96.8 89.2 90.4
+S3GAAR [44] TMM 25 S 92.9 96.8 88.8 90.4
+LG-SGNet [2] PR 25 S 93.1 96.7 89.4 91.0
+EMS-TAGCN [45] CHB 25 S 91.3 97.5 - -
+UGSTM [46] ASC 25 S 92.9 97.2 89.6 91.1
+AG-HGNN [47] KBS 25 S 93.1 97.2 90.3 91.5
+MPPL (Ours) 25 S+R+L 94.1 97.9 93.5 95.1
+Multimodal:
+VPN [6] ECCV 20 S+R 93.5 96.2 86.3 87.8
+DRDIS [48] TCSVT 22 S+R 91.1 94.3 81.3 83.4
+GAP [17] ICCV 23 S+L 92.9 97.0 89.9 91.1
+START [9] W ACV 23 S+R 92.0 96.5 90.3 92.7
+CML [10] ICCV 23 S+R 94.3 97.9 90.5 91.4
+MMFR [18] TCSVT 24 S+L 92.0 96.5 87.4 90.4
+GMFNet [1] TMM 24 S+R 93.4 97.7 89.8 90.2
+MMCL [12] ACMMM 24 S+R+L 93.5 97.4 90.3 91.7
+CFVL [13] TMM 25 S+L 93.7 97.5 90.5 91.6
+LDFP [19] TCSVT 25 S+L96.4 98.993.1 94.8
+C2VL [20] TMM 25 S+R+L 91.8 95.7 87.8 89.2
+LA-GCN [49] TMM 25 S+L 93.5 97.3 90.7 91.8
+MPPL (Ours) 25 S+R+L 94.1 97.9 93.5 95.1
+epochs, starting with a learning rate of 0.1, reduced by a
+factor of 10 at epochs 120 and 140. Batch sizes are 256 for
+NTU-RGB+D 60/120, 128 for Kinetics-Skeleton, and 512 for
+Northwestern-UCLA.
+C. Comparison with the state-of-the-art
+We conduct a comprehensive comparison with state-of-
+the-art action recognition methods, including both skeleton-
+based single-modal and multimodal methods, as shown in
+Tables I, II, and III. On the NTU-RGB+D 60/120 dataset,
+our method achieves competitive performance. Multimodal
+approaches generally outperform single-modal methods due
+to the complementary information across modalities.
+On the NTU-RGB+D 60, our method outperforms the latest
+single-modal methods AGMS-GCN (0.2%/0.1%), SelfGCN
+(1.0%/1.3%), and AG-HGNN (1.0%/0.7%) under the X-Sub
+and X-View settings, respectively. From the attention heatmap
+of the action “writing”, we observe that MPPL (S+R+L)
+effectively compensates for the limitations of single-modal
+methods in capturing subtle motion cues, as shown in Fig. 4.
+Specifically, MPPL (S+R+L) places greater emphasis on fine-
+grained regions such as the fingers and wrists (highlighted by
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

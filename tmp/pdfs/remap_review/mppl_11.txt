@@ -1,0 +1,104 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 11
+TABLE X
+COMPARISON OF MODEL COMPLEXITY.
+Method Modality Params FLOPsAcc.(%)
+START [9] S+R 58.49M 18.67G 90.3
+DRDIS [48] S+R 171.98M 27.92G 91.7
+MMCL [12] S+R+L 1.44M 1.79G 90.3
+LDFP [19] S+L 10.00M 6.00G 93.1
+MPPL (Trainable) S+R+L 18.77M 26.17G 93.5
+MiniGPT-v2 (Frozen) - 7.56B 2.90T -
+MiniGPT4 (Frozen) - 13.58B 3.56T -
+CLIP-img/text-encoder (Frozen) - 379.15M 84.56G -
+Fig. 12. The single-class accuracy of MPPL is compared against CTR-GCN
+as a baseline for two-person actions. The accuracy of MPPL falls below CTR-
+GCN for all five two-person actions, indicating that the proposed method has
+insufficient recognition capability for two-person interactive actions.
+classification features using class-level prompts. To evaluate
+the effectiveness of PRB, we test different prompt settings
+(Table VIII), including fixed templates “[CLS] is an action”
+(prefix), “This is a [CLS] action” (cloze), and “This is an
+action of [CLS]” (suffix). The results show that incorporating
+PRB significantly improves accuracy on X-Sub and X-Set,
+with the learnable suffix prompt achieving the best perfor-
+mance. Unlike auxiliary signals, PRB explicitly establishes a
+connection between prompt features and class labels, actively
+participating in action classification.
+4) Model hyperparameter:We analyze the impact of four
+hyperparametersλ 1,λ 2,λ 3, andmon model performance
+using the NTU-RGB+D 120 X-View setting. The importance
+weightsλ 1,λ 2, andλ 3 balance different loss terms and thus
+the learning capacity of various model components. We vary
+each uniformly in the range[0,1]with a step of 0.1. As
+shown in Fig. 9 (a),λ 1 has the most significant impact on
+performance. Sinceλ 1 controls the degree of visual–language
+integration, too small a value limits multimodal integration,
+sharply reducing performance. Optimal performance occurs
+atλ 1 = 0.7, whileλ 2 andλ 3 are more stable, with best
+results at 0.4 and 0.5, respectively. The parameterm, the
+number of frames extracted by MM-Gen, affects the richness
+of multimodal information. Fig. 9(b) shows that MiniGPT-v2
+consistently outperforms GroundingDINO across differentm
+values, and performance stabilizes whenm≥5. To reduce
+computational cost, we setm= 5.
+E. Improvements on Skeleton-Based Models
+As a plug-and-play enhancement, our method can improve
+the recognition performance of any mainstream skeleton-based
+model. Therefore, we evaluate representative GCN-based and
+attention-based models. MPPL significantly improves the per-
+formance of all single-modality models (Table IX). Notably,
+a weaker baseline like ST-GCN exhibits the largest gains,
+while stronger models (e.g., AGMS-GCN, SelfGCN) still
+gain 1.5%–4%. Overall, MPPL enhances generalization and
+robustness, demonstrating the effectiveness of multimodal
+progressive prompt learning. We further compare the accuracy
+of MPPL and the skeleton encoder on similar categories (Fig.
+10). The skeleton encoder alone (a) struggles with similar hand
+motions (0.68–0.69 accuracy for “make OK sign” and “make
+victory sign”). Adding ECMA or PRB individually improves
+accuracy, while the full MPPL framework achieves 95.10%
+on X-Set and significantly reduces confusion, confirming its
+effectiveness in enhancing action recognition performance and
+robustness.
+F . Analysis of Complexity and Limitations
+We analyze the model complexity of MPPL alongside
+several mainstream methods (Table X). Multimodal methods
+typically require more parameters, up to 171.98M. MPPL
+ranks third in size among the five methods but achieves
+the highest accuracy. LMMs like MiniGPT-v2/4 and CLIP
+consume substantial resources. Overall, MPPL balances effi-
+ciency and accuracy, achieving top performance with moderate
+parameters and FLOPs. Despite its strong performance, MPPL
+has limitations. The large size and computational cost hinder
+deployment in resource-constrained scenarios. Additionally,
+MPPL exhibits limited capability in recognizing two-person
+interaction actions, which may be due to the insufficient ability
+of MM-Gen to interpret dual-subject images (see Fig. 11
+and 12). Future work will focus on lightweight architectures,
+efficient inference, and improved multimodal generation to
+enhance performance in diverse scenarios.
+V. CONCLUSION
+We propose a novel Multi-modality Progressive Prompt
+Learning (MPPL) framework that leverages large multimodal
+models to enrich skeleton-based action representations with
+environmental appearance and fine-grained semantic informa-
+tion, enabling efficient and accurate human action recognition.
+MPPL offers three key advantages. First, the Multimodal
+Generation (MM-Gen) module generates vision and language
+modalities from video frames, addressing the lack of envi-
+ronmental and fine-grained cues in skeleton features. Second,
+the Entropy-based Cross-Modal Alignment (ECMA) module
+effectively suppresses irrelevant noise in vision and language
+features, achieving bidirectional cross-modal alignment. Third,
+the Prompt Refinement Branch (PRB) introduces language-
+aware cues that complement the semantic descriptions in
+ECMA, directly participating in the decision process through
+adaptive refinement and enhancement of classification features.
+Experiments on four mainstream datasets demonstrate that
+MPPL achieves competitive performance across both single-
+modal and multimodal methods.
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

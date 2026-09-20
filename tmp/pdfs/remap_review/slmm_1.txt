@@ -1,0 +1,106 @@
+2118 IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY , VOL. 35, NO. 3, MARCH 2025
+Enhancing Skeleton-Based Action Recognition With
+Language Descriptions From Pre-Trained
+Large Multimodal Models
+Tian He
+ , Yang Chen
+ , Xu Gao, Ling Wang
+ , Member , IEEE, Ting Hu,
+and Hong Cheng
+ , Senior Member , IEEE
+Abstract— Skeleton data has become popular in human
+action recognition because of its efficacy in capturing human
+motion patterns while mitigating the influence of environmental
+noise. However, overlooking critical action-related environmental
+descriptors presents challenges in distinguishing actions charac-
+terized by similar body movements. To address this limitation,
+we propose a novel framework that integrates skeleton data with
+language descriptions to easily capture essential environmental
+information for fine-grained action recognition while maintaining
+the robustness of skeleton-based methods. We first develop a
+Language Environment Description Generation (LEDG) module
+that utilizes the open-world understanding ability of Large
+Multimodal Models to generate instance-level action-related
+language environment descriptions without the need to train
+additional modules. Then, we introduce a Skeleton-supported
+Environment Feature Extraction (SEFE) module that leverages
+the temporal dependency inherent in skeleton data to extract
+key semantic environmental features. Additionally, we propose
+an Entropy-based Feature Fusion (EFF) module to dynamically
+amalgamate complementary features from both skeleton and lan-
+guage domains. Experimental results demonstrate the superiority
+of our framework, which can improve the accuracy of existing
+skeleton-based action recognition methods and achieve state-
+of-the-art performance on four well-established skeleton-based
+action recognition benchmarks.
+Index Terms— Skeleton-based action recognition, graph
+convolutional networks, large multimodal models, modality
+fusion.
+Received 28 March 2024; revised 11 September 2024 and 22 October 2024;
+accepted 30 October 2024. Date of publication 4 November 2024; date of
+current version 7 March 2025. This work was supported in part by the National
+Natural Science Foundation of China (NSFC) under Grant 61971106 and
+Grant 62473079, in part by the Key Research and Development Project of
+Sichuan Province under Grant 2021YFS0016, in part by the Medical and Engi-
+neering Cross-Disciplinary Joint Fund under Grant ZYGX2021YGLH003, and
+in part by Chengdu Key Research and Development Support Plan under Grant
+2021-YF05-02388-SN. This article was recommended by Associate Editor
+D. Gragnaniello. (Corresponding author: Hong Cheng.)
+Tian He, Xu Gao, and Hong Cheng are with the School of Automation Engi-
+neering, University of Electronic Science and Technology of China, Chengdu
+611731, China (e-mail: tianhe@std.uestc.edu.cn; gxu@std.uestc.edu.cn;
+hcheng@uestc.edu.cn).
+Yang Chen and Ling Wang are with the School of Information and
+Communication Engineering, University of Electronic Science and Tech-
+nology of China, Chengdu 611731, China (e-mail: gemini_c6@163.com;
+eewangling@uestc.edu.cn).
+Ting Hu is with No.1 Orthopedics Hospital of Chengdu, Chengdu 610000,
+China (e-mail: chinaht2008@126.com).
+Digital Object Identifier 10.1109/TCSVT.2024.3491176
+I. I NTRODUCTION
+I
+N
+RECENT years, the recognition of human actions has
+emerged as an important issue across various computer
+vision fields, including sports analysis [1], interactive enter-
+tainments [2], healthcare [3] and video surveillance [4]. Many
+action recognition techniques use skeleton data as input
+because skeleton data exhibits robustness to background noise,
+lighting changes, and viewpoint variations [5], [6], [7]. Given
+the inherent representation of human joints as graph nodes
+and their connections as graph edges, Graph Convolutional
+Network (GCN)-based models are extensively employed to
+capture interrelated dependencies between body joints for
+skeleton-based action recognition [8], [9], [10], [11].
+A skeletal GCN-based action recognition model typically
+comprises spatial and temporal modules. Spatial modules
+focus on modeling topological relationships of the human
+body, while temporal modules aggregate information across
+the time dimension. Existing research has primarily focused
+on enhancing spatial feature extraction and temporal feature
+aggregation capabilities of the GCNs [8], [9], [12], [13],
+[14], [15], [16], [17], [18]. Although such research has made
+significant improvement, the relationship between the human
+body’s behavior and the environment it interacts with is
+seriously overlooked. Similar body movements may indicate
+distinct action categories, such as “brushing teeth”, “drinking
+water”, “eating”, “combing hair”, and “listening to the phone”.
+These actions share remarkably analogous motions involving
+the wrist moving toward the head. It is difficult to improve
+the recognition performance of such actions based solely on
+skeletal information.
+To improve human action recognition, researchers are
+exploring the integration of skeleton information with RGB
+data. This integration primarily focuses on utilizing skeleton
+data to guide the extraction of RGB features [19], [20],
+[21], [22], [23], [24], [25]. By incorporating skeleton data,
+it becomes possible to selectively preserve visual features in
+RGB data corresponding to specific body parts, filtering out
+irrelevant noise. These multimodal approaches rely heavily on
+specialized RGB understanding modules (designed to extract
+action-related visual information) and the data used to train
+the RGB understanding modules. As a result, their general-
+ization ability is limited. Furthermore, these models cannot
+1051-8215 © 2024 IEEE. Personal use is permitted, but republication/redistribution requires IEEE permission.
+See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

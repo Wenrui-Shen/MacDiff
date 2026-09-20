@@ -1,0 +1,74 @@
+IEEE TRANSACTIONS ON MULTIMEDIA, VOL. **, NO. **, ** 8
+Fig. 5. The t-SNE visualization of similar action representations on the
+NTU RGB+D 60 dataset. Multimodal fusion significantly improves inter-class
+separability and intra-class compactness, with MPPL demonstrating the best
+clustering performance.
+Fig. 6. Single-class recognition accuracy comparison between MMCL and
+MPPL on the NTU-RGB+D 120 X-Sub. MPPL demonstrates superior perfor-
+mance for highly similar actions, such as “reading” and “writing”; “play with
+phone/tablet” and “type on a keyboard”; “make OK sign” and “make victory
+sign”.
+and 3.4%, surpasses the prior best model LDFP by 0.4% and
+0.2%, and exceeds LA-GCN by 2.8% and 3.3%. These results
+demonstrate substantial performance gains on more complex
+datasets. As shown in Fig. 6, MPPL also exhibits stronger
+discriminative ability for highly similar actions, such as “eat
+meal” vs. “brush hair,” “reading” vs. “writing,” “play with
+phone/tablet” vs. “type on a keyboard,” and “make OK sign”
+vs. “make victory sign.”
+As shown in Table II, on the small N-UCLA dataset, our
+model outperforms the single-modal method AGMS-GCN by
+1.0% and surpasses the multimodal methods CFVL and LA-
+GCN by 0.3% and 0.8%, respectively. Since there are no mul-
+timodal approaches for Kinetics-skeleton, we compare only
+Fig. 7. Two reconstruction methods for RGB images. The first row recon-
+structs the image using adaptive cropping. The second row uses standard
+cropping. In comparison, standard cropping fails to capture the motion
+trajectories of specific actions, resulting in inaccurately generated language
+prompts. Adaptive cropping achieves more precise language prompts by
+intelligently preserving complete human regions.
+TABLE V
+COMPARISON OF SAMPLING STRATEGIES FOR COMPOSITERGBIMAGES,
+ROIFRAMES,AND RAW FRAMES.BOLDINDICATES THE BEST RESULT,
+underline INDICATES THE SECOND BEST. COMP.DENOTES COMPLEXITY.
+Sampling strategy Composite RGB image ROI Raw
+Comp. PPL SB Acc.(%) Acc.(%) Acc.(%)
+RandomO(m)1102 0.72 91.5 91.2 90.5
+Joint velocityO(nJ)727 0.60 93.4 92.2 91.7
+Motion magnitudeO(nJ)735 0.59 93.4 93.3 91.2
+Uniform (Ours)O(m)7120.6093.5 92.9 91.8
+single-modal methods. As reported in Table II, our method
+achieves the best performance, improving top-1 and top-5
+accuracy over EMS-TAGCN by 2.1% and 2.3%, respectively.
+To further demonstrate the advantages of MPPL in fine-
+grained action recognition and complex scene understanding,
+we evaluate the proposed method on two micro-action datasets,
+as shown in Table III. On the Micro-Action 52 dataset, MPPL
+achieves a higher Top-1 accuracy than the latest single-modal
+and multimodal methods, outperforming PCAN by 0.4%.
+However, its Top-5 accuracy is 0.9% lower than that of PCAN,
+suggesting that MPPL still has limitations in distinguishing
+extremely subtle action variations. On the iMiGUE dataset,
+MPPL achieves the best performance in both Top-1 and Top-
+5 accuracy. Overall, MPPL achieves competitive results across
+all six mainstream action recognition datasets, validating the
+effectiveness of our multimodal feature fusion strategy and its
+capability for fine-grained action recognition.
+D. Ablation study
+In this section, we provide a detailed analysis of how dif-
+ferent modules, constraints, and hyperparameter settings affect
+the overall performance. All ablation studies are conducted on
+the NTU-RGB+D 120 dataset.
+1) LMMs in MM-Gen:In MM-Gen, the quality of gen-
+erated vision and language modalities depends heavily on
+the choice of LMMs and text instructions. To mitigate the
+impact of generation quality, we explore different LMMs and
+evaluate both person detection accuracy and the generated
+language descriptions. For person detection, we manually
+annotate human regions in video frames and compute detection
+accuracy against the ground truth using IOU. The language
+This article has been accepted for publication in IEEE Transactions on Multimedia. This is the author's version which has not been fully edited and 
+content may change prior to final publication. Citation information: DOI 10.1109/TMM.2026.3726241
+© 2026 IEEE. All rights reserved, including rights for text and data mining and training of artificial intelligence and similar technologies. Personal use is permitted,
+but republication/redistribution requires IEEE permission. See https://www.ieee.org/publications/rights/index.html for more information.
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:49 UTC from IEEE Xplore.  Restrictions apply. 

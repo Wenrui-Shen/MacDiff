@@ -1,0 +1,69 @@
+2120 IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY , VOL. 35, NO. 3, MARCH 2025
+Fig. 2. The overall framework of our proposed method. The Language Environment Description Generation (LEDG) module provides action-related
+environmental information. The Skeleton-supported Environment Feature Extraction (SEFE) module aims at efficiently extracting key environmental information
+related to action movements from redundant descriptions. The Entropy-based Feature Fusion (EFF) module combines complementary skeletal and environmental
+features in the unified action recognition feature space. The fused feature is used to train an MLP action classifier.
+spatiotemporal relationships across the visual features. These
+multimodal models rely heavily on the dataset used to train the
+visual encoder and cannot effectively exploit the topological
+information of human joints like GCN-based models. In some
+recent studies [24], [25], GCN and visual encoders are ensem-
+bled for action recognition, where the recognition results of
+GCN and visual encoders are stacked together to obtain the
+final action category. However, these methods are also heavily
+dependent on the dataset used to train the visual encoder.
+C. Pre-Trained Large Multimodal Models
+Individuals engage with the world through diverse chan-
+nels, including vision and language. Each of these channels
+possesses unique advantages in representing and conveying
+specific concepts, contributing to a more comprehensive under-
+standing of the world [41]. Drawing inspiration from this
+notion, in recent years, there has been significant progress
+in the research of LMMs. Pre-existing large-scale pre-trained
+language-enhanced visual models consistently push the bound-
+aries of state-of-the-art techniques across various computer
+vision downstream tasks, such as recognition [26], [42],
+[43], detection [44], [45], segmentation [19], [46], and visual
+question answering [21], [47], [48]. Based on the power-
+ful image understanding and text generation capabilities of
+LMMs, generating language descriptions that contain impor-
+tant action-related environmental information from images
+presents a viable strategy.
+III. M ETHODS
+In this section, we begin by illustrating the workflow for
+the Language Environment Description Generation (LEDG)
+module, which automatically generates action-related envi-
+ronmental information from video frames. Concurrently,
+we describe the skeleton encoder used to capture skeleton
+features. Subsequently, we introduce the Skeleton-supported
+Environment Feature Extraction (SEFE) module, designed
+for the efficient extraction of important environmental infor-
+mation across temporal dimensions. Then, we introduce the
+Entropy-based Feature Fusion (EFF) module, to dynamically
+combine complementary skeletal and environmental features
+in a unified feature space. Finally, the fused feature is
+employed to train an MLP classifier for action recognition.
+The detailed structure of our proposed framework is presented
+in Fig. 2.
+A. Language Environment Description Generation
+1) Human Action ROI Segmentation: State-of-the-art pre-
+trained LMMs encounter challenges in correctly comprehend-
+ing human actions within distracting environments. Therefore,
+the segmentation of the Region Of Interest (ROI) about human
+actions becomes crucial to mitigate the influence of extraneous
+backgrounds. With the help of Grounding DINO [49], we can
+accurately detect and segment human action ROI. Grounding
+DINO stands out as an open-set object detector capable of
+identifying arbitrary objects through human inputs, including
+category names or referring expressions. The segmentation
+process can be seen in Fig. 3.
+2) Action-Related Environment Description: To obtain crit-
+ical environment information related to actions, we employ
+the Visual Question Answering (VQA) paradigm. VQA allows
+users to inquire about the contents of an image, with the model
+responding in natural language [50]. We utilize the LLaV A
+model [41], [47] to generate action-related language envi-
+ronment descriptions. LLaV A connects a vision encoder and
+a Large Language Model (LLM) for general-purpose visual
+and language understanding. In our framework, we design
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

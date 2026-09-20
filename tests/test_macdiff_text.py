@@ -39,6 +39,109 @@ class TextStage1Tests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             return Transformer(**options)
 
+    def test_fixed_clip_target_is_exact_and_stays_fixed_after_optimizer_step(self):
+        import torch
+        model = self.model(text_target_mode='fixed_clip', lambda_text_to_skeleton=0.,
+                           text_input_dim=512)
+        for prefix in ('text_remap', 'text_person_embedding', 'text_position_embedding',
+                       'text_skeleton_decoder'):
+            self.assertFalse(any(name.startswith(prefix) for name in model.state_dict()), prefix)
+        source = torch.randn(3, 3, 8, 25, 2)
+        source[1, ..., 0] = 0  # must not substitute the nonempty person 1
+        text = torch.nn.functional.normalize(torch.randn(3, 512), dim=-1).requires_grad_()
+        data = self.tokens(3, dim=512)
+        data['text_token_mask'][1] = False
+        data['text_tokens'] = torch.nn.functional.normalize(data['text_tokens'], dim=-1)
+        data['text_tokens'].masked_fill_(~data['text_token_mask'][..., None], float('nan'))
+        data['text_tokens'].requires_grad_()
+        recorded = []
+        q_sample = model.diffusion.q_sample
+
+        def capture(target, t, noise=None):
+            if target.ndim == 3:
+                recorded.append(target.detach().clone())
+                self.assertFalse(target.requires_grad)
+            return q_sample(target, t, noise=noise)
+
+        model.diffusion.q_sample = capture
+        optimizer = torch.optim.AdamW(model.parameters(), lr=.001)
+        loss, _, _, metrics = model(source, source + .01, text_features=text,
+                                   mask_ratio=.5, **data)
+        expected = torch.cat([text[[0, 2], None], data['text_tokens'][[0, 2]].masked_fill(
+            ~data['text_token_mask'][[0, 2], :, None], 0)], dim=1).detach()
+        torch.testing.assert_close(recorded[0], expected, rtol=0, atol=0)
+        self.assertEqual(metrics['empty_skeleton_persons'].item(), 1)
+        self.assertEqual(metrics['loss_text_to_skeleton'].item(), 0)
+        self.assertAlmostEqual(metrics['text_energy'].item(), 1 / 512, places=7)
+        torch.testing.assert_close(loss.detach(), metrics['loss_diff']
+            + .02 * metrics['loss_uniformity'] + metrics['loss_skeleton_to_text'])
+        # Isolate the auxiliary gradient: S->T must reach the encoder, not the
+        # native skeleton decoder or either cached feature tensor.
+        x = source[[0, 2], ..., 0].permute(0, 2, 3, 1)
+        latent, pooled, _, _ = model.forward_encoder(x, x_orig=x, mask_ratio=.5, motion_aware_tau=-1)
+        h = torch.cat([pooled, latent], dim=1)
+        valid = torch.cat([torch.ones(2, 1, dtype=torch.bool), data['text_token_mask'][[0, 2]]], dim=1)
+        auxiliary = model.skeleton_to_text_loss(expected, h, valid,
+            torch.ones(h.shape[:2], dtype=torch.bool), data['text_person_ids'][[0, 2]],
+            data['text_positions'][[0, 2]])
+        auxiliary.backward()
+        self.assertGreater(model.blocks[0].attn.qkv.weight.grad.abs().sum().item(), 0)
+        self.assertTrue(all(p.grad is None for p in model.decoder_blocks.parameters()))
+        optimizer.zero_grad()
+        loss.backward()
+        self.assertIsNone(text.grad)
+        self.assertIsNone(data['text_tokens'].grad)
+        for name, parameter in model.named_parameters():
+            self.assertIsNotNone(parameter.grad, name)
+            self.assertTrue(torch.isfinite(parameter.grad).all(), name)
+        self.assertGreater(model.blocks[0].attn.qkv.weight.grad.abs().sum().item(), 0)
+        optimizer.step()
+        model(source, source + .01, text_features=text, mask_ratio=.5, **data)
+        torch.testing.assert_close(recorded[-1], expected, rtol=0, atol=0)
+
+    def test_fixed_clip_reverse_padding_and_skeleton_condition(self):
+        import torch
+        model = self.model(text_target_mode='fixed_clip', lambda_text_to_skeleton=0.).eval()
+        data = self.tokens(2)
+        valid = torch.cat([torch.ones(2, 1, dtype=torch.bool), data['text_token_mask']], dim=1)
+        memory, h = torch.randn(2, 7, 6), torch.randn(2, 5, 8)
+        hm = torch.ones(2, 5, dtype=torch.bool)
+        t = torch.tensor([2, 4])
+        with torch.no_grad():
+            expected = model.text_noise_decoder(memory, t, h, hm, valid,
+                data['text_person_ids'], data['text_positions'])
+            self.assertEqual(expected.shape, memory.shape)
+            changed = memory.masked_fill(~valid[..., None], float('nan'))
+            actual = model.text_noise_decoder(changed, t, h, hm, valid,
+                data['text_person_ids'].masked_fill(~valid[:, 1:], 999),
+                data['text_positions'].masked_fill(~valid[:, 1:], -999))
+            torch.testing.assert_close(actual, expected)
+            actual = model.text_noise_decoder(memory, t, h.flip(0), hm, valid,
+                data['text_person_ids'], data['text_positions'])
+            self.assertFalse(torch.allclose(actual[valid], expected[valid]))
+
+    def test_fixed_clip_rejects_t2s_and_resume_from_legacy_target(self):
+        import torch
+        from util.misc import load_model
+        with self.assertRaisesRegex(ValueError, 'requires lambda_text_to_skeleton=0'):
+            self.model(text_target_mode='fixed_clip')
+        model = self.model(text_target_mode='fixed_clip', lambda_text_to_skeleton=0.)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'checkpoint.pth'
+            saved = types.SimpleNamespace(text_cache_identity={}, text_training_weights=(0., 1.))
+            torch.save({'model': model.state_dict(), 'args': saved}, path)
+            args = types.SimpleNamespace(resume=str(path), text_cache='cache',
+                text_cache_identity={}, text_training_weights=(0., 1.), text_target_mode='fixed_clip')
+            with self.assertRaisesRegex(ValueError, 'text_target_mode'):
+                load_model(args, model, None, None)
+            saved.text_target_mode = 'fixed_clip'
+            torch.save({'model': model.state_dict(), 'args': saved}, path)
+            restored = self.model(text_target_mode='fixed_clip', lambda_text_to_skeleton=0.)
+            with contextlib.redirect_stdout(io.StringIO()):
+                load_model(args, restored, None, None)
+            for key, value in model.state_dict().items():
+                torch.testing.assert_close(value, restored.state_dict()[key])
+
     def test_all_three_losses_backward_and_one_encoder_forward(self):
         import torch
         model = self.model()
@@ -447,6 +550,30 @@ class TextStage1Tests(unittest.TestCase):
         x = torch.randn(2,3,8,25,2)
         with self.assertRaisesRegex(ValueError, 'no matching cached description'):
             model(x,x.clone(),text_features=torch.randn(4,6),mask_ratio=.5,**data)
+
+
+    def test_empty_retained_person_is_excluded_without_using_second_person(self):
+        import torch
+        model = self.model(share_skeleton_decoder=True)
+        x = torch.randn(3,3,8,25,2)
+        x[1,...,0] = 0  # person 1 is present, but must never replace person 0
+        aug = x.clone(); aug[1,...,0] = .01
+        data = self.tokens(3)
+        data['text_token_mask'][1] = False
+        text = torch.randn(3,6,requires_grad=True)
+        observed=[]
+        hook=model.text_noise_decoder.register_forward_pre_hook(lambda m,inputs: observed.append(inputs[0].shape[0]))
+        result=model(x,aug,text_features=text,mask_ratio=.5,**data)
+        hook.remove()
+        self.assertEqual(observed,[2])
+        self.assertEqual(result[3]['empty_skeleton_persons'].item(),1)
+        self.assertTrue(torch.isfinite(result[0]))
+        result[0].backward()
+        self.assertEqual(text.grad[1].abs().sum().item(),0)
+        self.assertGreater(text.grad[[0,2]].abs().sum().item(),0)
+        x[...,0]=0
+        with self.assertRaisesRegex(ValueError,'entire batch'):
+            model(x,aug,text_features=text,mask_ratio=.5,**data)
 
 
 if __name__ == '__main__':

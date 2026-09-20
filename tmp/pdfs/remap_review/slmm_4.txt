@@ -1,0 +1,97 @@
+HE et al.: ENHANCING SKELETON-BASED ACTION RECOGNITION WITH LANGUAGE DESCRIPTIONS 2121
+Fig. 3. Human action ROI segmentation.
+Fig. 4. Language Environment Description generation.
+two questions for extracting important information: “What
+does the person in the picture have on his/her hands?”
+and “What is the person in the picture going to do
+with these items?”. These questions are coupled with the
+directive “Answer the questions concisely” and then fed into
+LLaV A. The LLaV A model subsequently provides correspond-
+ing answers based on the action frame, as shown in Fig. 4.
+3) Text Encoder: Inspired by the impressive advancements
+made by Transformer models in the field of natural lan-
+guage processing, we employ a pre-trained, transformer-based
+language model known as CLIP-text-encoder [26] as our
+text encoder. The text encoder transforms the language envi-
+ronment descriptions into high-dimensional feature vectors.
+To generate environmental features for a specific action video,
+we select a set of t frames through downsampling. These
+frames go through the ROI segmentation, VQA, and encoding
+processes, resulting in a feature vector Ztext ∈ Rt× f , where
+f is the feature vector dimension for a single frame.
+B. Skeleton Encoder
+We represent the human skeleton as a graph with joints
+as vertices and bones as edges. The graph is denoted as
+G(V, E, X). V is the set of N vertices. E is the edge set which
+can be formulated as an adjacency matrix A ∈ {0, 1}N ×N ,
+where Ai, j = 1 denotes the i-th joint and the j-th joint are
+connected and 0 otherwise. X ∈ RN ×C is the input feature
+set of N vertices, where C represents the feature dimension
+of each vi ∈ V . Graph Convolution networks can effectively
+model joint dependencies by aggregating information from
+connected joints through adjacency matrix A and update X to
+a new representation Zske ∈ RC ′
+by a learnable parameter W.
+The encoding process can be formulated as follows:
+Zske = σ
+(
+D− 1
+2 AD− 1
+2 XW
+)
+, (1)
+where D ∈ RN ×N is the degree matrix for normalization,
+σ is the activate function. To enhance the topological cor-
+relation ability, the adjacency matrix A can be changed to
+a higher-order graph or a hypergraph. Our skeleton encoder
+consists of multiple CTR-GCN [51] blocks, which mod-
+els channel-wise topologies by learning a shared topology
+as a generic prior for all channels and refining it with
+channel-specific correlations for each channel.
+C. Skeleton-Supported Environment Feature Extraction
+When processing a specific action video, the environment
+features Ztext ∈ R16× f are derived from 16 frames captured at
+different timestamps. However, not all frames contain useful
+information for action recognition. For example, the environ-
+mental features of adjacent images may be the same, and some
+environment features may be less relevant to action recogni-
+tion. Direct summation or concatenation of the environment
+feature of all 16 frames may introduce a considerable amount
+of noise, affecting recognition accuracy. Therefore, we propose
+a Skeleton-supported Environment Feature Extraction (SEFE)
+module to efficiently extract high-dimensional environmental
+features that are important for action recognition across tem-
+poral dimensions.
+1) Self-Attention: The self-attention [52] is a powerful
+mechanism that allows exploring the relative importance of
+different elements in sequence data, capturing long-range
+dependencies, and thereby extracting informative higher-level
+features. This algorithm can focus on important features and
+ignore irrelevant ones. The key components of self-attention
+are Query (Q), Key (K), and Value (V). In the calculation
+process, it calculates the similarity scores between elements
+using Q and K. Then, the similarity scores are normalized
+to obtain attention coefficients. Subsequently, a weighted sum
+is performed on the V based on the attention coefficients.
+The calculation process can be represented by the following
+formula:
+Q = WqZ, (2)
+K = WkZ, (3)
+V = WvZ, (4)
+O = so f tmax
+(
+Q K T
+√dk
+)
+V, (5)
+where Wq , Wk, Wv are model parameters, Z represents input
+feature and O represents output feature. dk represents the
+dimensionality of K, and the division of √dk is referred to
+as scaling. When the variance of the Q K T becomes large,
+scaling helps reduce the variance, leading to more stable
+gradient updates during training.
+2) Skeleton-Supported Feature Extraction: Due to the
+redundancy and instability of the environment features, relying
+solely on Ztext to compute the self-attention coefficients for
+each frame and using these coefficients for environmental
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

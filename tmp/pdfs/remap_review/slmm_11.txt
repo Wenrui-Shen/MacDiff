@@ -1,0 +1,45 @@
+2128 IEEE TRANSACTIONS ON CIRCUITS AND SYSTEMS FOR VIDEO TECHNOLOGY , VOL. 35, NO. 3, MARCH 2025
+Fig. 9. Confusion matrices of the action classifiers based on skeleton-based and our method.
+TABLE XI
+RECOGNITION ACCURACY ON THE PKU-MMD D ATASET
+FOR MULTIMODAL MODELS
+Smarthome dataset, as shown in Table XII. Specifically, our
+model outperforms VPN++ by 5.8% and 9.2% on the CS and
+CV2 evaluation protocols, respectively. Compared to MMNet,
+our model achieves gains of 6.7%, 20.7%, and 21.8% on the
+CS, CV1, and CV2 evaluation protocols, respectively. These
+results indicate that when the training set is relatively small,
+multimodal models struggle to effectively train image encoders
+for identifying critical RGB features, leading to suboptimal
+action recognition performance. In contrast, our model not
+only seamlessly integrates action-related environment infor-
+mation but also significantly reduces the dependency on the
+size of the training set.
+E. Improvements on Skeleton-Based GCN Models
+To demonstrate the capability of our proposed framework to
+improve various skeleton-based GCN action recognition meth-
+ods, we conduct experiments using different well-known GCN
+models as skeleton encoders on the NTU RGB+D and NTU
+RGB+D 120 datasets. As shown in Table XIII, our framework
+TABLE XII
+RECOGNITION ACCURACY ON THE TOYOTA SMARTHOME DATASET
+FOR MULTIMODAL MODELS
+achieves improvements across all settings on both datasets
+compared to the GCN models. Moreover, the stronger the
+spatiotemporal feature generation ability of the GCN model,
+the higher the accuracy of our method. This indicates that
+our proposed approach is a general and easily implementable
+method that can effectively integrate with different GCN
+models. Additionally, in the more complex NTU RGB+D
+120 dataset, our method exhibited greater improvements over
+the original GCN model, highlighting the utility of LED for
+complex action classification.
+In Fig. 9, we present the confusion matrices comparing the
+performance of the CTR-GCN and our proposed method on
+the NTU-RGB+D X-Sub protocol. When relying solely on
+CTR-GCN, some actions are prone to misclassification. Cer-
+tain actions, highlighted within the red boxes in Fig. 9(a), tend
+to be confused with each other, such as “reading”, “writing”,
+“typing on the keyboard”, and “playing with a phone/tablet”.
+However, these misclassified instances have been significantly
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 

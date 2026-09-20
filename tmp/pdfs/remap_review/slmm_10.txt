@@ -1,0 +1,75 @@
+HE et al.: ENHANCING SKELETON-BASED ACTION RECOGNITION WITH LANGUAGE DESCRIPTIONS 2127
+TABLE VII
+RECOGNITION ACCURACY ON THE PKU-MMD D ATASET
+FOR SKELETON -BASED MODELS
+TABLE VIII
+RECOGNITION ACCURACY ON THE TOYOTA SMARTHOME
+DATASET FOR SKELETON -BASED MODELS
+recent work MMCL [71] by a large margin (2.9%) on X-Sub
+deployment and 1.5% on X-View deployment.
+On the currently largest dataset NTU RGB+D 120,
+as shown in Table VI, our method continues to surpass
+existing models. In X-Sub settings, our method outperforms
+MMCL [71] by 2.8% and Shap-Mix [70] by 2%, while
+in X-Set configurations, we exceed MMCL by 3.1% and
+Shap-Mix by 3.1%. It is worth noting that the accuracy of
+our model based on solely joint or bone has also exceeded
+state-of-the-arts on the X-Set and X-sub protocols. These
+results underscore the robust performance and advancements
+of our method, consistently outperforming competitors across
+different datasets and settings.
+For the PKU-MMD dataset, our approach achieves the
+best performance under the X-Sub and X-View evaluation
+protocols. As shown in Table VII, our approach outperforms
+recent JMAP by 3.1% on the X-Sub protocol and 2.4% on
+the X-view protocol. The experiment results demonstrate that
+incorporating environmental information through language
+descriptions is beneficial for action recognition.
+For the Toyota Smarthome dataset, our method significantly
+outperforms other skeleton-based approaches, as shown in
+Table VIII. For example, our approach outperforms state-of-
+art ML-STGNet by 12.2%, 28.2%, and 4.9% on the CS, CV1,
+and CV2 protocols respectively. Our method outperforms
+skeleton-based action recognition approaches for two primary
+reasons. First, the Toyota Smarthome dataset is tailored for
+daily indoor activities, where the high similarities between
+actions (e.g., “drink from can” versus “drink from bottle”)
+make it difficult to distinguish them based on skeletal features
+TABLE IX
+RECOGNITION ACCURACY ON THE NTU RGB +D DATASET
+FOR MULTIMODAL MODELS
+TABLE X
+RECOGNITION ACCURACY ON THE NTU RGB +D 120 D ATASET
+FOR MULTIMODAL MODELS
+alone. Second, the CV1 evaluation protocol’s training set
+contains only 1,877 samples (the CV2 evaluation protocol’s
+training set contains 7,735 samples), which is insufficient to
+train a skeleton feature encoder with strong generalization
+capabilities. The experimental results demonstrate that lever-
+aging the general knowledge of pre-trained LLMs to generate
+environment descriptions related to actions not only enhances
+action recognition accuracy but also reduces the dependency
+on the amount of training data.
+2) Comparison With Multimodal Methods: Since our pro-
+posed framework simultaneously utilizes skeleton and RGB
+data, we also compare our method with the latest multimodal
+action recognition algorithms on the NTU RGB+D, NTU
+RGB+D 120, PKU-MMD, and Toyota Smarthome datasets.
+As shown in Table IX, our method performs competitively
+with existing state-of-the-art multimodal models on the NTU
+RGB+D dataset. Our method surpasses the TSMF [22] by
+3.9% and 1.5% for the X-Sub and X-View evaluation proto-
+cols. Our method also exceeds the performance of VPN [23]
+by 0.9% and 0.9% for the X-Sub and X-View evaluation
+protocols. For NTU RGB+D 120 dataset, in X-Sub set-
+tings, our approach outperforms VPN++ [83] by 2.4% and
+MMNet [24] by 0.2%, while in X-Set configurations, our
+approach exceeds VPN++ [83] by 2.3% and MMNet [24]
+by 0.4%. For the PKU-MMD data set, as shown in Table XI,
+our approach outperforms TSMF and MMNet on both X-Sub
+and X-view protocols. The NTU RGB+D 60, PKU-MMD,
+and NTU RGB+D 120 datasets are similar, as they were
+collected using the same sensor and share the same data
+characteristics. Compared to other multimodal models, our
+framework demonstrates a sizable improvement on the Toyota
+Authorized licensed use limited to: SHENZHEN UNIVERSITY. Downloaded on September 17,2026 at 12:51:47 UTC from IEEE Xplore.  Restrictions apply. 
