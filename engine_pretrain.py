@@ -142,10 +142,14 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
         accumulation_boundary = (
             (data_iter_step + 1) % accum_iter == 0
             or data_iter_step + 1 == steps_this_epoch)
+        scale_before = loss_scaler._scaler.get_scale() if accumulation_boundary else None
         loss_scaler(
             loss, optimizer, parameters=model.parameters(),
             update_grad=accumulation_boundary)
         if accumulation_boundary:
+            if (text_features is not None
+                    and loss_scaler._scaler.get_scale() >= scale_before):
+                model_without_ddp.update_text_target()
             optimizer.zero_grad()
 
         if device.type == 'cuda':

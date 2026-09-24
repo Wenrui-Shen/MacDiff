@@ -323,6 +323,12 @@ def load_model(args, model_without_ddp, optimizer, loss_scaler):
             saved_args = checkpoint.get('args')
             if getattr(saved_args, 'text_target_mode', 'remap') != getattr(args, 'text_target_mode', 'remap'):
                 raise ValueError('Text Stage1 resume mismatch: text_target_mode')
+            if getattr(saved_args, 'text_target_norm', 'none') != getattr(args, 'text_target_norm', 'none'):
+                raise ValueError('Text Stage1 resume mismatch: text_target_norm')
+            if getattr(args, 'text_target_mode', None) == 'ema_remap':
+                for name in ('text_target_momentum', 'text_uniformity_weight'):
+                    if getattr(saved_args, name, None) != getattr(args, name, None):
+                        raise ValueError('Text Stage1 resume mismatch: ' + name)
             if getattr(saved_args, 'text_person_alignment', None) != getattr(args, 'text_person_alignment', None):
                 raise ValueError('Text Stage1 resume mismatch: text_person_alignment')
             if getattr(saved_args, 'text_share_skeleton_decoder', False) != getattr(args, 'text_share_skeleton_decoder', False):

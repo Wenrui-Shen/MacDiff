@@ -120,6 +120,132 @@ class TextStage1Tests(unittest.TestCase):
                 data['text_person_ids'], data['text_positions'])
             self.assertFalse(torch.allclose(actual[valid], expected[valid]))
 
+    def test_fixed_clip_rms_target_has_unit_energy_and_preserves_direction(self):
+        import torch
+        model = self.model(text_target_mode='fixed_clip', text_target_norm='rms',
+                           lambda_text_to_skeleton=0.)
+        global_clip = torch.nn.functional.normalize(torch.randn(3, 6), dim=-1).requires_grad_()
+        local_clip = torch.nn.functional.normalize(torch.randn(3, 4, 6), dim=-1).requires_grad_()
+        valid = torch.tensor([[True, True, False, False], [True] * 4, [True, False, False, False]])
+        local_with_bad_padding = local_clip.masked_fill(~valid[..., None], float('nan'))
+        global_target = model.fixed_clip_target(global_clip)
+        local_target = model.fixed_clip_target(local_with_bad_padding, valid)
+        torch.testing.assert_close(global_target.square().mean(dim=-1), torch.ones(3))
+        torch.testing.assert_close(local_target[valid].square().mean(dim=-1),
+                                   torch.ones(int(valid.sum())))
+        torch.testing.assert_close(local_target[~valid], torch.zeros_like(local_target[~valid]))
+        torch.testing.assert_close(
+            torch.nn.functional.cosine_similarity(global_target, global_clip.detach()),
+            torch.ones(3))
+        torch.testing.assert_close(global_target, global_clip.detach() * (6 ** .5))
+        self.assertFalse(global_target.requires_grad)
+        self.assertFalse(local_target.requires_grad)
+
+        with self.assertRaisesRegex(ValueError, 'only supported with fixed_clip'):
+            self.model(text_target_norm='rms')
+        with self.assertRaisesRegex(ValueError, 'must be none or rms'):
+            self.model(text_target_norm='layernorm')
+
+    def test_ema_remap_starts_at_fixed_rms_and_updates_only_on_explicit_step(self):
+        import torch
+        model = self.model(text_target_mode='ema_remap', text_target_norm='rms',
+                           lambda_text_to_skeleton=.1, lambda_skeleton_to_text=.1,
+                           lambda_text_uniformity=.02, text_target_momentum=.5)
+        cached = torch.nn.functional.normalize(torch.randn(2, 6), dim=-1)
+        fixed = model.fixed_clip_target(cached)
+        self.assertFalse(torch.allclose(model.text_remap(fixed), fixed))
+        torch.testing.assert_close(model.text_target_remap(fixed), fixed)
+        self.assertTrue(all(not p.requires_grad for p in model.text_target_remap.parameters()))
+
+        with torch.no_grad():
+            model.text_remap.body[-1].bias.add_(.2)
+        torch.testing.assert_close(model.text_target_remap(fixed), fixed)
+        teacher_before = model.text_target_remap.body[-1].bias.clone()
+        online_before = model.text_remap.body[-1].bias.clone()
+        model.update_text_target()
+        torch.testing.assert_close(model.text_target_remap.body[-1].bias,
+                                   .5 * teacher_before + .5 * online_before)
+        restored = self.model(text_target_mode='ema_remap', text_target_norm='rms',
+                              lambda_text_to_skeleton=.1, lambda_skeleton_to_text=.1,
+                              lambda_text_uniformity=.02, text_target_momentum=.5)
+        restored.load_state_dict(model.state_dict())
+        torch.testing.assert_close(restored.text_target_remap.body[-1].bias,
+                                   model.text_target_remap.body[-1].bias)
+
+    def test_ema_remap_diffuses_teacher_target_and_trains_online_remap(self):
+        import torch
+        model = self.model(text_target_mode='ema_remap', text_target_norm='rms',
+                           lambda_text_to_skeleton=.1, lambda_skeleton_to_text=.1,
+                           lambda_text_uniformity=.02)
+        source = torch.randn(2, 3, 8, 25, 2)
+        global_clip = torch.nn.functional.normalize(torch.randn(2, 6), dim=-1).requires_grad_()
+        data = self.tokens(2)
+        data['text_tokens'] = torch.nn.functional.normalize(
+            data['text_tokens'], dim=-1).requires_grad_()
+        captured = []
+        q_sample = model.diffusion.q_sample
+
+        def capture(target, t, noise=None):
+            if target.ndim == 3:
+                captured.append(target.detach().clone())
+                self.assertFalse(target.requires_grad)
+            return q_sample(target, t, noise=noise)
+
+        model.diffusion.q_sample = capture
+        loss, _, _, metrics = model(source, source.clone(),
+                                     text_features=global_clip, mask_ratio=.5, **data)
+        expected = torch.cat([model.fixed_clip_target(global_clip)[:, None],
+            model.fixed_clip_target(data['text_tokens'], data['text_token_mask'])], dim=1)
+        torch.testing.assert_close(captured[0], expected)
+        self.assertAlmostEqual(metrics['text_energy'].item(), 1., places=5)
+        self.assertAlmostEqual(metrics['text_target_drift_mse'].item(), 0., places=6)
+        self.assertGreater(metrics['loss_text_uniformity'].item(), 0)
+        torch.testing.assert_close(loss.detach(),
+            metrics['loss_diff'] + .02 * metrics['loss_uniformity']
+            + .02 * metrics['loss_text_uniformity']
+            + .1 * metrics['loss_text_to_skeleton']
+            + .1 * metrics['loss_skeleton_to_text'])
+        loss.backward()
+        self.assertIsNone(global_clip.grad)
+        self.assertIsNone(data['text_tokens'].grad)
+        self.assertTrue(all(p.grad is None for p in model.text_target_remap.parameters()))
+        self.assertGreater(model.text_remap.body[-1].weight.grad.abs().sum().item(), 0)
+
+    def test_ema_remap_decoder_sharing_routes_t2s_gradients(self):
+        import torch
+        for shared in (False, True):
+            model = self.model(text_target_mode='ema_remap', text_target_norm='rms',
+                               share_skeleton_decoder=shared,
+                               lambda_text_to_skeleton=.1, lambda_skeleton_to_text=.1)
+            data = self.tokens(2)
+            r = model.text_remap(model.fixed_clip_target(torch.randn(2, 6)))
+            local = model.remap_tokens(data['text_tokens'], data['text_token_mask'],
+                                       data['text_person_ids'], data['text_positions'])
+            x = torch.randn(2, 8, 25, 3)
+            loss = model.text_to_skeleton_loss(
+                x, torch.randn_like(x), torch.tensor([2, 4]),
+                torch.ones(2, 50), r, torch.ones(2, dtype=torch.bool), 1,
+                local, data['text_token_mask'])
+            loss.backward()
+            self.assertEqual(model.decoder_pred.weight.grad is not None, shared)
+            self.assertIsNotNone(model.text_skeleton_decoder.text_input.weight.grad)
+            self.assertEqual(any(key.startswith('text_skeleton_decoder.decoder_blocks.')
+                                 for key in model.state_dict()), not shared)
+
+    def test_masked_text_uniformity_ignores_padding(self):
+        import torch
+        from model.transformer_macdiff_text import masked_text_uniformity_loss
+        features = torch.randn(2, 4, 6, requires_grad=True)
+        valid = torch.tensor([[True, True, False, False], [True, True, True, False]])
+        reference = masked_text_uniformity_loss(features, valid)
+        changed = features.detach().clone()
+        changed[~valid] = float('nan')
+        actual = masked_text_uniformity_loss(changed, valid)
+        torch.testing.assert_close(reference, actual)
+        reference.backward()
+        torch.testing.assert_close(features.grad[~valid],
+                                   torch.zeros_like(features.grad[~valid]))
+
     def test_fixed_clip_rejects_t2s_and_resume_from_legacy_target(self):
         import torch
         from util.misc import load_model
@@ -131,11 +257,16 @@ class TextStage1Tests(unittest.TestCase):
             saved = types.SimpleNamespace(text_cache_identity={}, text_training_weights=(0., 1.))
             torch.save({'model': model.state_dict(), 'args': saved}, path)
             args = types.SimpleNamespace(resume=str(path), text_cache='cache',
-                text_cache_identity={}, text_training_weights=(0., 1.), text_target_mode='fixed_clip')
+                text_cache_identity={}, text_training_weights=(0., 1.),
+                text_target_mode='fixed_clip', text_target_norm='none')
             with self.assertRaisesRegex(ValueError, 'text_target_mode'):
                 load_model(args, model, None, None)
             saved.text_target_mode = 'fixed_clip'
             torch.save({'model': model.state_dict(), 'args': saved}, path)
+            rms_args = types.SimpleNamespace(**vars(args))
+            rms_args.text_target_norm = 'rms'
+            with self.assertRaisesRegex(ValueError, 'text_target_norm'):
+                load_model(rms_args, model, None, None)
             restored = self.model(text_target_mode='fixed_clip', lambda_text_to_skeleton=0.)
             with contextlib.redirect_stdout(io.StringIO()):
                 load_model(args, restored, None, None)

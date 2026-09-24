@@ -371,6 +371,9 @@ def main(args):
         args.text_share_skeleton_decoder = model.share_skeleton_decoder
         args.text_person_alignment = ('per_person_v1', model.one_person)
         args.text_target_mode = model.text_target_mode
+        args.text_target_norm = model.text_target_norm
+        args.text_target_momentum = model.text_target_momentum
+        args.text_uniformity_weight = model.lambda_text_uniformity
     if args.enable_ose:
         model.initialize_ose(
             exemplar_mapping=exemplar_mapping,
