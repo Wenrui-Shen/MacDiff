@@ -44,21 +44,23 @@ def _cuda_peak_memory(device):
 def train_one_epoch(model: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, loss_scaler,
-                    log_writer=None, args=None, text_features=None):
+                    log_writer=None, args=None, text_features=None, text_target_bank=None):
     if args.enable_ose:
         return train_one_epoch_ose(
             model, data_loader, optimizer, device, epoch, loss_scaler,
             log_writer=log_writer, args=args)
     return train_one_epoch_macdiff(
         model, data_loader, optimizer, device, epoch, loss_scaler,
-        log_writer=log_writer, args=args, text_features=text_features)
+        log_writer=log_writer, args=args, text_features=text_features,
+        text_target_bank=text_target_bank)
 
 
 def train_one_epoch_macdiff(model: torch.nn.Module,
                             data_loader: Iterable,
                             optimizer: torch.optim.Optimizer,
                             device: torch.device, epoch: int, loss_scaler,
-                            log_writer=None, args=None, text_features=None):
+                            log_writer=None, args=None, text_features=None,
+                            text_target_bank=None):
     """Run native Stage1, optionally reading a v2 mmap token batch by raw index."""
     model.train(True)
     model_without_ddp = model.module if hasattr(model, 'module') else model
@@ -75,6 +77,7 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
         steps_this_epoch = min(steps_this_epoch, args.max_train_steps)
 
     optimizer.zero_grad()
+    pending_target_indices = []
     if device.type == 'cuda':
         torch.cuda.reset_peak_memory_stats(device)
     if log_writer is not None:
@@ -90,6 +93,8 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
             if hasattr(text_features, 'get_batch'):
                 arrays = text_features.get_batch(
                     sample_indices.cpu().numpy(), one_person=model_without_ddp.one_person)
+                if text_target_bank is not None:
+                    arrays.update(text_target_bank.get_batch(sample_indices.cpu().numpy(), arrays))
                 text_kwargs = {name: torch.from_numpy(values).to(device, non_blocking=True)
                                for name, values in arrays.items()}
             else:
@@ -111,6 +116,10 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
                 raw_indices = sample_indices[rows.cpu()].tolist()
                 print('Empty cropped skeletons excluded from losses: sample_indices={}, person_ids={}'.format(
                     raw_indices, people.cpu().tolist()))
+            if text_target_bank is not None:
+                if not model_without_ddp.one_person:
+                    raise ValueError('Persistent sample targets currently require one_person=True')
+                pending_target_indices.extend(sample_indices[~empty[:, 0].cpu()].tolist())
         mask_ratio = args.mask_ratio
         if isinstance(mask_ratio, list):
             if len(mask_ratio) == 1:
@@ -149,7 +158,12 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
         if accumulation_boundary:
             if (text_features is not None
                     and loss_scaler._scaler.get_scale() >= scale_before):
-                model_without_ddp.update_text_target()
+                if text_target_bank is None:
+                    model_without_ddp.update_text_target()
+                else:
+                    text_target_bank.update_from_model(
+                        pending_target_indices, model_without_ddp, device)
+            pending_target_indices.clear()
             optimizer.zero_grad()
 
         if device.type == 'cuda':

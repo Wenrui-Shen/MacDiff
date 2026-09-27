@@ -21,6 +21,7 @@ import random
 
 import torch
 import torch.backends.cudnn as cudnn
+import torch.distributed as dist
 from torch.utils.tensorboard import SummaryWriter
 
 import timm
@@ -372,7 +373,11 @@ def main(args):
         args.text_person_alignment = ('per_person_v1', model.one_person)
         args.text_target_mode = model.text_target_mode
         args.text_target_norm = model.text_target_norm
-        args.text_target_momentum = model.text_target_momentum
+        args.text_target_momentum = (
+            model.text_target_momentum if model.text_target_mode == 'ema_remap' else None)
+        args.text_target_update_ratio = (
+            model.text_target_update_ratio
+            if model.text_target_mode == 'sample_target_blend' else None)
         args.text_uniformity_weight = model.lambda_text_uniformity
     if args.enable_ose:
         model.initialize_ose(
@@ -428,6 +433,15 @@ def main(args):
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 
+    text_target_bank = None
+    if supports_text and model_without_ddp.text_target_mode == 'sample_target_blend':
+        from util.sample_text_target_bank import SampleTextTargetBank
+        text_target_bank = SampleTextTargetBank.prepare(
+            Path(args.output_dir) / 'text_target_bank' / 'current.sqlite',
+            text_features, model_without_ddp.text_target_update_ratio,
+            resume=args.resume, rank=misc.get_rank(),
+            barrier=dist.barrier if dist.is_available() and dist.is_initialized() else None)
+
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
     offline_neighbor_stats = {
@@ -455,12 +469,16 @@ def main(args):
                 model, data_loader_train,
                 optimizer, device, epoch, loss_scaler,
                 log_writer=log_writer,
-                args=args, text_features=text_features
+                args=args, text_features=text_features,
+                text_target_bank=text_target_bank
             )
         else:
             assert 0
         if args.enable_ose:
             train_stats.update(offline_neighbor_stats)
+        if text_target_bank is not None:
+            train_stats['target_bank_initialized_samples'] = (
+                text_target_bank.initialized_samples())
         if log_writer is not None:
             scalar_names = [
                 'cuda_peak_allocated_mb',
@@ -477,6 +495,14 @@ def main(args):
                 log_writer.add_scalar(name, train_stats[name], epoch)
         ###
         if args.output_dir and (epoch % 10 == 0 or epoch + 1 == args.epochs):
+            if text_target_bank is not None:
+                if dist.is_available() and dist.is_initialized():
+                    dist.barrier()
+                if misc.is_main_process():
+                    text_target_bank.snapshot(
+                        Path(args.output_dir) / ('checkpoint-{}.pth'.format(epoch)))
+                if dist.is_available() and dist.is_initialized():
+                    dist.barrier()
             misc.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)
@@ -491,6 +517,8 @@ def main(args):
                 f.write(json.dumps(log_stats) + "\n")
 
     total_time = time.time() - start_time
+    if text_target_bank is not None:
+        text_target_bank.close()
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))
     print('Training time {}'.format(total_time_str))
 

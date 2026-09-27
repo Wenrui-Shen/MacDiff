@@ -1,4 +1,4 @@
-"""Stage1 with fixed CLIP, EMA-remapped CLIP or legacy bidirectional targets.
+"""Stage1 with fixed CLIP, parameter-EMA or per-sample blended text targets.
 
 Native encoder/decoder names are unchanged for downstream encoder transfer.
 The skeleton decoder body can be shared; only S->T sends a direct
@@ -121,7 +121,7 @@ class ResidualTextRemap(nn.Module):
         nn.init.zeros_(self.body[-1].bias)
 
     def forward(self, features):
-        # EMA parameter changes can be smaller than FP16 resolution.
+        # Target-value changes can be smaller than FP16 resolution.
         with torch.cuda.amp.autocast(enabled=False):
             features = features.float()
             result = features + self.body(features)
@@ -148,14 +148,15 @@ class Transformer(MacDiff):
                  share_skeleton_decoder=False,
                  text_target_mode='remap',
                  text_target_norm='none',
-                 text_target_momentum=0.999, lambda_text_uniformity=0.,
+                 text_target_momentum=0.999, text_target_update_ratio=0.1,
+                 lambda_text_uniformity=0.,
                  lambda_text_to_skeleton=1., lambda_skeleton_to_text=1., **kwargs):
         super().__init__(**kwargs)
         if not isinstance(share_skeleton_decoder, bool):
             raise ValueError('share_skeleton_decoder must be a boolean')
         self.share_skeleton_decoder = share_skeleton_decoder
         if self.diff_prediction != 'noise':
-            raise ValueError('All three text-Stage1 tasks require diff_prediction=noise')
+            raise ValueError('Text Stage1 requires diff_prediction=noise')
         if self.dim_t_embed != 64:
             raise ValueError('The native MacDiff decoder requires dim_t_embed=64')
         if min(text_input_dim, text_hidden_dim, text_decoder_hidden_dim, text_decoder_depth) < 1:
@@ -169,23 +170,27 @@ class Transformer(MacDiff):
         self.text_context_length = text_context_length
         self.lambda_text_to_skeleton = float(lambda_text_to_skeleton)
         self.lambda_skeleton_to_text = float(lambda_skeleton_to_text)
-        if text_target_mode not in ('remap', 'fixed_clip', 'ema_remap'):
-            raise ValueError('text_target_mode must be remap, fixed_clip or ema_remap')
+        if text_target_mode not in ('remap', 'fixed_clip', 'ema_remap', 'sample_target_blend'):
+            raise ValueError('Unknown text_target_mode')
         if text_target_mode == 'fixed_clip' and self.lambda_text_to_skeleton:
             raise ValueError('fixed_clip requires lambda_text_to_skeleton=0')
         if text_target_norm not in ('none', 'rms'):
             raise ValueError('text_target_norm must be none or rms')
         if text_target_mode == 'remap' and text_target_norm != 'none':
-            raise ValueError('text_target_norm is only supported with fixed_clip or ema_remap')
-        if text_target_mode == 'ema_remap' and text_target_norm != 'rms':
-            raise ValueError('ema_remap requires text_target_norm=rms')
+            raise ValueError('text_target_norm is only supported with fixed_clip or remapped target modes')
+        if text_target_mode in ('ema_remap', 'sample_target_blend') and text_target_norm != 'rms':
+            raise ValueError('Remapped text targets require text_target_norm=rms')
         if not math.isfinite(text_target_momentum) or not 0 <= text_target_momentum < 1:
             raise ValueError('text_target_momentum must be in [0, 1)')
-        if text_target_mode != 'ema_remap' and lambda_text_uniformity:
-            raise ValueError('lambda_text_uniformity requires ema_remap')
+        if (not math.isfinite(text_target_update_ratio)
+                or not 0 < text_target_update_ratio <= 1):
+            raise ValueError('text_target_update_ratio must be in (0, 1]')
+        if text_target_mode not in ('ema_remap', 'sample_target_blend') and lambda_text_uniformity:
+            raise ValueError('lambda_text_uniformity requires a remapped text target mode')
         self.text_target_mode = text_target_mode
         self.text_target_norm = text_target_norm
         self.text_target_momentum = float(text_target_momentum)
+        self.text_target_update_ratio = float(text_target_update_ratio)
         self.lambda_text_uniformity = float(lambda_text_uniformity)
         if text_target_mode == 'remap':
             self.text_remap = nn.Sequential(
@@ -197,14 +202,14 @@ class Transformer(MacDiff):
             nn.init.normal_(self.text_person_embedding.weight, std=.02)
             nn.init.normal_(self.text_position_embedding.weight, std=.02)
             self.text_skeleton_decoder = TextConditionedSkeletonDecoder(self, share_skeleton_decoder)
-        elif text_target_mode == 'ema_remap':
+        elif text_target_mode in ('ema_remap', 'sample_target_blend'):
             self.text_remap = ResidualTextRemap(text_input_dim, text_hidden_dim)
             self.text_remap.apply(self._init_weights)
-            # Online remap starts randomly. Only the slow target branch starts
-            # as identity, so the first S->T target is the cached RMS CLIP.
-            self.text_target_remap = copy.deepcopy(self.text_remap)
-            self.text_target_remap.reset_identity()
-            self.text_target_remap.requires_grad_(False)
+            if text_target_mode == 'ema_remap':
+                # Legacy experiment: average remap parameters, not target values.
+                self.text_target_remap = copy.deepcopy(self.text_remap)
+                self.text_target_remap.reset_identity()
+                self.text_target_remap.requires_grad_(False)
             self.text_person_embedding = nn.Embedding(2, text_input_dim)
             self.text_position_embedding = nn.Embedding(text_context_length, text_input_dim)
             nn.init.normal_(self.text_person_embedding.weight, std=.02)
@@ -222,7 +227,7 @@ class Transformer(MacDiff):
         # Disabled branches have no optimizer/DDP parameters awaiting gradients.
         # With T->S disabled the remap stays at its fixed initialization; it cannot
         # learn from S->T because that branch deliberately detaches its target.
-        if text_target_mode in ('remap', 'ema_remap') and not self.lambda_text_to_skeleton:
+        if text_target_mode in ('remap', 'ema_remap', 'sample_target_blend') and not self.lambda_text_to_skeleton:
             self.text_person_embedding.requires_grad_(False)
             self.text_position_embedding.requires_grad_(False)
             self.text_skeleton_decoder.requires_grad_(False)
@@ -249,7 +254,7 @@ class Transformer(MacDiff):
         features = features.masked_fill(~valid[..., None], 0)
         person_ids = person_ids.masked_fill(~valid, 0)
         positions = positions.masked_fill(~valid, 0)
-        if self.text_target_mode == 'ema_remap':
+        if self.text_target_mode in ('ema_remap', 'sample_target_blend'):
             content = self.text_remap(self.fixed_clip_target(features, valid))
             return (content + self.text_person_embedding(person_ids)
                     + self.text_position_embedding(positions)).masked_fill(
@@ -304,7 +309,8 @@ class Transformer(MacDiff):
     def forward(self, source, source_aug, text_features=None, mask_ratio=.9,
                 motion_stride=1, motion_aware_tau=-1, enable_ose=False,
                 text_tokens=None, text_token_mask=None, text_person_ids=None,
-                text_positions=None, **unused):
+                text_positions=None, text_target_global=None,
+                text_target_tokens=None, **unused):
         if enable_ose:
             raise ValueError('Text Stage1 does not support OSE routing')
         if not 0 < mask_ratio < 1:
@@ -316,6 +322,11 @@ class Transformer(MacDiff):
                 text_tokens, text_token_mask, text_person_ids, text_positions))
                 or text_tokens.shape[0] != text_rows):
             raise ValueError('Multi-token training requires the v2 token cache and metadata')
+        if self.text_target_mode == 'sample_target_blend' and (
+                text_tokens is None or text_target_global is None or text_target_tokens is None
+                or text_target_global.shape != text_features.shape
+                or text_target_tokens.shape != text_tokens.shape):
+            raise ValueError('sample_target_blend requires matching persistent target vectors')
         if not self.lambda_text_to_skeleton and not self.lambda_skeleton_to_text:
             loss, prediction, mask = self.forward_macdiff(
                 source, source_aug, mask_ratio, motion_stride, motion_aware_tau)
@@ -354,6 +365,9 @@ class Transformer(MacDiff):
         text_token_mask = text_token_mask[active_rows]
         text_person_ids = text_person_ids[active_rows]
         text_positions = text_positions[active_rows]
+        if self.text_target_mode == 'sample_target_blend':
+            text_target_global = text_target_global[active_rows]
+            text_target_tokens = text_target_tokens[active_rows]
         zero = native.new_zeros(())
         text_uniformity = zero
         target_drift = zero
@@ -364,7 +378,7 @@ class Transformer(MacDiff):
             r = self.fixed_clip_target(text_features)
             token_condition = self.fixed_clip_target(text_tokens, text_token_mask)
             memory = torch.cat([r[:, None], token_condition], dim=1)
-        elif self.text_target_mode == 'ema_remap':
+        elif self.text_target_mode in ('ema_remap', 'sample_target_blend'):
             self.validate_text_tokens(text_tokens, text_token_mask, text_person_ids, text_positions)
             fixed_global = self.fixed_clip_target(text_features)
             fixed_local = self.fixed_clip_target(text_tokens, text_token_mask)
@@ -377,12 +391,14 @@ class Transformer(MacDiff):
             token_condition = (remapped_local + self.text_person_embedding(person_ids)
                 + self.text_position_embedding(positions)).masked_fill(
                     ~text_token_mask[..., None], 0)
-            # The teacher begins as identity on fixed RMS CLIP and moves only
-            # after optimizer steps; the random online remap is never a live target.
             with torch.no_grad():
-                target_global = self.text_target_remap(fixed_global)
-                target_local = self.text_target_remap(fixed_local).masked_fill(
-                    ~text_token_mask[..., None], 0)
+                if self.text_target_mode == 'ema_remap':
+                    target_global = self.text_target_remap(fixed_global)
+                    target_local = self.text_target_remap(fixed_local)
+                else:
+                    target_global = text_target_global.detach().float()
+                    target_local = text_target_tokens.detach().float()
+                target_local = target_local.masked_fill(~text_token_mask[..., None], 0)
                 target_drift = (target_global - fixed_global).square().mean()
                 memory = torch.cat([target_global[:, None], target_local], dim=1)
         else:
