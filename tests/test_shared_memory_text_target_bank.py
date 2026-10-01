@@ -9,6 +9,8 @@ import traceback
 import unittest
 from unittest.mock import patch
 
+from tests.test_sample_text_target_bank import SnapshotRecoveryChecks
+
 
 HAS_NUMPY = importlib.util.find_spec('numpy') is not None
 HAS_TORCH = importlib.util.find_spec('torch') is not None
@@ -71,7 +73,12 @@ def shared_worker(path, rank, barrier, queue):
 
 
 @unittest.skipUnless(HAS_NUMPY, 'NumPy is required')
-class SharedMemoryTargetBankTests(unittest.TestCase):
+class SharedMemoryTargetBankTests(SnapshotRecoveryChecks, unittest.TestCase):
+    @staticmethod
+    def snapshot_bank_class():
+        from util.shared_memory_text_target_bank import SharedMemoryTextTargetBank
+        return SharedMemoryTextTargetBank
+
     def test_matches_sqlite_for_repeated_indices_padding_and_empty_rows(self):
         import numpy as np
         from util.sample_text_target_bank import SampleTextTargetBank

@@ -447,6 +447,7 @@ class TextStage1Tests(unittest.TestCase):
         class Scaler:
             def __init__(self):
                 self.steps = 0
+                self._scaler = types.SimpleNamespace(get_scale=lambda: 1.)
 
             def __call__(self, loss, optimizer, parameters, update_grad):
                 loss.backward()

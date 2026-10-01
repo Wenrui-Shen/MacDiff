@@ -19,7 +19,8 @@ import uuid
 
 import numpy as np
 
-from .sample_text_target_bank import SampleTextTargetBank, PROTOCOL, _cache_identity
+from .sample_text_target_bank import (
+    SampleTextTargetBank, PROTOCOL, _cache_identity, _snapshot_file)
 
 
 def _token_counts(cache):
@@ -278,26 +279,21 @@ class SharedMemoryTextTargetBank(SampleTextTargetBank):
 
     def snapshot(self, checkpoint):
         destination = self.checkpoint_path(checkpoint)
-        temporary = destination.with_name(destination.name + '.tmp')
-        if destination.exists() or temporary.exists():
-            raise FileExistsError('Target-bank snapshot exists: ' + str(destination))
-        connection = sqlite3.connect(str(temporary), timeout=60)
-        try:
-            # Only the unpublished temporary file uses these settings. Flush the
-            # completed snapshot before its atomic rename; no per-row fsync.
-            connection.execute('PRAGMA journal_mode=OFF')
-            connection.execute('PRAGMA synchronous=OFF')
-            connection.execute('CREATE TABLE metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)')
-            connection.execute('CREATE TABLE targets (sample_id INTEGER PRIMARY KEY, vectors BLOB NOT NULL)')
-            connection.executemany('INSERT INTO metadata VALUES (?, ?)',
-                                   sorted(self._metadata(self.cache, self.ratio).items()))
-            with self._locked():
-                connection.executemany('INSERT INTO targets VALUES (?, ?)', (
-                    (int(index), self._vectors[self.offsets[index]:self.offsets[index + 1]].tobytes())
-                    for index in np.flatnonzero(self._initialized)))
-                connection.commit()
-        finally:
-            connection.close()
-        with open(temporary, 'r+b') as file:
-            os.fsync(file.fileno())
-        os.replace(str(temporary), str(destination))
+        with _snapshot_file(checkpoint, destination) as temporary:
+            connection = sqlite3.connect(str(temporary), timeout=60)
+            try:
+                # Only the unpublished temporary file uses these settings. Flush the
+                # completed snapshot before its atomic rename; no per-row fsync.
+                connection.execute('PRAGMA journal_mode=OFF')
+                connection.execute('PRAGMA synchronous=OFF')
+                connection.execute('CREATE TABLE metadata (name TEXT PRIMARY KEY, value TEXT NOT NULL)')
+                connection.execute('CREATE TABLE targets (sample_id INTEGER PRIMARY KEY, vectors BLOB NOT NULL)')
+                connection.executemany('INSERT INTO metadata VALUES (?, ?)',
+                                       sorted(self._metadata(self.cache, self.ratio).items()))
+                with self._locked():
+                    connection.executemany('INSERT INTO targets VALUES (?, ?)', (
+                        (int(index), self._vectors[self.offsets[index]:self.offsets[index + 1]].tobytes())
+                        for index in np.flatnonzero(self._initialized)))
+                    connection.commit()
+            finally:
+                connection.close()

@@ -9,9 +9,11 @@ snapshotted next to each model checkpoint. No EMA copy of the network exists.
 import hashlib
 import json
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import shutil
 import sqlite3
+import uuid
 
 import numpy as np
 
@@ -29,6 +31,42 @@ def _unit_rms(values):
     values = np.asarray(values, dtype=np.float32)
     return values / np.sqrt(np.maximum(np.mean(values * values, axis=-1,
                                                 keepdims=True), 1e-12))
+
+
+@contextmanager
+def _snapshot_file(checkpoint, destination):
+    """Publish a fresh bank without replacing a bank paired with a model.
+
+    A crash can leave a complete bank or legacy .tmp before the model is saved.
+    Keep that bank until its replacement is fully written, then publish atomically.
+    """
+    checkpoint, destination = Path(checkpoint), Path(destination)
+    if checkpoint.exists():
+        raise FileExistsError('Refusing to replace target bank for existing checkpoint: '
+                              + str(checkpoint))
+    temporary = destination.with_name(destination.name + '.tmp-' + uuid.uuid4().hex)
+    with open(temporary, 'xb'):
+        pass
+    try:
+        yield temporary
+        with open(temporary, 'r+b') as file:
+            os.fsync(file.fileno())
+        # A model may have appeared while the snapshot was being constructed.
+        if checkpoint.exists():
+            raise FileExistsError('Refusing to replace target bank for existing checkpoint: '
+                                  + str(checkpoint))
+        os.replace(str(temporary), str(destination))
+        # Remove only the known legacy temporary file, after the new bank exists.
+        legacy_temporary = destination.with_name(destination.name + '.tmp')
+        try:
+            legacy_temporary.unlink()
+        except (FileNotFoundError, PermissionError):
+            pass
+    finally:
+        try:
+            temporary.unlink()
+        except (FileNotFoundError, PermissionError):
+            pass
 
 
 class SampleTextTargetBank:
@@ -233,17 +271,9 @@ class SampleTextTargetBank:
     def snapshot(self, checkpoint):
         """Atomic SQLite backup matched to one model checkpoint epoch."""
         destination = self.checkpoint_path(checkpoint)
-        temporary = destination.with_name(destination.name + '.tmp')
-        if destination.exists() or temporary.exists():
-            raise FileExistsError('Target-bank snapshot exists: ' + str(destination))
-        backup = sqlite3.connect(str(temporary), timeout=60)
-        try:
-            self.connection.backup(backup)
-            backup.close()
-            os.replace(str(temporary), str(destination))
-        finally:
-            if backup:
-                try:
-                    backup.close()
-                except sqlite3.Error:
-                    pass
+        with _snapshot_file(checkpoint, destination) as temporary:
+            backup = sqlite3.connect(str(temporary), timeout=60)
+            try:
+                self.connection.backup(backup)
+            finally:
+                backup.close()

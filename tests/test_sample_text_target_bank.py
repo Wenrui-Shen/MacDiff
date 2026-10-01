@@ -1,16 +1,137 @@
 """Persistent target values follow samples, not EMA network parameters."""
 import importlib.util
+from contextlib import closing
+import os
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 HAS_NUMPY = importlib.util.find_spec('numpy') is not None
 HAS_TORCH = importlib.util.find_spec('torch') is not None
 
 
+class SnapshotRecoveryChecks:
+    """Run the same interrupted-save checks against both bank implementations."""
+
+    def snapshot_fixture(self, directory):
+        cache = SampleTargetBankTests.cache_fixture()
+        bank = self.snapshot_bank_class().prepare(
+            Path(directory) / 'snapshot-current', cache, .1)
+        arrays = cache.get_batch([0])
+        bank.apply_updates([0], arrays, arrays['text_features'], arrays['text_tokens'])
+        return bank, arrays
+
+    def assert_snapshot_values(self, bank, checkpoint, arrays):
+        import numpy as np
+        destination = bank.checkpoint_path(checkpoint)
+        with closing(sqlite3.connect(str(destination))) as connection:
+            self.assertEqual(connection.execute('PRAGMA integrity_check').fetchone()[0], 'ok')
+            blob = connection.execute('SELECT vectors FROM targets WHERE sample_id=0').fetchone()[0]
+        values = bank._decode(blob, 1)
+        expected = bank.get_batch([0], arrays)
+        np.testing.assert_array_equal(values[0], expected['text_target_global'][0])
+        np.testing.assert_array_equal(values[1], expected['text_target_tokens'][0, 0])
+
+    def test_snapshot_retries_orphan_temporary_and_complete_files(self):
+        import numpy as np
+        for orphan in ('temporary', 'complete', 'both'):
+            with self.subTest(orphan=orphan), tempfile.TemporaryDirectory() as directory:
+                bank, arrays = self.snapshot_fixture(directory)
+                try:
+                    checkpoint = Path(directory) / 'checkpoint-10.pth'
+                    destination = bank.checkpoint_path(checkpoint)
+                    legacy_temporary = destination.with_name(destination.name + '.tmp')
+                    if orphan in ('complete', 'both'):
+                        bank.snapshot(checkpoint)
+                    previous = destination.read_bytes() if destination.exists() else None
+                    if orphan in ('temporary', 'both'):
+                        legacy_temporary.write_bytes(b'interrupted SQLite snapshot')
+                    replacement = np.asarray([[0., 2., 0., 0.]], dtype=np.float32)
+                    bank.apply_updates([0], arrays, replacement, replacement[:, None])
+                    original_replace = os.replace
+
+                    def publish(source, target):
+                        if previous is not None:
+                            self.assertEqual(destination.read_bytes(), previous)
+                        return original_replace(source, target)
+
+                    with patch('util.sample_text_target_bank.os.replace', side_effect=publish):
+                        bank.snapshot(checkpoint)
+                    self.assert_snapshot_values(bank, checkpoint, arrays)
+                    self.assertFalse(legacy_temporary.exists())
+                    self.assertEqual(list(destination.parent.glob(destination.name + '.tmp-*')), [])
+                finally:
+                    bank.close()
+
+    def test_snapshot_rejects_overwriting_existing_model_pair(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bank, arrays = self.snapshot_fixture(directory)
+            try:
+                checkpoint = Path(directory) / 'checkpoint-10.pth'
+                destination = bank.checkpoint_path(checkpoint)
+                bank.snapshot(checkpoint)
+                previous = destination.read_bytes()
+                checkpoint.write_bytes(b'saved model checkpoint')
+                with self.assertRaisesRegex(FileExistsError, 'existing checkpoint'):
+                    bank.snapshot(checkpoint)
+                self.assertEqual(destination.read_bytes(), previous)
+                self.assertEqual(list(destination.parent.glob(destination.name + '.tmp-*')), [])
+            finally:
+                bank.close()
+
+    def test_failed_snapshot_publish_preserves_previous_complete_bank(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bank, arrays = self.snapshot_fixture(directory)
+            try:
+                checkpoint = Path(directory) / 'checkpoint-10.pth'
+                destination = bank.checkpoint_path(checkpoint)
+                bank.snapshot(checkpoint)
+                previous = destination.read_bytes()
+                legacy_temporary = destination.with_name(destination.name + '.tmp')
+                legacy_temporary.write_bytes(b'older incomplete bank')
+                with patch('util.sample_text_target_bank.os.replace',
+                           side_effect=OSError('simulated interrupted publication')):
+                    with self.assertRaisesRegex(OSError, 'interrupted publication'):
+                        bank.snapshot(checkpoint)
+                self.assertEqual(destination.read_bytes(), previous)
+                self.assertEqual(legacy_temporary.read_bytes(), b'older incomplete bank')
+                self.assertEqual(list(destination.parent.glob(destination.name + '.tmp-*')), [])
+            finally:
+                bank.close()
+
+    def test_snapshot_rechecks_model_before_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            bank, arrays = self.snapshot_fixture(directory)
+            try:
+                checkpoint = Path(directory) / 'checkpoint-10.pth'
+                destination = bank.checkpoint_path(checkpoint)
+                bank.snapshot(checkpoint)
+                previous = destination.read_bytes()
+                original_fsync = os.fsync
+
+                def model_appears(file_descriptor):
+                    original_fsync(file_descriptor)
+                    checkpoint.write_bytes(b'model saved during snapshot construction')
+
+                with patch('util.sample_text_target_bank.os.fsync', side_effect=model_appears):
+                    with self.assertRaisesRegex(FileExistsError, 'existing checkpoint'):
+                        bank.snapshot(checkpoint)
+                self.assertEqual(destination.read_bytes(), previous)
+                self.assertEqual(list(destination.parent.glob(destination.name + '.tmp-*')), [])
+            finally:
+                bank.close()
+
+
 @unittest.skipUnless(HAS_NUMPY, 'NumPy is required')
-class SampleTargetBankTests(unittest.TestCase):
+class SampleTargetBankTests(SnapshotRecoveryChecks, unittest.TestCase):
+    @staticmethod
+    def snapshot_bank_class():
+        from util.sample_text_target_bank import SampleTextTargetBank
+        return SampleTextTargetBank
+
     @staticmethod
     def cache_fixture():
         import numpy as np
