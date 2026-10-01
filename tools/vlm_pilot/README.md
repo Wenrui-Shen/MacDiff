@@ -73,11 +73,14 @@ one non-empty `persons` entry for each visible skeleton. `person_index: 0` is
 red and `person_index: 1` is blue; a single-person sample contains no synthetic
 second-person or empty-string target.
 
-The default prompt is `skeleton_motion_prompt_v1.txt`. It preserves the
-person-specific `persons` array while requiring a precise `main_part`, complete
-`motion`, separate `beginning`/`middle`/`end`, the strongest anatomical
-`interaction`, and a consistent final `text`. The earlier v0 file is retained
-only for historical comparison.
+The default prompt is `skeleton_motion_prompt_v2.txt`. Each person has one brief
+`global` description and six fixed `local` descriptions: `head`, `torso`,
+`left_arm`, `right_arm`, `left_leg`, and `right_leg`. The Chinese translation is
+`skeleton_motion_prompt_v2_zh.txt`. The v0/v1 prompts remain available explicitly
+through `--prompt_path`; their original response schemas are still validated.
+The single-sample script saves only `persons` in its output JSON. Model, device,
+prompt and settings are saved in a `.metadata.json` sidecar; the raw response and
+validation result are saved in `.diagnostics.jsonl`.
 
 ## 4. Complete train split as two independent stages
 
@@ -124,7 +127,43 @@ python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
   --num_shards 2 --shard_id 0 --dry_run
 ```
 
-Then run two independent caption processes. Each GPU loads one model; GPU 0
+The recommended dual-GPU entry point starts both workers, automatically resumes
+saved samples, and merges accepted results into one sorted JSON array:
+
+```bash
+python tools/vlm_pilot/run_caption_dual_gpu.py --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v3_2view_smooth_w5 --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct --output_dir vlm_pilot/ntu60_xsub_global_local_v2 --gpus 0,1 --expected_samples 40091
+```
+
+Use the Qwen inference environment, not the older MacDiff training environment.
+The existing GIFs are reused. GPU 0 handles even sample indices and GPU 1 handles
+odd indices, with one independent model per GPU. The launcher sets each worker's
+`CUDA_VISIBLE_DEVICES` and uses a 1024-token generation ceiling for the new
+global/local JSON, including two-person samples.
+
+Run the same command after interruption: it checks model/prompt identity, skips
+accepted samples, and retries unsuccessful samples. Only an incomplete final
+JSONL line is backed up and removed automatically. Completed malformed lines
+and metadata mismatches cause errors. Ctrl+C stops the workers and saves a
+sorted partial result; an OS-released lock prevents simultaneous launchers from
+writing this output directory. Missing indices are listed in the merged metadata
+and produce a nonzero exit code, rather than reporting a complete run.
+
+Outputs under `--output_dir`:
+- `captions.json`: text-only JSON array, one sample per line, sorted by `sample_index`.
+- `captions.metadata.json`: merged run information and completeness/missing-index summary.
+- `shard0.jsonl` / `shard1.jsonl`: resumable per-GPU text results.
+- `shard0.metadata.json` / `shard1.metadata.json`: per-worker run metadata.
+- `shard0.diagnostics.jsonl` / `shard1.diagnostics.jsonl`: raw responses, errors and retries.
+- `shard0.log` / `shard1.log`: worker terminal output.
+
+Keep the directory intact for resume. To test the first four samples, add
+`--max_samples 4`; remove that argument to continue the full run in the same
+directory. Add `--merge_only` to merge existing results without loading models,
+or `--dry_run` to inspect pending counts and worker commands without starting
+generation. `--expected_samples 40091` also checks that the rendered input itself
+contains the complete NTU60 XSub train index range.
+
+Alternatively, run the workers in two terminals. Each GPU loads one model; GPU 0
 handles even indices and GPU 1 handles odd indices:
 
 ```bash
@@ -132,8 +171,8 @@ OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0
 python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
   --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v3_2view_smooth_w5 \
   --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
-  --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v1.txt \
-  --output_path vlm_pilot/ntu60_xsub_train_person_captions_v2_shard0.jsonl \
+  --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v2.txt \
+  --output_path vlm_pilot/ntu60_xsub_global_local_shard0.jsonl \
   --num_shards 2 --shard_id 0 --resume
 ```
 
@@ -142,34 +181,59 @@ OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1
 python tools/vlm_pilot/caption_qwen3vl_rendered_train_transformers.py \
   --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v3_2view_smooth_w5 \
   --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct \
-  --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v1.txt \
-  --output_path vlm_pilot/ntu60_xsub_train_person_captions_v2_shard1.jsonl \
+  --prompt_path tools/vlm_pilot/skeleton_motion_prompt_v2.txt \
+  --output_path vlm_pilot/ntu60_xsub_global_local_shard1.jsonl \
   --num_shards 2 --shard_id 1 --resume
 ```
 
-Caption resume skips only accepted records generated with the same model and
-prompt SHA-256. Invalid and failed samples are retried and appended for audit.
+Caption resume reads the separate metadata file, checks the model, requested
+revision and prompt SHA-256, then skips sample indices in the text-only output.
+Invalid and failed samples are retried and recorded in the diagnostic sidecar.
+Use a new output path for legacy manifests and the new global/local experiment.
 The older `caption_qwen3vl_train_transformers.py` remains available as the
 single-stage in-memory path, but it is no longer the recommended full run.
 
-Each JSONL record includes `sample_id` (`train_<index>`), prompt SHA-256,
-rendering and inference settings, raw response, parsed caption, retry history,
-and validation status. Only an `accepted` record has a non-empty `texts` list:
+Batch output contains only a sample index and its generated person descriptions.
+With `.jsonl`, each sample is a complete JSON object on its own line. With
+`.json`, output is a valid JSON array with each sample on its own line. Only
+accepted descriptions enter the result file. For example:
 
 ```json
 {
-  "sample_id": "train_42",
-  "status": "accepted",
-  "texts": [
-    {"person_index": 0, "color": "red", "text": "..."},
-    {"person_index": 1, "color": "blue", "text": "..."}
+  "sample_index": 42,
+  "persons": [
+    {
+      "person_index": 0,
+      "global": "The person raises the right hand toward the face, then lowers it.",
+      "local": {
+        "head": "The head remains upright.",
+        "torso": "The torso remains upright.",
+        "left_arm": "The left arm stays beside the torso.",
+        "right_arm": "The right elbow bends as the hand rises toward the face, then lowers.",
+        "left_leg": "The left leg remains straight.",
+        "right_leg": "The right leg remains straight."
+      }
+    }
   ]
 }
 ```
 
+For `captions.jsonl` or `captions.json`, `captions.metadata.json` stores the model,
+hardware, runtime versions, prompt and run settings, once per run.
+`captions.diagnostics.jsonl` stores sample-specific raw responses, retries,
+errors and timings. Keep the metadata with the result file for `--resume`.
+The inspection utility accepts both formats and still reads legacy manifests.
+The existing v2 CLIP token-cache builder remains the legacy word-token pipeline;
+use `cache_clip_motion_text.py` for the new global/local sentence cache (v3).
+It encodes seven complete sentences per person with fixed body-region slots,
+stores unit-RMS FP32 features and is accepted by the existing training reader.
+See [TEXT_CACHE_CHAIN_AUDIT.md](TEXT_CACHE_CHAIN_AUDIT.md) for the legacy-chain
+audit, separate training configurations, resume behavior and server commands.
+
 Neither stage reads `y_train`. The model prompt contains neither a sample
 filename nor an action label. Concatenate the two caption shard files only after
 both processes finish; use `sample_index` when ordered records are required.
+Only JSONL shards can be concatenated directly; merge JSON arrays as JSON.
 
 ## 5. Randomly inspect accepted captions
 

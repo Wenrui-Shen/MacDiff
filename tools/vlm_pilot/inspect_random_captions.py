@@ -10,6 +10,7 @@ import json
 import random
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from caption_output import LOCAL_PARTS, iter_caption_records
 
 
 DETAIL_FIELDS = (
@@ -129,7 +130,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--compact",
         action="store_true",
-        help="Print only each person's final text instead of all structured fields.",
+        help="Print only each person's global/summary text instead of all structured fields.",
     )
     parser.add_argument(
         "--data_path",
@@ -173,6 +174,15 @@ def expand_paths(patterns: Sequence[str]) -> List[Path]:
     return sorted(paths)
 
 
+def inspection_lines(path):
+    if path.suffix.lower() == ".json":
+        for record in iter_caption_records(path):
+            yield json.dumps(record, ensure_ascii=False)
+    else:
+        with path.open(encoding="utf-8") as source:
+            yield from source
+
+
 def load_latest_accepted(
     paths: Iterable[Path],
 ) -> Tuple[Dict[int, Dict[str, Any]], Dict[str, int]]:
@@ -184,27 +194,29 @@ def load_latest_accepted(
         "malformed_lines": 0,
     }
     for path in paths:
-        with path.open("r", encoding="utf-8") as handle:
-            for line_number, line in enumerate(handle, start=1):
-                if not line.strip():
-                    continue
-                stats["lines"] += 1
-                try:
-                    record = json.loads(line)
-                except json.JSONDecodeError:
-                    stats["malformed_lines"] += 1
-                    continue
-                if record.get("status") != "accepted":
-                    stats["non_accepted_lines"] += 1
-                    continue
-                try:
-                    sample_index = int(record["sample_index"])
-                except (KeyError, TypeError, ValueError):
-                    stats["malformed_lines"] += 1
-                    continue
-                record["_inspection_source"] = f"{path}:{line_number}"
-                records[sample_index] = record
-                stats["accepted_lines"] += 1
+        for line_number, line in enumerate(inspection_lines(path), start=1):
+            if not line.strip():
+                continue
+            stats["lines"] += 1
+            try:
+                record = json.loads(line)
+            except json.JSONDecodeError:
+                stats["malformed_lines"] += 1
+                continue
+            if not isinstance(record, dict):
+                stats["malformed_lines"] += 1
+                continue
+            if record.get("status") != "accepted" and "persons" not in record:
+                stats["non_accepted_lines"] += 1
+                continue
+            try:
+                sample_index = int(record["sample_index"])
+            except (KeyError, TypeError, ValueError):
+                stats["malformed_lines"] += 1
+                continue
+            record["_inspection_source"] = f"{path}:{line_number}"
+            records[sample_index] = record
+            stats["accepted_lines"] += 1
     return records, stats
 
 
@@ -226,6 +238,12 @@ def person_lines(person: Dict[str, Any], compact: bool) -> List[str]:
     index = person.get("person_index", "?")
     color = person.get("color", "unknown")
     lines = [f"  person {index} ({color})"]
+    if "global" in person:
+        lines.append(f"    global: {person['global']}")
+        if not compact:
+            for part in LOCAL_PARTS:
+                lines.append(f"    {part}: {person.get('local', {}).get(part, '')}")
+        return lines
     fields = ("text",) if compact else DETAIL_FIELDS
     for field in fields:
         value = person.get(field)
@@ -238,7 +256,7 @@ def format_record(record: Dict[str, Any], ordinal: int, total: int, compact: boo
     sample_index = record.get("sample_index", "?")
     sample_id = record.get("sample_id", f"train_{sample_index}")
     caption = record.get("caption") or {}
-    persons = caption.get("persons") or []
+    persons = record.get("persons") or caption.get("persons") or []
     actor_count = record.get("actor_count", caption.get("actors", len(persons)))
 
     header = f"[{ordinal}/{total}] {sample_id} | sample_index={sample_index}"
@@ -293,13 +311,15 @@ def clean_caption_record(record: Dict[str, Any]) -> Dict[str, Any]:
 
 def caption_texts(record: Dict[str, Any]) -> List[Dict[str, Any]]:
     caption = record.get("caption") or {}
-    persons = caption.get("persons") or []
+    persons = record.get("persons") or caption.get("persons") or []
     if persons:
         return [
             {
                 "person_index": person.get("person_index"),
-                "color": person.get("color"),
-                "text": person.get("text", ""),
+                "color": person.get("color", "red" if person.get("person_index") == 0 else "blue"),
+                "text": (person.get("global", "") + "\n" + "\n".join(
+                    "%s: %s" % (part, person.get("local", {}).get(part, ""))
+                    for part in LOCAL_PARTS)) if "global" in person else person.get("text", ""),
             }
             for person in sorted(
                 persons,

@@ -22,9 +22,9 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from caption_qwen3vl_sample import render_prompt
+from caption_output import CaptionOutput, caption_schema
 from caption_qwen3vl_train_transformers import (
     DEFAULT_PROMPT,
-    SCHEMA_VERSION,
     close_frames,
     generate_once,
     load_accepted_indices,
@@ -46,7 +46,8 @@ def parse_args() -> argparse.Namespace:
         description="Run Qwen3-VL over persistent rendered train GIFs."
     )
     parser.add_argument("--rendered_root", type=Path, required=True)
-    parser.add_argument("--output_path", type=Path, required=True)
+    parser.add_argument("--output_path", type=Path, required=True,
+                        help="Text-only .json array or .jsonl; one sample per line, with metadata/diagnostic sidecars.")
     parser.add_argument("--prompt_path", type=Path, default=DEFAULT_PROMPT)
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--revision", default=None)
@@ -292,32 +293,9 @@ def make_caption_record(
     accepted = caption is not None and not errors
     sample_index = int(render_record["sample_index"])
     return {
-        "schema_version": SCHEMA_VERSION,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "sample_id": f"train_{sample_index:06d}",
         "sample_index": sample_index,
-        "source_split": "train",
-        "labels_read": False,
-        "model": args.model,
-        "model_revision": args.resolved_revision,
-        "quantization": args.quantization,
-        "quantization_config": args.quantization_config,
-        "inference": {
-            "engine": "transformers_rendered_gif",
-            "transformers_version": args.transformers_version,
-            "torch_version": args.torch_version,
-            "dtype": args.resolved_dtype,
-            "device": args.resolved_device,
-            "attention": args.attn_implementation,
-            "max_new_tokens": args.max_new_tokens,
-            "sample_fps": args.sample_fps,
-            "num_shards": args.num_shards,
-            "shard_id": args.shard_id,
-        },
-        "prompt": {
-            "path": str(args.prompt_path.resolve()),
-            "sha256": prompt_hash,
-        },
         "render_input": {
             "root": str(args.rendered_root.resolve()),
             "gif_path": str(render_record["_gif_path"]),
@@ -333,18 +311,6 @@ def make_caption_record(
         "generation_seconds": round(generation_seconds, 4),
         "raw_response": raw_text,
         "caption": caption,
-        "texts": (
-            [
-                {
-                    "person_index": person["person_index"],
-                    "color": person["color"],
-                    "text": person["text"],
-                }
-                for person in caption["persons"]
-            ]
-            if accepted
-            else []
-        ),
         "attempts": list(attempts),
     }
 
@@ -361,30 +327,15 @@ def write_pipeline_error(
     write_jsonl_record(
         handle,
         {
-            "schema_version": SCHEMA_VERSION,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
             "sample_id": f"train_{sample_index:06d}",
             "sample_index": sample_index,
-            "source_split": "train",
-            "labels_read": False,
-            "model": args.model,
-            "model_revision": args.resolved_revision,
-            "inference": {
-                "engine": "transformers_rendered_gif",
-                "num_shards": args.num_shards,
-                "shard_id": args.shard_id,
-            },
-            "prompt": {
-                "path": str(args.prompt_path.resolve()),
-                "sha256": prompt_hash,
-            },
             "render_input": {"gif_path": str(render_record["_gif_path"])},
             "status": "pipeline_error",
             "errors": [f"{type(error).__name__}: {error}"],
             "retry_count": 0,
             "raw_response": "",
             "caption": None,
-            "texts": [],
             "attempts": [],
         },
     )
@@ -426,6 +377,8 @@ def main() -> None:
     args = parse_args()
     validate_args(args)
     prompt_template = args.prompt_path.read_text(encoding="utf-8").strip()
+    args.caption_schema = caption_schema(prompt_template)
+    args.engine = "transformers_rendered_gif"
     prompt_hash = sha256_file(args.prompt_path)
 
     if args.output_path.exists() and not args.resume and not args.dry_run:
@@ -437,6 +390,7 @@ def main() -> None:
             args.output_path,
             expected_model=args.model,
             expected_prompt_hash=prompt_hash,
+            expected_revision=args.revision,
         )
         if args.resume
         else set()
@@ -538,13 +492,12 @@ def main() -> None:
         args.resolved_device = str(model.device)
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
-    output_mode = "a" if args.resume else "w"
     accepted_now = 0
     invalid_now = 0
     pipeline_errors = 0
     run_started = time.perf_counter()
 
-    with args.output_path.open(output_mode, encoding="utf-8") as output_handle:
+    with CaptionOutput(args, prompt_hash, torch) as output_handle:
         for ordinal, render_record in enumerate(selected, start=1):
             frames: List[Any] = []
             try:
@@ -591,7 +544,7 @@ def main() -> None:
                             args=args,
                             torch=torch,
                         )
-                        caption, errors = parse_response(raw_text, actor_count)
+                        caption, errors = parse_response(raw_text, actor_count, schema=args.caption_schema)
                     except Exception as exc:
                         caption = None
                         errors = [f"generation failed: {type(exc).__name__}: {exc}"]

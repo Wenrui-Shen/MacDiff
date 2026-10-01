@@ -52,6 +52,7 @@ model_args:
   share_skeleton_decoder: False  # ablation: T->S owns a separate skeleton decoder
 
 text_cache: vlm_pilot/ntu60_xsub_clip_cache_v2
+text_target_bank_backend: shared_memory
 lambda_text_to_skeleton: 0.1
 lambda_skeleton_to_text: 0.1
 epochs: 400

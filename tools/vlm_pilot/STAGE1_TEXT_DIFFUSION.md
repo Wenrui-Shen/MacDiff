@@ -40,7 +40,7 @@ OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=1
 
 `L = L_native + 0.02 L_uniformity + 1.0 L_TS + 1.0 L_ST`
 
-保留 1000 步 inverse_cosine、均匀时间步采样和原学习率 warm-up。当前仍 `one_person=True`、共享骨架 decoder、batch 64。日志 text_energy/text_batch_variance 对应逐人全局 r；text_valid_tokens 对应参与文本任务人物的有效局部 token 数平均值。文本仍描述整段动作，不随骨架时间裁剪重新生成。
+保留 1000 步 inverse_cosine、均匀时间步采样和原学习率 warm-up。当前仍 `one_person=True`、共享骨架 decoder、batch 64。日志 text_energy 对应目标 global 的能量；text_batch_variance 于 2026-10-01 改为在线 remap 后 global + 有效 local 内容向量合并后的通道方差均值（fixed_clip 模式统计固定输入），排除结构 embedding 和 padding；text_valid_tokens 对应参与文本任务人物的有效局部 token 数平均值。不再输出空骨架数量及 text_target_drift_mse。文本仍描述整段动作，不随骨架时间裁剪重新生成。
 
 旧跨人物混合文本训练 checkpoint 不允许直接完整 resume；现在校验人物配对协议与 one_person 设置。新输出目录使用 `output_dir/ntu60_xsub_macdiff_person_text`，缓存仍使用原 v2 目录。
 

@@ -133,7 +133,7 @@ class SampleTargetModelTests(unittest.TestCase):
             source, source_aug, text_features=features, mask_ratio=.5,
             text_target_global=target_global,
             text_target_tokens=target_local, **tokens)
-        self.assertAlmostEqual(metrics['text_target_drift_mse'].item(), 0., places=6)
+        self.assertNotIn('text_target_drift_mse', metrics)
         loss.backward()
         self.assertTrue(any(parameter.grad is not None
                             for parameter in model.text_remap.parameters()))

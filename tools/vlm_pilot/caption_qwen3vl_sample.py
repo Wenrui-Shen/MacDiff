@@ -2,11 +2,14 @@
 """Caption one rendered skeleton frame sequence with Qwen3-VL on Ubuntu."""
 
 import argparse
+import hashlib
 import json
 from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from caption_output import (LOCAL_PARTS, caption_persons, caption_schema,
+                            diagnostic_record, sidecar_paths, write_run_metadata)
 
 
 PERSON2_BLUE = np.asarray((66, 145, 255), dtype=np.uint8)
@@ -24,7 +27,7 @@ def parse_args():
     parser.add_argument(
         "--prompt_path",
         type=Path,
-        default=Path(__file__).with_name("skeleton_motion_prompt_v1.txt"),
+        default=Path(__file__).with_name("skeleton_motion_prompt_v2.txt"),
     )
     parser.add_argument("--output_path", type=Path, required=True)
     parser.add_argument("--model", default="Qwen/Qwen3-VL-2B-Instruct")
@@ -94,11 +97,41 @@ def render_prompt(prompt_template, actor_count):
     )
 
 
-def validate_caption(caption, expected_actors):
+def validate_caption(caption, expected_actors, schema=None):
     """Return semantic errors that JSON parsing alone cannot detect."""
     errors = []
     if not isinstance(caption, dict):
         return ["caption must be a JSON object"]
+
+    if schema == "global_local" or (schema is None and "actors" not in caption):
+        if set(caption) != {"persons"}:
+            errors.append("caption must contain exactly the key: persons")
+        persons = caption.get("persons")
+        if not isinstance(persons, list):
+            return errors + ["persons must be a JSON array"]
+        if len(persons) != expected_actors:
+            errors.append("persons must contain exactly %d entries" % expected_actors)
+        for position, person in enumerate(persons):
+            prefix = "persons[%d]" % position
+            if not isinstance(person, dict):
+                errors.append("%s must be a JSON object" % prefix)
+                continue
+            if set(person) != {"person_index", "global", "local"}:
+                errors.append("%s must contain exactly: person_index, global, local" % prefix)
+            if type(person.get("person_index")) is not int or person["person_index"] != position:
+                errors.append("%s.person_index must equal %d" % (prefix, position))
+            local = person.get("local")
+            values = [(prefix + ".global", person.get("global"))]
+            if not isinstance(local, dict) or set(local) != set(LOCAL_PARTS):
+                errors.append("%s.local must contain all six fixed body regions" % prefix)
+            if isinstance(local, dict):
+                values.extend((prefix + ".local." + part, local.get(part)) for part in LOCAL_PARTS)
+            for key, value in values:
+                if not isinstance(value, str) or not value.strip():
+                    errors.append("%s must be a non-empty string" % key)
+                elif value.strip() == "..." or "<" in value or ">" in value:
+                    errors.append("%s contains an unreplaced placeholder" % key)
+        return errors
 
     if set(caption) != {"actors", "persons"}:
         errors.append("caption must contain exactly the keys: actors, persons")
@@ -149,6 +182,8 @@ def validate_caption(caption, expected_actors):
 
 def main():
     args = parse_args()
+    if args.output_path.exists():
+        raise FileExistsError("Output already exists; use a new --output_path: %s" % args.output_path)
     try:
         import torch
         from qwen_vl_utils import process_vision_info
@@ -165,6 +200,8 @@ def main():
     frame_urls = [path.resolve().as_uri() for path in frame_paths]
     actor_count, actor_count_source = determine_actor_count(args.frames_dir, frame_paths)
     prompt_template = args.prompt_path.read_text(encoding="utf-8")
+    args.caption_schema = caption_schema(prompt_template)
+    prompt_hash = hashlib.sha256(args.prompt_path.read_bytes()).hexdigest()
     prompt = render_prompt(prompt_template, actor_count)
 
     load_kwargs = {"dtype": "auto", "device_map": "auto"}
@@ -235,7 +272,7 @@ def main():
     }
     try:
         caption = extract_json(raw_response)
-        semantic_errors = validate_caption(caption, actor_count)
+        semantic_errors = validate_caption(caption, actor_count, schema=args.caption_schema)
         result["caption"] = caption
         if semantic_errors:
             result["status"] = "invalid_content"
@@ -243,14 +280,7 @@ def main():
             result["texts"] = []
         else:
             result["status"] = "accepted"
-            result["texts"] = [
-                {
-                    "person_index": person["person_index"],
-                    "color": person["color"],
-                    "text": person["text"],
-                }
-                for person in caption["persons"]
-            ]
+            result["texts"] = caption_persons(caption)
     except (ValueError, json.JSONDecodeError) as exc:
         result["caption"] = None
         result["texts"] = []
@@ -258,10 +288,18 @@ def main():
         result["error"] = str(exc)
 
     args.output_path.parent.mkdir(parents=True, exist_ok=True)
+    args.resolved_device = str(model.device)
+    args.output_format = "single_json"
+    write_run_metadata(args, prompt_hash, torch)
+    _, diagnostics_path = sidecar_paths(args.output_path)
+    diagnostics_path.write_text(
+        json.dumps(diagnostic_record(result), ensure_ascii=False) + "\n", encoding="utf-8")
+    if result["status"] != "accepted":
+        raise SystemExit("Caption validation failed; see %s" % diagnostics_path)
+    text_result = {"persons": caption_persons(result["caption"])}
     args.output_path.write_text(
-        json.dumps(result, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    print(json.dumps(result, ensure_ascii=False, indent=2))
+        json.dumps(text_result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(json.dumps(text_result, ensure_ascii=False, indent=2))
 
 
 if __name__ == "__main__":

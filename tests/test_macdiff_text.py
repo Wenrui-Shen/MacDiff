@@ -70,7 +70,7 @@ class TextStage1Tests(unittest.TestCase):
         expected = torch.cat([text[[0, 2], None], data['text_tokens'][[0, 2]].masked_fill(
             ~data['text_token_mask'][[0, 2], :, None], 0)], dim=1).detach()
         torch.testing.assert_close(recorded[0], expected, rtol=0, atol=0)
-        self.assertEqual(metrics['empty_skeleton_persons'].item(), 1)
+        self.assertNotIn('empty_skeleton_persons', metrics)
         self.assertEqual(metrics['loss_text_to_skeleton'].item(), 0)
         self.assertAlmostEqual(metrics['text_energy'].item(), 1 / 512, places=7)
         torch.testing.assert_close(loss.detach(), metrics['loss_diff']
@@ -198,7 +198,13 @@ class TextStage1Tests(unittest.TestCase):
             model.fixed_clip_target(data['text_tokens'], data['text_token_mask'])], dim=1)
         torch.testing.assert_close(captured[0], expected)
         self.assertAlmostEqual(metrics['text_energy'].item(), 1., places=5)
-        self.assertAlmostEqual(metrics['text_target_drift_mse'].item(), 0., places=6)
+        self.assertNotIn('text_target_drift_mse', metrics)
+        from model.transformer_macdiff_text import text_content_batch_variance
+        expected_global = model.text_remap(model.fixed_clip_target(global_clip))
+        expected_local = model.text_remap(model.fixed_clip_target(
+            data['text_tokens'], data['text_token_mask']))
+        torch.testing.assert_close(metrics['text_batch_variance'],
+            text_content_batch_variance(expected_global, expected_local, data['text_token_mask']))
         self.assertGreater(metrics['loss_text_uniformity'].item(), 0)
         torch.testing.assert_close(loss.detach(),
             metrics['loss_diff'] + .02 * metrics['loss_uniformity']
@@ -697,7 +703,7 @@ class TextStage1Tests(unittest.TestCase):
         result=model(x,aug,text_features=text,mask_ratio=.5,**data)
         hook.remove()
         self.assertEqual(observed,[2])
-        self.assertEqual(result[3]['empty_skeleton_persons'].item(),1)
+        self.assertNotIn('empty_skeleton_persons', result[3])
         self.assertTrue(torch.isfinite(result[0]))
         result[0].backward()
         self.assertEqual(text.grad[1].abs().sum().item(),0)

@@ -179,23 +179,56 @@ class SampleTextTargetBank:
             self.connection.rollback()
             raise
 
-    def update_from_model(self, indices, model, device):
-        """Read the post-step online remap once for the samples just trained."""
+    def update_from_model(self, indices, model, device, batches=None):
+        """Use post-step weights, reusing cached inputs from the accumulation window."""
         import torch
 
-        if not indices:
+        if len(indices) == 0:
             return
-        indices = np.asarray(indices, dtype=np.int64)
-        arrays = self.cache.get_batch(indices, one_person=True)
+        if batches is None:
+            indices = np.asarray(indices, dtype=np.int64)
+            arrays = self.cache.get_batch(indices, one_person=True)
+            tensors = {key: torch.from_numpy(arrays[key]).to(device)
+                       for key in ('text_features', 'text_tokens', 'text_token_mask')}
+            batches = [(indices, arrays, tensors, np.ones(len(indices), dtype=bool))]
+        pieces = []
         with torch.no_grad():
-            features = torch.from_numpy(arrays['text_features']).to(device)
-            tokens = torch.from_numpy(arrays['text_tokens']).to(device)
-            valid = torch.from_numpy(arrays['text_token_mask']).to(device)
-            global_online = model.text_remap(model.fixed_clip_target(features))
-            local_online = model.text_remap(model.fixed_clip_target(tokens, valid))
-            local_online = local_online.masked_fill(~valid[..., None], 0)
-        self.apply_updates(indices, arrays, global_online.cpu().numpy(),
-                           local_online.cpu().numpy())
+            for batch_indices, arrays, tensors, active in batches:
+                if not active.any():
+                    continue
+                features = tensors['text_features']
+                tokens = tensors['text_tokens']
+                valid = tensors['text_token_mask']
+                global_online = model.text_remap(model.fixed_clip_target(features))
+                local_online = model.text_remap(model.fixed_clip_target(tokens, valid))
+                local_online = local_online.masked_fill(~valid[..., None], 0)
+                pieces.append((
+                    np.asarray(batch_indices, dtype=np.int64)[active],
+                    {key: arrays[key][active] for key in
+                     ('text_features', 'text_tokens', 'text_token_mask')},
+                    global_online.cpu().numpy()[active],
+                    local_online.cpu().numpy()[active]))
+        if not pieces:
+            return
+        # Different micro-batches can have different local padding lengths.
+        indices = np.concatenate([piece[0] for piece in pieces])
+        length = max(piece[1]['text_tokens'].shape[1] for piece in pieces)
+        arrays = {
+            'text_features': np.concatenate([piece[1]['text_features'] for piece in pieces]),
+            'text_tokens': np.zeros((len(indices), length, self.dim), dtype=np.float32),
+            'text_token_mask': np.zeros((len(indices), length), dtype=bool),
+        }
+        online_global = np.concatenate([piece[2] for piece in pieces])
+        online_local = np.zeros_like(arrays['text_tokens'])
+        start = 0
+        for batch_indices, values, _, local in pieces:
+            stop = start + len(batch_indices)
+            width = local.shape[1]
+            arrays['text_tokens'][start:stop, :width] = values['text_tokens']
+            arrays['text_token_mask'][start:stop, :width] = values['text_token_mask']
+            online_local[start:stop, :width] = local
+            start = stop
+        self.apply_updates(indices, arrays, online_global, online_local)
 
     def snapshot(self, checkpoint):
         """Atomic SQLite backup matched to one model checkpoint epoch."""

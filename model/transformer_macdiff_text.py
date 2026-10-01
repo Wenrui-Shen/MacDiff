@@ -139,6 +139,13 @@ def masked_text_uniformity_loss(features, valid):
             pairs.sum(dim=(1, 2)).clamp_min(1)).mean()
 
 
+def text_content_batch_variance(global_features, local_features, valid):
+    """Channel variance over online global + valid local content vectors."""
+    vectors = torch.cat([global_features.detach().float(),
+                         local_features.detach().float()[valid]], dim=0)
+    return vectors.var(dim=0, unbiased=False).mean()
+
+
 class Transformer(MacDiff):
     supports_text_cache = True
 
@@ -248,7 +255,7 @@ class Transformer(MacDiff):
                 or torch.any(positions[valid] >= self.text_context_length)):
             raise ValueError('Invalid text person/position IDs')
 
-    def remap_tokens(self, features, valid, person_ids, positions):
+    def remap_tokens(self, features, valid, person_ids, positions, return_content=False):
         self.validate_text_tokens(features, valid, person_ids, positions)
         # Padding must be irrelevant even if its caller-supplied values are nonzero.
         features = features.masked_fill(~valid[..., None], 0)
@@ -256,12 +263,16 @@ class Transformer(MacDiff):
         positions = positions.masked_fill(~valid, 0)
         if self.text_target_mode in ('ema_remap', 'sample_target_blend'):
             content = self.text_remap(self.fixed_clip_target(features, valid))
-            return (content + self.text_person_embedding(person_ids)
-                    + self.text_position_embedding(positions)).masked_fill(
-                        ~valid[..., None], 0)
+            result = (content + self.text_person_embedding(person_ids)
+                      + self.text_position_embedding(positions)).masked_fill(
+                          ~valid[..., None], 0)
+            return (result, content.masked_fill(~valid[..., None], 0)) if return_content else result
         result = self.text_remap[:-1](features).float()
+        # Reuse the MLP result for logging content before structural embeddings.
+        content = self.text_remap[-1](result).masked_fill(~valid[..., None], 0) if return_content else None
         result = result + self.text_person_embedding(person_ids) + self.text_position_embedding(positions)
-        return self.text_remap[-1](result.float()).masked_fill(~valid[..., None], 0)
+        result = self.text_remap[-1](result.float()).masked_fill(~valid[..., None], 0)
+        return (result, content) if return_content else result
 
     def fixed_clip_target(self, features, valid=None):
         """Detach fixed CLIP targets and optionally give each token unit RMS."""
@@ -370,13 +381,13 @@ class Transformer(MacDiff):
             text_target_tokens = text_target_tokens[active_rows]
         zero = native.new_zeros(())
         text_uniformity = zero
-        target_drift = zero
         if self.text_target_mode == 'fixed_clip':
             self.validate_text_tokens(text_tokens, text_token_mask, text_person_ids, text_positions)
             # Structure belongs only to the decoder, never to the clean target.
             # RMS normalization preserves every CLIP direction and only changes scale.
             r = self.fixed_clip_target(text_features)
             token_condition = self.fixed_clip_target(text_tokens, text_token_mask)
+            remapped_local = token_condition  # fixed_clip has no trainable remap
             memory = torch.cat([r[:, None], token_condition], dim=1)
         elif self.text_target_mode in ('ema_remap', 'sample_target_blend'):
             self.validate_text_tokens(text_tokens, text_token_mask, text_person_ids, text_positions)
@@ -399,14 +410,14 @@ class Transformer(MacDiff):
                     target_global = text_target_global.detach().float()
                     target_local = text_target_tokens.detach().float()
                 target_local = target_local.masked_fill(~text_token_mask[..., None], 0)
-                target_drift = (target_global - fixed_global).square().mean()
                 memory = torch.cat([target_global[:, None], target_local], dim=1)
         else:
             # Keep legacy normalization in FP32 under AMP.
             r = self.text_remap[:-1](text_features)
             r = self.text_remap[-1](r.float())
-            token_condition = self.remap_tokens(
-                text_tokens, text_token_mask, text_person_ids, text_positions)
+            token_condition, remapped_local = self.remap_tokens(
+                text_tokens, text_token_mask, text_person_ids, text_positions,
+                return_content=True)
             memory = torch.cat([r[:, None], token_condition], dim=1)
         memory_mask = torch.cat([torch.ones_like(text_token_mask[:, :1]), text_token_mask], dim=1)
         h = torch.cat([pooled[active_rows], latent[active_rows]], dim=1)
@@ -424,11 +435,10 @@ class Transformer(MacDiff):
                 + self.lambda_text_to_skeleton * t2s + self.lambda_skeleton_to_text * s2t)
         metrics = {'loss_diff': native.detach(), 'loss_uniformity': uniformity.detach(),
                    'loss_text_uniformity': text_uniformity.detach(),
-                   'text_target_drift_mse': target_drift.detach(),
-                   'empty_skeleton_persons': (~active_rows).sum().detach(),
                    'loss_text_to_skeleton': t2s.detach(), 'loss_skeleton_to_text': s2t.detach(),
                    'text_energy': memory[:, 0].detach().square().mean(),
-                   'text_batch_variance': memory[:, 0].detach().var(dim=0, unbiased=False).mean()}
+                   'text_batch_variance': text_content_batch_variance(
+                       r, remapped_local, text_token_mask)}
         if self.lambda_text_to_skeleton or self.lambda_skeleton_to_text:
             metrics['text_valid_tokens'] = text_token_mask.sum(dim=1).float().mean()
         return loss, prediction, mask, metrics

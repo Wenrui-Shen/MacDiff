@@ -1,4 +1,4 @@
-"""Person-aligned training reader for unchanged v2 CLIP cache files."""
+"""Person-aligned reader for v2 word tokens and v3 body-region sentences."""
 import json
 from pathlib import Path
 import numpy as np
@@ -12,6 +12,8 @@ class PersonTokenFeatureCache:
         self.global_text = np.load(root / 'person_features.npy', mmap_mode='r', allow_pickle=False)
         self.features = np.load(root / 'token_features.npy', mmap_mode='r', allow_pickle=False)
         self.mask = np.load(root / 'token_mask.npy', mmap_mode='r', allow_pickle=False)
+        # v2 stores BOS at slot 0 (masked); v3's slot 0 is the head sentence.
+        self.position_offset = 1 if manifest.get('protocol') == 'macdiff_clip_sentence_cache_v3' else 0
 
     def get_batch(self, indices, one_person=True):
         indices = np.asarray(indices)
@@ -35,7 +37,7 @@ class PersonTokenFeatureCache:
                 tokens[row, :count] = self.features[index, person, pos]
                 mask[row, :count] = True
                 persons[row, :count] = person
-                positions[row, :count] = pos
+                positions[row, :count] = pos + self.position_offset
         return dict(text_features=np.asarray(self.global_text[indices, :people], dtype=np.float32).reshape(rows, dim),
                     text_tokens=tokens, text_token_mask=mask,
                     text_person_ids=persons, text_positions=positions)
@@ -43,7 +45,12 @@ class PersonTokenFeatureCache:
 
 def load_person_token_cache(directory, data_path=None, expected_count=None,
                             skip_full_validation=False):
-    # Keep extraction helpers unchanged so existing v2 provenance remains valid.
+    # Keep v2 extraction/validation unchanged so existing provenance remains valid.
+    manifest = json.loads((Path(directory) / 'manifest.json').read_text(encoding='utf-8'))
+    if manifest.get('protocol') == 'macdiff_clip_sentence_cache_v3':
+        from .structured_text_cache import validate_cache
+        manifest = validate_cache(directory, data_path, expected_count, skip_full_validation)
+        return PersonTokenFeatureCache(directory, manifest)
     if skip_full_validation:
         manifest = _validate_cache_headers(directory, data_path, expected_count)
     else:

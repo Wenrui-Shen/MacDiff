@@ -10,6 +10,7 @@
 # --------------------------------------------------------
 import math
 import sys
+import time
 from typing import Iterable
 
 import torch
@@ -78,11 +79,14 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
 
     optimizer.zero_grad()
     pending_target_indices = []
+    pending_target_batches = []
+    target_read_seconds = target_update_seconds = 0.
     if device.type == 'cuda':
         torch.cuda.reset_peak_memory_stats(device)
     if log_writer is not None:
         print('log_dir: {}'.format(log_writer.log_dir))
 
+    epoch_start = time.perf_counter()
     for data_iter_step, batch in enumerate(
             metric_logger.log_every(data_loader, print_freq, header)):
         if data_iter_step >= steps_this_epoch:
@@ -94,7 +98,9 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
                 arrays = text_features.get_batch(
                     sample_indices.cpu().numpy(), one_person=model_without_ddp.one_person)
                 if text_target_bank is not None:
+                    target_read_start = time.perf_counter()
                     arrays.update(text_target_bank.get_batch(sample_indices.cpu().numpy(), arrays))
+                    target_read_seconds += time.perf_counter() - target_read_start
                 text_kwargs = {name: torch.from_numpy(values).to(device, non_blocking=True)
                                for name, values in arrays.items()}
             else:
@@ -108,18 +114,18 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
 
         samples = samples.float().to(device, non_blocking=True)
         samples_aug = samples_aug.float().to(device, non_blocking=True)
-        if text_features is not None:
-            retained = samples[..., :1] if model_without_ddp.one_person else samples
-            empty = retained.abs().sum(dim=(1, 2, 3)) == 0
-            if empty.any():
-                rows, people = empty.nonzero(as_tuple=True)
-                raw_indices = sample_indices[rows.cpu()].tolist()
-                print('Empty cropped skeletons excluded from losses: sample_indices={}, person_ids={}'.format(
-                    raw_indices, people.cpu().tolist()))
-            if text_target_bank is not None:
-                if not model_without_ddp.one_person:
-                    raise ValueError('Persistent sample targets currently require one_person=True')
-                pending_target_indices.extend(sample_indices[~empty[:, 0].cpu()].tolist())
+        if text_features is not None and text_target_bank is not None:
+            if not model_without_ddp.one_person:
+                raise ValueError('Persistent sample targets currently require one_person=True')
+            target_indices_numpy = sample_indices.cpu().numpy().copy()
+            target_active_numpy = (samples[..., 0].abs().sum(dim=(1, 2, 3)) > 0).cpu().numpy()
+            pending_target_indices.extend(target_indices_numpy[target_active_numpy].tolist())
+            keys = ('text_features', 'text_tokens', 'text_token_mask')
+            pending_target_batches.append((
+                target_indices_numpy,
+                {key: arrays[key] for key in keys},
+                {key: text_kwargs[key] for key in keys},
+                target_active_numpy))
         mask_ratio = args.mask_ratio
         if isinstance(mask_ratio, list):
             if len(mask_ratio) == 1:
@@ -161,9 +167,13 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
                 if text_target_bank is None:
                     model_without_ddp.update_text_target()
                 else:
+                    target_update_start = time.perf_counter()
                     text_target_bank.update_from_model(
-                        pending_target_indices, model_without_ddp, device)
+                        pending_target_indices, model_without_ddp, device,
+                        batches=pending_target_batches)
+                    target_update_seconds += time.perf_counter() - target_update_start
             pending_target_indices.clear()
+            pending_target_batches.clear()
             optimizer.zero_grad()
 
         if device.type == 'cuda':
@@ -180,6 +190,7 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
             log_writer.add_scalar('train_loss', loss_value_reduce, epoch_1000x)
             log_writer.add_scalar('lr', lr, epoch_1000x)
 
+    epoch_seconds = time.perf_counter() - epoch_start
     metric_logger.synchronize_between_processes()
     peak_allocated_mb, peak_reserved_mb = _cuda_peak_memory(device)
     print("Averaged stats:", metric_logger)
@@ -187,14 +198,23 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
         'CUDA peak memory: allocated={:.1f} MiB, reserved={:.1f} MiB'.format(
             peak_allocated_mb, peak_reserved_mb))
     stats = {k: meter.global_avg for k, meter in metric_logger.meters.items()}
-    if log_writer is not None and text_features is not None:
-        for name, value in stats.items():
-            if name not in ('loss', 'lr'):
-                log_writer.add_scalar('text_stage1/' + name, value, epoch)
     stats.update({
         'cuda_peak_allocated_mb': peak_allocated_mb,
         'cuda_peak_reserved_mb': peak_reserved_mb,
     })
+    if text_target_bank is not None:
+        timings = torch.tensor([target_read_seconds, target_update_seconds, epoch_seconds],
+                               dtype=torch.float64, device=device)
+        if dist.is_available() and dist.is_initialized():
+            dist.all_reduce(timings, op=dist.ReduceOp.MAX)
+        stats.update(dict(zip(('text_target_read_seconds', 'text_target_update_seconds',
+                               'epoch_seconds'), timings.tolist())))
+        print('Sample targets: read={:.2f}s, update={:.2f}s, epoch={:.2f}s'.format(
+            *timings.tolist()))
+    if log_writer is not None and text_features is not None:
+        for name, value in stats.items():
+            if name not in ('loss', 'lr'):
+                log_writer.add_scalar('text_stage1/' + name, value, epoch)
     return stats
 
 

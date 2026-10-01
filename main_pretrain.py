@@ -102,6 +102,9 @@ def get_args_parser():
     parser.add_argument('--text_cache', default='', help='Complete cache_clip_text.py output directory')
     parser.add_argument('--skip_text_cache_validation', action='store_true', default=False,
                         help='Reuse a trusted text cache with only file-size/header checks; skip hashes and row scans')
+    parser.add_argument('--text_target_bank_backend', default='shared_memory',
+                        choices=('shared_memory', 'sqlite'),
+                        help='Per-sample targets: host-shared RAM (default) or per-step SQLite I/O')
     parser.add_argument('--lambda_text_to_skeleton', type=float, default=None,
                         help='Override the fixed text-to-skeleton loss weight')
     parser.add_argument('--lambda_skeleton_to_text', type=float, default=None,
@@ -366,6 +369,9 @@ def main(args):
         raise ValueError('text_input_dim differs from cached CLIP projection dimension')
     if supports_text and model_args.get('text_context_length', 77) != text_features.manifest['context_length']:
         raise ValueError('text_context_length differs from the token cache')
+    if supports_text:
+        from util.structured_text_cache import validate_training_definition
+        validate_training_definition(text_features.manifest, model_args, dataset_train)
     model = Model(**model_args)
     if supports_text:
         args.text_training_weights = (model.lambda_text_to_skeleton, model.lambda_skeleton_to_text)
@@ -435,12 +441,23 @@ def main(args):
 
     text_target_bank = None
     if supports_text and model_without_ddp.text_target_mode == 'sample_target_blend':
-        from util.sample_text_target_bank import SampleTextTargetBank
-        text_target_bank = SampleTextTargetBank.prepare(
-            Path(args.output_dir) / 'text_target_bank' / 'current.sqlite',
+        if args.text_target_bank_backend == 'shared_memory':
+            from util.shared_memory_text_target_bank import SharedMemoryTextTargetBank
+            target_bank_class = SharedMemoryTextTargetBank
+            bank_name = 'current.shared.json'
+        else:
+            from util.sample_text_target_bank import SampleTextTargetBank
+            target_bank_class = SampleTextTargetBank
+            bank_name = 'current.sqlite'
+        text_target_bank = target_bank_class.prepare(
+            Path(args.output_dir) / 'text_target_bank' / bank_name,
             text_features, model_without_ddp.text_target_update_ratio,
             resume=args.resume, rank=misc.get_rank(),
             barrier=dist.barrier if dist.is_available() and dist.is_initialized() else None)
+        print('Sample target bank backend: {}'.format(args.text_target_bank_backend))
+        if args.text_target_bank_backend == 'shared_memory':
+            print('Shared target RAM: {:.2f} GiB'.format(
+                text_target_bank._vectors.nbytes / 1024 ** 3))
 
     print(f"Start training for {args.epochs} epochs")
     start_time = time.time()
@@ -496,6 +513,7 @@ def main(args):
         ###
         if args.output_dir and (epoch % 10 == 0 or epoch + 1 == args.epochs):
             if text_target_bank is not None:
+                snapshot_start = time.perf_counter()
                 if dist.is_available() and dist.is_initialized():
                     dist.barrier()
                 if misc.is_main_process():
@@ -503,6 +521,7 @@ def main(args):
                         Path(args.output_dir) / ('checkpoint-{}.pth'.format(epoch)))
                 if dist.is_available() and dist.is_initialized():
                     dist.barrier()
+                train_stats['text_target_snapshot_seconds'] = time.perf_counter() - snapshot_start
             misc.save_model(
                 args=args, model=model, model_without_ddp=model_without_ddp, optimizer=optimizer,
                 loss_scaler=loss_scaler, epoch=epoch)

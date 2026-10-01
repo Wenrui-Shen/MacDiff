@@ -1,0 +1,27 @@
+Observe this temporally ordered skeleton video and briefly describe each person's motion in English.
+
+The two panels are front and side views of the same people. The red skeleton is person_index 0; the blue skeleton is person_index 1.
+This video contains {ACTOR_DESCRIPTION}. Return {ACTOR_COUNT} person entries, ordered by person_index.
+
+Global: Briefly describe the overall motion throughout the video.
+Local: For the head, torso, left arm, right arm, left leg, and right leg, describe each region's main motion. If a region shows no obvious movement, briefly describe its maintained pose.
+
+Base the descriptions on the visible skeleton motion. Use one brief English sentence for each description.
+Return only JSON in the following structure:
+
+{
+  "persons": [
+    {
+      "person_index": 0,
+      "global": "...",
+      "local": {
+        "head": "...",
+        "torso": "...",
+        "left_arm": "...",
+        "right_arm": "...",
+        "left_leg": "...",
+        "right_leg": "..."
+      }
+    }
+  ]
+}

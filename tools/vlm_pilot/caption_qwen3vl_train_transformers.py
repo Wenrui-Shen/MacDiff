@@ -25,11 +25,11 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 from caption_qwen3vl_sample import extract_json, render_prompt, validate_caption
+from caption_output import CaptionOutput, caption_schema, load_accepted_indices
 from render_skeleton_sample import load_font, render_sample_frames
 
 
-DEFAULT_PROMPT = SCRIPT_DIR / "skeleton_motion_prompt_v1.txt"
-SCHEMA_VERSION = "macdiff.person_caption.v1"
+DEFAULT_PROMPT = SCRIPT_DIR / "skeleton_motion_prompt_v2.txt"
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,7 +40,8 @@ def parse_args() -> argparse.Namespace:
         )
     )
     parser.add_argument("--data_path", type=Path, required=True)
-    parser.add_argument("--output_path", type=Path, required=True)
+    parser.add_argument("--output_path", type=Path, required=True,
+                        help="Text-only .json array or .jsonl; one sample per line, with metadata/diagnostic sidecars.")
     parser.add_argument("--prompt_path", type=Path, default=DEFAULT_PROMPT)
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--revision", default=None)
@@ -115,40 +116,6 @@ def sha256_file(path: Path) -> str:
         for chunk in iter(lambda: handle.read(1024 * 1024), b""):
             digest.update(chunk)
     return digest.hexdigest()
-
-
-def load_accepted_indices(
-    path: Path,
-    *,
-    expected_model: str,
-    expected_prompt_hash: str,
-) -> Set[int]:
-    accepted: Set[int] = set()
-    if not path.exists():
-        return accepted
-
-    with path.open("r", encoding="utf-8") as handle:
-        for line_number, line in enumerate(handle, start=1):
-            stripped = line.strip()
-            if not stripped:
-                continue
-            try:
-                record = json.loads(stripped)
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    f"Invalid JSONL in {path} at line {line_number}: {exc}"
-                ) from exc
-            if record.get("status") != "accepted":
-                continue
-            record_model = record.get("model")
-            record_prompt_hash = (record.get("prompt") or {}).get("sha256")
-            if record_model != expected_model or record_prompt_hash != expected_prompt_hash:
-                raise ValueError(
-                    f"Accepted records in {path} were produced with another model or "
-                    "prompt. Use a new --output_path instead of mixing runs."
-                )
-            accepted.add(int(record["sample_index"]))
-    return accepted
 
 
 def select_indices(
@@ -326,12 +293,12 @@ def generate_once(
             del generated_ids
 
 
-def parse_response(raw_text: str, expected_actors: int) -> Tuple[Optional[Dict[str, Any]], List[str]]:
+def parse_response(raw_text: str, expected_actors: int, schema=None) -> Tuple[Optional[Dict[str, Any]], List[str]]:
     try:
         parsed = extract_json(raw_text)
     except (ValueError, json.JSONDecodeError) as exc:
         return None, [f"JSON parse failed: {exc}"]
-    errors = validate_caption(parsed, expected_actors=expected_actors)
+    errors = validate_caption(parsed, expected_actors=expected_actors, schema=schema)
     return parsed, errors
 
 
@@ -364,42 +331,10 @@ def make_record(
 ) -> Dict[str, Any]:
     accepted = caption is not None and not errors
     return {
-        "schema_version": SCHEMA_VERSION,
         "sample_id": f"train_{sample_index:06d}",
         "sample_index": sample_index,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
-        "source_split": "train",
-        "labels_read": False,
-        "model": args.model,
-        "model_revision": args.resolved_revision,
-        "quantization": args.quantization,
-        "quantization_config": args.quantization_config,
-        "inference": {
-            "engine": "transformers",
-            "transformers_version": args.transformers_version,
-            "torch_version": args.torch_version,
-            "dtype": args.resolved_dtype,
-            "device": args.resolved_device,
-            "attention": args.attn_implementation,
-            "max_new_tokens": args.max_new_tokens,
-            "sample_fps": args.sample_fps,
-            "num_shards": args.num_shards,
-            "shard_id": args.shard_id,
-        },
-        "prompt": {
-            "path": str(args.prompt_path.resolve()),
-            "sha256": prompt_hash,
-        },
-        "render": {
-            "layout": [
-                "front_xy_root_centered",
-                "side_zy_root_centered",
-            ],
-            "person_colors": {"0": "red", "1": "blue"},
-            "width": args.width,
-            "height": args.height,
-            **render_info,
-        },
+        "render": render_info,
         "actor_count": actor_count,
         "status": "accepted" if accepted else "invalid",
         "errors": list(errors),
@@ -408,23 +343,14 @@ def make_record(
         "generation_seconds": round(generation_seconds, 4),
         "raw_response": raw_text,
         "caption": caption,
-        "texts": (
-            [
-                {
-                    "person_index": person["person_index"],
-                    "color": person["color"],
-                    "text": person["text"],
-                }
-                for person in caption["persons"]
-            ]
-            if accepted
-            else []
-        ),
         "attempts": list(attempts),
     }
 
 
 def write_jsonl_record(handle: Any, record: Dict[str, Any]) -> None:
+    if isinstance(handle, CaptionOutput):
+        handle.write_record(record)
+        return
     handle.write(json.dumps(record, ensure_ascii=False) + "\n")
     handle.flush()
 
@@ -440,29 +366,14 @@ def write_pipeline_error(
     write_jsonl_record(
         handle,
         {
-            "schema_version": SCHEMA_VERSION,
             "sample_id": f"train_{sample_index:06d}",
             "sample_index": sample_index,
             "created_at_utc": datetime.now(timezone.utc).isoformat(),
-            "source_split": "train",
-            "labels_read": False,
-            "model": args.model,
-            "model_revision": args.resolved_revision,
-            "inference": {
-                "engine": "transformers",
-                "num_shards": args.num_shards,
-                "shard_id": args.shard_id,
-            },
-            "prompt": {
-                "path": str(args.prompt_path.resolve()),
-                "sha256": prompt_hash,
-            },
             "status": "pipeline_error",
             "errors": [f"{type(error).__name__}: {error}"],
             "retry_count": 0,
             "raw_response": "",
             "caption": None,
-            "texts": [],
             "attempts": [],
         },
     )
@@ -529,6 +440,8 @@ def main() -> None:
         raise FileNotFoundError(args.prompt_path)
 
     prompt_template = args.prompt_path.read_text(encoding="utf-8").strip()
+    args.caption_schema = caption_schema(prompt_template)
+    args.engine = "transformers"
     prompt_hash = sha256_file(args.prompt_path)
 
     if args.output_path.exists() and not args.resume and not args.dry_run:
@@ -540,6 +453,7 @@ def main() -> None:
             args.output_path,
             expected_model=args.model,
             expected_prompt_hash=prompt_hash,
+            expected_revision=args.revision,
         )
         if args.resume
         else set()
@@ -629,7 +543,6 @@ def main() -> None:
             args.resolved_device = str(model.device)
 
         args.output_path.parent.mkdir(parents=True, exist_ok=True)
-        output_mode = "a" if args.resume else "w"
         font = load_font(18)
 
         accepted_now = 0
@@ -637,7 +550,7 @@ def main() -> None:
         pipeline_errors = 0
         run_started = time.perf_counter()
 
-        with args.output_path.open(output_mode, encoding="utf-8") as output_handle:
+        with CaptionOutput(args, prompt_hash, torch) as output_handle:
             for ordinal, sample_index in enumerate(selected_indices, start=1):
                 frames: List[Any] = []
                 try:
@@ -688,7 +601,7 @@ def main() -> None:
                                 args=args,
                                 torch=torch,
                             )
-                            caption, errors = parse_response(raw_text, actor_count)
+                            caption, errors = parse_response(raw_text, actor_count, schema=args.caption_schema)
                         except Exception as exc:
                             caption = None
                             errors = [f"generation failed: {type(exc).__name__}: {exc}"]

@@ -21,10 +21,9 @@ import numpy as np
 os.environ.setdefault("VLLM_WORKER_MULTIPROC_METHOD", "spawn")
 
 from caption_qwen3vl_sample import extract_json, render_prompt, validate_caption
+from caption_output import (CaptionOutput, caption_schema,
+                            load_accepted_indices)
 from render_skeleton_sample import load_font, render_sample_frames
-
-
-SCHEMA_VERSION = "macdiff.person_caption.v1"
 
 
 def parse_args():
@@ -35,11 +34,12 @@ def parse_args():
         )
     )
     parser.add_argument("--data_path", type=Path, required=True)
-    parser.add_argument("--output_path", type=Path, required=True)
+    parser.add_argument("--output_path", type=Path, required=True,
+                        help="Text-only .json array or .jsonl; one sample per line, with metadata/diagnostic sidecars.")
     parser.add_argument(
         "--prompt_path",
         type=Path,
-        default=Path(__file__).with_name("skeleton_motion_prompt_v1.txt"),
+        default=Path(__file__).with_name("skeleton_motion_prompt_v2.txt"),
     )
     parser.add_argument("--model", default="Qwen/Qwen3-VL-8B-Instruct")
     parser.add_argument("--revision", default=None)
@@ -121,24 +121,6 @@ def sha256_file(path):
         for block in iter(lambda: source.read(1024 * 1024), b""):
             digest.update(block)
     return digest.hexdigest()
-
-
-def load_accepted_indices(path):
-    accepted = set()
-    with path.open("r", encoding="utf-8") as source:
-        for line_number, line in enumerate(source, start=1):
-            if not line.strip():
-                continue
-            try:
-                record = json.loads(line)
-            except json.JSONDecodeError as exc:
-                raise ValueError(
-                    "%s has malformed JSON on line %d; repair or remove the partial "
-                    "line before resuming" % (path, line_number)
-                ) from exc
-            if record.get("status") == "accepted":
-                accepted.add(int(record["sample_index"]))
-    return accepted
 
 
 def select_indices(total_samples, start_index, max_samples, accepted):
@@ -252,12 +234,12 @@ def close_frames(state):
     state["frames"] = []
 
 
-def parse_response(raw_response, actor_count):
+def parse_response(raw_response, actor_count, schema=None):
     try:
         caption = extract_json(raw_response)
     except (ValueError, json.JSONDecodeError) as exc:
         return None, "invalid_json", [str(exc)]
-    errors = validate_caption(caption, actor_count)
+    errors = validate_caption(caption, actor_count, schema=schema)
     if errors:
         return caption, "invalid_content", errors
     return caption, "accepted", []
@@ -316,7 +298,7 @@ def run_caption_attempts(states, llm, processor, sampling_params, args):
             else:
                 raw_response = response
                 caption, status, errors = parse_response(
-                    raw_response, state["actor_count"]
+                    raw_response, state["actor_count"], schema=args.caption_schema
                 )
             state["attempts"].append({
                 "retry_count": retry_count,
@@ -333,53 +315,13 @@ def run_caption_attempts(states, llm, processor, sampling_params, args):
 
 
 def make_record(state, args, prompt_hash):
-    accepted = state["status"] == "accepted"
     caption = state["caption"]
-    texts = []
-    if accepted:
-        texts = [
-            {
-                "person_index": person["person_index"],
-                "color": person["color"],
-                "text": person["text"],
-            }
-            for person in caption["persons"]
-        ]
     last_response = state["attempts"][-1]["raw_response"]
     return {
-        "schema_version": SCHEMA_VERSION,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "sample_id": state["sample_id"],
         "sample_index": state["sample_index"],
-        "source_split": "train",
-        "labels_read": False,
-        "model": args.model,
-        "model_revision": args.resolved_model_revision,
-        "quantization": args.resolved_quantization,
-        "inference": {
-            "engine": "vllm_offline",
-            "tensor_parallel_size": args.tensor_parallel_size,
-            "dtype": args.dtype,
-            "max_model_len": args.max_model_len,
-            "max_new_tokens": args.max_new_tokens,
-            "temperature": 0.0,
-            "seed": args.seed,
-            "sample_fps": args.sample_fps,
-        },
-        "prompt": {
-            "path": str(args.prompt_path.resolve()),
-            "sha256": prompt_hash,
-        },
-        "render": {
-            "layout": [
-                "front_xy_root_centered",
-                "side_zy_root_centered",
-            ],
-            "person_colors": {"0": "red", "1": "blue"},
-            "width": args.width,
-            "height": args.height,
-            **state["render_info"],
-        },
+        "render": state["render_info"],
         "actor_count": state["actor_count"],
         "status": state["status"],
         "errors": state["errors"],
@@ -388,33 +330,20 @@ def make_record(state, args, prompt_hash):
         "generation_seconds": state["generation_seconds"],
         "raw_response": last_response,
         "caption": caption,
-        "texts": texts,
         "attempts": state["attempts"],
     }
 
 
 def write_pipeline_error(sink, sample_index, args, prompt_hash, exc):
     record = {
-        "schema_version": SCHEMA_VERSION,
         "created_at_utc": datetime.now(timezone.utc).isoformat(),
         "sample_id": "train_%d" % sample_index,
         "sample_index": sample_index,
-        "source_split": "train",
-        "labels_read": False,
-        "model": args.model,
-        "model_revision": args.resolved_model_revision,
-        "quantization": args.resolved_quantization,
-        "prompt": {
-            "path": str(args.prompt_path.resolve()),
-            "sha256": prompt_hash,
-        },
         "status": "pipeline_error",
         "errors": ["%s: %s" % (type(exc).__name__, exc)],
         "caption": None,
-        "texts": [],
     }
-    sink.write(json.dumps(record, ensure_ascii=False) + "\n")
-    sink.flush()
+    sink.write_record(record)
 
 
 def dry_run(data, sample_index, prompt_template, args):
@@ -447,6 +376,8 @@ def main():
         raise FileNotFoundError(args.prompt_path)
 
     prompt_template = args.prompt_path.read_text(encoding="utf-8")
+    args.caption_schema = caption_schema(prompt_template)
+    args.engine = "vllm_offline"
     prompt_hash = sha256_file(args.prompt_path)
     accepted_indices = set()
     if args.output_path.exists():
@@ -456,7 +387,9 @@ def main():
                 % args.output_path
             )
         if args.resume:
-            accepted_indices = load_accepted_indices(args.output_path)
+            accepted_indices = load_accepted_indices(
+                args.output_path, expected_model=args.model, expected_prompt_hash=prompt_hash,
+                expected_revision=args.revision)
 
     archive = np.load(str(args.data_path), mmap_mode="r", allow_pickle=False)
     try:
@@ -538,7 +471,8 @@ def main():
         )
         font = load_font(14)
         args.output_path.parent.mkdir(parents=True, exist_ok=True)
-        with args.output_path.open("a", encoding="utf-8") as sink:
+        import torch
+        with CaptionOutput(args, prompt_hash, torch) as sink:
             completed = 0
             for offset in range(0, len(indices), args.batch_size):
                 batch_indices = indices[offset:offset + args.batch_size]
@@ -572,8 +506,7 @@ def main():
                     )
                     for state in states:
                         record = make_record(state, args, prompt_hash)
-                        sink.write(json.dumps(record, ensure_ascii=False) + "\n")
-                        sink.flush()
+                        sink.write_record(record)
                         completed += 1
                         print(
                             "[%d/%d] %s %s actors=%d retries=%d"
