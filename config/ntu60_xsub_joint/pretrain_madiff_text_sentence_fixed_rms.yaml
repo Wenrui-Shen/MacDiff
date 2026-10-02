@@ -45,7 +45,8 @@ model_args:
   text_context_length: 7
   text_target_mode: fixed_clip
   text_target_norm: rms  # frozen x / RMS(x), equivalent to sqrt(512)*x for unit CLIP
-  text_decoder_hidden_dim: 256
+  text_decoder_hidden_dim: 512
+  text_decoder_output_norm: 'none'  # full-width noise output; internal norms are retained
   text_decoder_depth: 5
   share_skeleton_decoder: False
 
@@ -61,5 +62,5 @@ min_lr: 1.e-5
 weight_decay: 0.05
 mask_ratio: 0.9
 motion_aware_tau: -1
-output_dir: output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01
-log_dir: output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01/tensorboard
+output_dir: output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_st512
+log_dir: output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_st512/tensorboard

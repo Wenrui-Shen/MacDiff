@@ -81,8 +81,10 @@ class TextNoiseBlock(nn.Module):
 class TextNoiseDecoder(nn.Module):
     """Denoise global + local text tokens conditioned on visible skeleton tokens."""
     def __init__(self, dim, time_dim, hidden_dim, depth, heads, context_length,
-                 skeleton_dim=None):
+                 skeleton_dim=None, output_norm='layernorm'):
         super().__init__()
+        if output_norm not in ('layernorm', 'none'):
+            raise ValueError('text_decoder_output_norm must be layernorm or none')
         self.time_dim = time_dim
         self.input = nn.Linear(dim, hidden_dim)
         self.skeleton_input = nn.Linear(dim if skeleton_dim is None else skeleton_dim, hidden_dim)
@@ -93,7 +95,11 @@ class TextNoiseDecoder(nn.Module):
         nn.init.normal_(self.global_embedding, std=.02)
         self.blocks = nn.ModuleList([
             TextNoiseBlock(hidden_dim, time_dim, heads) for _ in range(depth)])
-        self.output = nn.Sequential(nn.LayerNorm(hidden_dim), nn.Linear(hidden_dim, dim))
+        # Final LayerNorm removes one linear direction even when hidden_dim=dim.
+        # Full-width noise prediction uses an unnormalized head; block norms stay.
+        # Preserve output.1 parameter names and the historical default for resume.
+        norm = nn.LayerNorm(hidden_dim) if output_norm == 'layernorm' else nn.Identity()
+        self.output = nn.Sequential(norm, nn.Linear(hidden_dim, dim))
 
     def forward(self, noisy_text, t, skeleton, skeleton_mask, valid, person_ids, positions):
         person_ids = person_ids.masked_fill(~valid[:, 1:], 0)
@@ -157,7 +163,8 @@ class Transformer(MacDiff):
                  text_target_norm='none',
                  text_target_momentum=0.999, text_target_update_ratio=0.1,
                  lambda_text_uniformity=0.,
-                 lambda_text_to_skeleton=1., lambda_skeleton_to_text=1., **kwargs):
+                 lambda_text_to_skeleton=1., lambda_skeleton_to_text=1.,
+                 text_decoder_output_norm='layernorm', **kwargs):
         super().__init__(**kwargs)
         if not isinstance(share_skeleton_decoder, bool):
             raise ValueError('share_skeleton_decoder must be a boolean')
@@ -227,7 +234,7 @@ class Transformer(MacDiff):
         self.text_noise_decoder = TextNoiseDecoder(
             target_dim, self.dim_t_embed, text_decoder_hidden_dim, text_decoder_depth,
             self.decoder_blocks[0].attn.num_heads, text_context_length,
-            skeleton_dim=self.dim_feat)
+            skeleton_dim=self.dim_feat, output_norm=text_decoder_output_norm)
         if text_target_mode == 'remap':
             self.text_remap.apply(self._init_weights)
         self.text_noise_decoder.apply(self._init_weights)

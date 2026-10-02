@@ -48,7 +48,8 @@ model_args:
   text_target_norm: rms
   text_target_update_ratio: 0.1
   lambda_text_uniformity: 0.02
-  text_decoder_hidden_dim: 256
+  text_decoder_hidden_dim: 512
+  text_decoder_output_norm: 'none'  # full-width noise output; internal norms are retained
   text_decoder_depth: 5
   share_skeleton_decoder: True  # ablation: T->S reuses the native decoder body
 
@@ -65,5 +66,5 @@ min_lr: 1.e-5
 weight_decay: 0.05
 mask_ratio: 0.9
 motion_aware_tau: -1
-output_dir: output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared
-log_dir: output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared/tensorboard
+output_dir: output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512
+log_dir: output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512/tensorboard

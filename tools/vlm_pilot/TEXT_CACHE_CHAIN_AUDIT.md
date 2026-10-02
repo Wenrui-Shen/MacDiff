@@ -46,7 +46,7 @@ v3 不保存 BPE token_ids，因为六个槽位与分词器位置无关。`conte
 2. **左右侧语义。** 当前渲染只是前/侧投影和红蓝人物颜色，没有逐关节的左/右提示。新版格式检查无法证明 VLM 的 left_arm/right_arm 内容识别正确，应抽检。若启用 feeder.flip，需要同时交换对应部位并处理方向文字；目前没有 flip 标记供训练映射，所以新版配置明确 flip=False，训练启动也拒绝 v3 搭配 flip=True。随机旋转与方向文字也需要独立考虑。
 3. **global/local 的实际 loss 权重。** S→T 仍一次平均所有有效向量。旧平均约 20 个 local 时 global 约占 1/21，新六部位时是 1/7。因此外层 S→T 权重相同也不是完全相同的内部监督分配；新配置保留现有公式，便于先跑通。以后可独立实验 `w_g L_g + w_l mean(L_region)`。
 4. **uniformity。** 当前仅同一样本 local 的平方余弦，含对角项。六向量的对角下限是 1/6，旧约二十词元约 1/20，日志不能直接比较。强迫左右臂/腿的同步动作句互相正交可能不符合语义。fixed RMS 首轮不启用文本 uniformity；sample_target 配置保留原 0.02，之后可单独做权重为 0 的消融。
-5. **S→T 输出维度。** 现有 256 隐藏、512 输出带仿射线性头，对于各向同性噪声存在约 0.5 的期望 MSE 下限。减少 token 数不会改变这个维度问题；本次未改模型宽度。
+5. **S→T 输出维度。** 首轮256隐藏、512输出带末端LayerNorm和仿射线性头，对各向同性噪声有约0.502的期望MSE下限。减少token数不会改变这个问题；后续用户已授权修复，最新sentence配置改为512/无末端LN，见第6节。
 6. **渲染信息。** 现有视频逐帧减去 person0 的 root，未展示绝对位移；global 描述无法恢复被去掉的世界坐标运动。当前缓存不会给缺失信息补造特征。
 7. **原始数据来源证据。** 新缓存会绑定当前 NPZ 的 SHA256并校验其人物槽位，但已有渲染 provenance 主要是路径/大小/mtime，不能单凭新缓存证明旧 captions 一定来自内容相同的 NPZ。首次应核对生成时实际数据文件；后续训练则用缓存 dataset SHA256严格校验。
 
@@ -109,3 +109,13 @@ python -m unittest tests.test_structured_text_cache tests.test_clip_text_cache t
 当前回归75项：45项CPU通过、30项依赖跳过；新增4项reader、5项目标更新、3项LP聚合检查。目标更新和LP测试以NumPy-backed Torch API运行实际方法，未验证真实CUDA/AMP/DDP；六份改动Python通过3.8 AST检查，diff whitespace检查通过。
 
 结果仍需关注：S→T最后0.510913接近256→512仿射输出的各向同性噪声期望MSE下限约0.5；text uni最后0.167875接近六句下限1/6，仅说明同样本部位接近正交，不能排除各部位跨样本变成固定原型；合并variance=0.926353可由部位差异维持，也不能排除这一情况。首轮LP best的train CE=0.466444/test CE=4.616537，需logits/错误置信度分析；不能凭此直接认定BN或标签错误。完整描述与0.5..1随机时间crop/90%mask的监督可见性仍未检验。暂未扩大decoder、改uniformity/crop或添加正则。
+
+## 6. S→T维度瓶颈修复（用户授权）
+
+用户随后要求修复并询问512或1024。采用512：两份sentence YAML显式设置 `text_decoder_hidden_dim: 512`、`text_decoder_output_norm: 'none'`，并使用独立 `_st512` 输出/log目录。仅取消decoder最后的输出LayerNorm，block内归一化不变。原LayerNorm将H维表示约束到H−1维仿射空间，因此只把宽度改512仍有1/512的小秩限制；取消末端LN后，512→512线性头可覆盖完整噪声空间。
+
+以512目标、256骨架、5层、7向量计算，512新decoder约27,595,776参数，1024约107,621,888参数（保留LN的计算，去除仅少2048）；1024约为512的3.9倍，先以512解除瓶颈再考虑容量消融。这是结构分析，不是GPU性能或LP增益证据。
+
+模型新增可选 `text_decoder_output_norm`，默认保留历史 `layernorm` 和256宽度；输出仍采用Sequential，线性层保持 `output.1` 参数名。历史256配置/checkpoint可复现；新配置不能完整resume旧256模型，需要新预训练。旧checkpoint仍可按原方式做LP。cache来源身份、目标递推、loss权重、骨架encoder及共享骨架decoder不变。更新双卡训练/LP串联命令见handoff第6.4节。
+
+结构修复回归共81项：49项CPU通过、32项依赖跳过。新增 `tests.test_text_decoder_width` 的4项CPU检查通过，运行实际decoder构造器及NumPy-backed输出层，覆盖512全部输出方向、历史LayerNorm、非法norm和两份配置；2项真实Torch完整前向/梯度及checkpoint检查因缺依赖跳过。模型/测试通过Python3.8 AST和diff whitespace检查，未做服务器AMP/DDP/显存或LP验证。

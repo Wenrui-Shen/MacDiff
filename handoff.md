@@ -1,6 +1,6 @@
 # MacDiff 交接：全局/六部位文本、CLIP 缓存与 Stage1 训练（2026-10-02）
 
-本文面向完全没有上下文的新会话。**global + 六部位新版文本/cache 已完成，用户已提供首轮400 epoch预训练和100 epoch LP日志，LP best为85.8018%。** 不要重新生成 cache。当前任务是检查并修复文本最大长度/padding相关浪费，再结合首轮结果分析限制；本次代码优化已完成，尚未同步服务器。用户此前要求下一组 T→S 权重改为1、预训练每卡batch32、LP每卡batch64，训练和LP用 `&&` 连接；尚无这组的新结果。
+本文面向完全没有上下文的新会话。**global + 六部位新版文本/cache 已完成，用户已提供首轮400 epoch预训练和100 epoch LP日志，LP best为85.8018%。** 不要重新生成 cache。padding优化完成后，用户明确要求修复S→T的维度瓶颈并询问512/1024；当前已采用512隐藏宽度、取消末端输出LayerNorm，修改两份sentence配置并使用独立 `_st512` 输出目录，尚未同步服务器或训练。用户此前要求下一组T→S权重改为1、预训练每卡batch32、LP每卡batch64，训练和LP用 `&&` 连接；更新命令见6.4，尚无这组结果。
 
 这是本会话结束时的当前状态。旧交接完整保存在 `handoff_artifacts/handoff_before_20261001_refresh.md`，仅供历史追溯；其中“不要重新生成文本/缓存”“还需手动同步性能版文件”“当前 variance 是保存 global 目标”等说法已经被本文件更新。详细链路检查见 `tools/vlm_pilot/TEXT_CACHE_CHAIN_AUDIT.md`。
 
@@ -23,7 +23,9 @@
 
 首轮证据：预训练epoch0..399、LP epoch0..99连续且指标有限；总loss核算确认这一轮T→S/S→T均为0.1，不能当作权重1的结果。最后S→T=0.510913、text uni=0.167875、global+local variance=0.926353、保存global能量=0.999576。LP best在epoch87：Top1=85.801795%、Top5=97.531538%、train CE=0.466444、test CE=4.616537；最后Top1=85.547065%。LP LR日程对应每epoch313次更新、与有效batch128一致，但日志没有原始args，不能独断实际每卡batch。与历史85.82%/85.86%接近，尚无可归因于新版文本的增益。
 
-后续诊断优先级：256隐藏→512噪声输出的S→T结构瓶颈；同一样本六local uni只迫使部位互相正交，需检查各部位跨样本是否退化成固定原型；合并variance不能排除该情况；完整视频描述和随机0.5..1时间crop/90%mask的可见信息可能不匹配。LP较大train/test CE差需logits和错误置信度才能判断原因，末batch加权修复不会改变已报告Top1。这些是限制/待验证假设，没有擅自扩宽decoder、增加正则或改变crop。
+首轮诊断发现256隐藏→512噪声输出的S→T结构瓶颈，现按用户授权修复。其余待验证：同一样本六local uni只迫使部位互相正交，需检查各部位跨样本是否退化成固定原型；合并variance不能排除该情况；完整视频描述和随机0.5..1时间crop/90%mask的可见信息可能不匹配。LP较大train/test CE差需logits和错误置信度才能判断原因，末batch加权修复不会改变已报告Top1。未增加正则或改变crop。
+
+S→T修复细节：原末端 `LayerNorm(H)→Linear(H,512)` 的输出至多落在H−1维仿射空间；H=256时标准高斯噪声的期望残差下限约257/512=0.502。只扩到512仍有1/512的秩限制，因此新配置同时设 `text_decoder_hidden_dim: 512` 和 `text_decoder_output_norm: 'none'`，仅取消最后一次输出归一化，内部block归一化保留。512 decoder约2759.6万参数，1024约1.076亿（约3.9倍），先用512解除瓶颈。模型默认保留256/LayerNorm，历史配置仍可加载；新结构必须从头预训练，旧256 checkpoint不能完整resume到512，但仍可做LP。cache、目标库定义、骨架encoder/共享decoder和loss权重均不变，修复不保证LP提升。
 
 最近服务器输出：
 
@@ -37,6 +39,8 @@ HEAD is now at edc924a 1
 这表示 GitHub 代码已覆盖服务器手动同步的修改，上述未跟踪文件仍保留。`vlm_pilot/` 是生成文本、渲染和缓存所在目录，不是要删除的残留。这个输出确认目录保留，但没有验证其中每份缓存的完整性。
 
 本次padding检查开始时本地HEAD为 `4088ad0`，工作区干净。本次修改 `util/person_text_cache.py`、`util/sample_text_target_bank.py`、`engine_linprobe.py`、三份回归测试与交接/审计文档，未提交/推送，也未同步服务器。运行新优化前需同步这三份运行文件；不要用 `git clean` 清理生成数据。
+
+后续S→T检查开始时本地HEAD已为 `f6b1b85`，工作区干净，前述padding修改已进入本地Git。本次修改 `model/transformer_macdiff_text.py`、两份sentence YAML、交接/审计及新增decoder回归测试，尚未提交/同步。服务器最新SHA仍未知。
 
 ## 2. 环境与用户偏好
 
@@ -191,7 +195,7 @@ variance 不含人物/部位 embedding、padding、非活动空人物；每卡�
 
 ## 6. 基线命令与后续实验
 
-以下保留生成、固定RMS基线和共享组命令供参考；用户已确认cache完成且共享组首轮预训练/LP已有结果，不要机械重跑生成流程。下一组按用户要求改T→S=1，其余预训练和LP参数对齐首轮；新输出目录为 `output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_t2s1`，预训练每卡32/累积2，LP每卡64/累积1。各命令均从服务器仓库根目录执行；Qwen、CLIP提取、旧训练可能需要各自原先可用的环境。
+以下保留生成、固定RMS基线和共享组命令供参考；用户已确认cache完成且共享组首轮预训练/LP已有结果，不要机械重跑生成流程。新版sentence配置现在使用512/无末端LayerNorm。下一组按用户要求改T→S=1，新输出目录为 `output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1`，预训练每卡32/累积2，LP每卡64/累积1。若要分别归因结构与权重变化，可先跑配置默认的T→S=0.1组，再做同结构权重1对照。各命令均从服务器仓库根目录执行；Qwen、CLIP提取、旧训练可能需要各自原先可用的环境。
 
 ### 6.1 双卡生成新版文本并自动恢复
 
@@ -239,7 +243,7 @@ cd /home/user9/public3/swr/MacDiff && python -c "import json; m=json.load(open('
 
 ### 6.3 固定 RMS 双卡 smoke，再从头训练
 
-两份新配置均 `context_length=7`、`flip=False`、文本 decoder 隐藏256、400轮：
+两份新配置均 `context_length=7`、`flip=False`、文本decoder隐藏512/无末端输出LayerNorm、400轮；输出目录有 `_st512` 后缀，区别于首轮256结构：
 
 | 配置 | 训练模式 | T→S / S→T | 文本 uni | 共享骨架 decoder |
 |---|---|---|---|---|
@@ -281,7 +285,7 @@ cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1
 新固定组完成后，LP 示例（只加载骨架 encoder）：
 
 ~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10253 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_lp_399_bs64 --log_dir output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_lp_399_bs64/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
+cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10253 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_st512/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_st512_lp_399_bs64 --log_dir output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_st512_lp_399_bs64/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
 ~~~
 
 该 LP 有效 batch128。历史85.82%基线的 LP 有效 batch64，不能直接称严格同协议提升；需以统一 LP 设置对照。共享组 LP 需换成它自己的 checkpoint 和独立输出目录。
@@ -292,7 +296,17 @@ cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1
 cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10255 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_lp_399_bs32 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_lp_399_bs32/tensorboard --batch_size 32 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
 ~~~
 
+### 6.4 用户要求的512结构、T→S=1，训练后自动LP
+
+同步模型和两份sentence配置后从头运行；不要加旧256结构的 `--resume`。以下同时改变结构与T→S权重，不能将相对首轮的变化只归因于其中一项：
+
+~~~bash
+cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10254 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_shared.yaml --lambda_text_to_skeleton 1 --batch_size 32 --accum_iter 2 --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1/tensorboard && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10255 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_lp_399_bs64 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_lp_399_bs64/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
+~~~
+
 ## 7. 已做验证与证据边界
+
+S→T结构修复后实际重跑下述7组及 `tests.test_text_decoder_width`，共81项：49项通过、32项依赖跳过。新增4项CPU检查通过，使用实际decoder构造器和NumPy-backed层验证输出保留全部512方向、历史LN路径、非法norm及配置；新增2项真实Torch检查（完整前向/padding/梯度、严格checkpoint恢复）因缺Torch跳过。新模型/测试通过Python3.8 AST检查及diff whitespace检查。未在服务器验证512结构的AMP/DDP、显存、性能和LP。
 
 2026-10-02实际重跑 `tests.test_structured_text_cache`、`tests.test_clip_text_cache`、`tests.test_sample_text_target_bank`、`tests.test_shared_memory_text_target_bank`、`tests.test_macdiff_text`、`tests.test_linprobe_eval_metrics`、`tests.test_target_bank_packed_updates`：75项，45项通过、30项因缺Torch/Transformers/PyYAML跳过，无失败。本次新增12项CPU检查覆盖六句批量读取与旧reader结果一致、padding/空人物不进入目标remap且SQLite/RAM递推一致、LP末batch与多视角样本加权。目标库/LP计算使用NumPy-backed Torch替身及实际函数，不是真实Torch/CUDA验证。六份改动Python通过3.8 AST语法检查，diff whitespace检查通过；服务器尚未执行这些优化。
 
@@ -325,8 +339,8 @@ cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1
 13. 新文本不可完整 resume 旧 checkpoint/旧目标库，涉及缓存身份、结构 embedding 尺寸及历史目标改变。不同 share设置、旧参数EMA和sample_target也不能互相完整resume。不要用 strict=False 部分加载却称完整恢复。
 14. sample_target 续训必须模型与同名目标库快照配对；不要缺库时静默初始化，不删除配对快照省空间。LP只需模型，不需要目标bank。快照是GiB级，长期保存需关注空间。
 15. 历史恢复命令曾把训练后直接拼 `cd ... && LP`，缺少训练与cd间分隔，argparse报 unrecognized arguments: cd；那次根本没有恢复模型/目标库。训练后自动LP应是 `完整训练命令 && 完整LP命令`。只有父进程 CalledProcessError 时，要找前面的真实rank traceback。
-16. share=True 共享的是**原生骨架重建与T→S骨架decoder主体**，不是T→S和S→T共用decoder。S→T独立文本decoder隐藏256/输出512仍有约0.5的各向同性噪声期望MSE下限；不是有限batch硬下限，也不是LP上限。
-17. text_decoder_hidden_dim=512、noisy-input skip、辅助干净global预测等仅讨论未实施。扩宽独立文本decoder可以继续share骨架decoder，但旧256 checkpoint不能完整恢复为512。T→S 512→256条件投影没有相同的512噪声输出下限；是否限制语义监督尚无证据。
+16. share=True共享的是**原生骨架重建与T→S骨架decoder主体**，不是T→S和S→T共用decoder。首轮S→T独立文本decoder隐藏256/输出512/末端LayerNorm有约0.502的高斯噪声期望MSE下限；不是有限batch硬下限，也不是LP上限。新sentence配置512/无末端LN已解除这项输出子空间限制。
+17. text_decoder_hidden_dim=512和无末端输出归一化现已实施；noisy-input skip、辅助干净global预测未实施。扩宽独立文本decoder继续保留共享骨架decoder，但旧256 checkpoint不能完整恢复为512。T→S 512→256条件投影没有相同的512噪声输出下限；是否限制语义监督尚无证据。
 18. loss下降、shuffle效应、目标方差都不能代替LP。两条文本方向日志是未乘外层权重的原始MSE，不能把loss占比当作encoder梯度占比。
 19. 真实 LP 读出是 `ActionHeadLinprobe2` 的25关节×256=6400维（人物/时间平均），随后BN+Linear；`feature_only=True` 的global256不是实际LP输入。比较需best对best且相同训练协议。
 20. 旧诊断脚本各有模式限制：`diagnose_ema_bidirectional.py` 针对旧参数EMA，`compare_fixed_clip_conditions.py` 针对固定CLIP，`diagnose_text_conditioning.py` 针对旧remap。不能未经适配强读sample_target或v3 checkpoint并解释为新方案结果。
