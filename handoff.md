@@ -1,6 +1,6 @@
-# MacDiff 交接：全局/六部位文本、CLIP 缓存与 Stage1 训练（2026-10-01）
+# MacDiff 交接：全局/六部位文本、CLIP 缓存与 Stage1 训练（2026-10-02）
 
-本文面向完全没有上下文的新会话。**当前主任务是把旧的逐人物描述/BPE local 文本，升级为逐样本、逐人物的简短 global + 六个固定部位描述，并接入可复用的 CLIP 句级特征缓存和 Stage1 训练。** 用户在后续消息中已确认最新版文本特征 cache 生成完成；不要重新生成。下一步是同步下述续训快照修复、保留完整缓存校验做真实双卡 smoke，再训练和比较 LP。
+本文面向完全没有上下文的新会话。**global + 六部位新版文本/cache 已完成，用户已提供首轮400 epoch预训练和100 epoch LP日志，LP best为85.8018%。** 不要重新生成 cache。当前任务是检查并修复文本最大长度/padding相关浪费，再结合首轮结果分析限制；本次代码优化已完成，尚未同步服务器。用户此前要求下一组 T→S 权重改为1、预训练每卡batch32、LP每卡batch64，训练和LP用 `&&` 连接；尚无这组的新结果。
 
 这是本会话结束时的当前状态。旧交接完整保存在 `handoff_artifacts/handoff_before_20261001_refresh.md`，仅供历史追溯；其中“不要重新生成文本/缓存”“还需手动同步性能版文件”“当前 variance 是保存 global 目标”等说法已经被本文件更新。详细链路检查见 `tools/vlm_pilot/TEXT_CACHE_CHAIN_AUDIT.md`。
 
@@ -13,11 +13,17 @@
 | 双卡生成、按序号合并、自动 resume | 代码及 CPU 模拟验证已完成；尚无本会话内的真实双卡全量完成证据 |
 | 旧文本→缓存→训练链检查 | 已完成代码检查；人物配对等历史修正已经确认 |
 | 新版 v3 CLIP 缓存生成/恢复/校验 | 用户已确认生成完成；本地没有服务器文件，首次训练保留完整启动校验 |
-| v3 reader、训练保护和两份新配置 | 已接入；尚无真实 GPU/DDP smoke 或新版 LP 结果 |
+| v3 reader、训练保护和两份新配置 | 已接入；用户提供首轮预训练400轮及LP100轮日志，best 85.8018%；本次读取/目标库优化尚未做GPU验证 |
 | 训练日志调整 | 已完成；保留 uni，删除 empty 骨架日志及 target drift MSE，改 global+local 方差 |
-| 服务器 Git 同步 | 用户已执行成功，HEAD 为 `edc924a`；网络问题已解除 |
+| 服务器 Git 同步 | 最近明确的服务器HEAD记录为 `edc924a`；首轮日志未带最新Git SHA，本次优化尚未同步 |
 
-**后续完整链路检查没有发现首次训练的阻塞错误；发现并修复了续训快照残留问题。** 目标库先于模型 checkpoint 保存，中断可能留下同名目标库或临时文件；现在仅在模型 checkpoint 不存在时原子重建孤立快照，已配对的 checkpoint 不允许覆盖。修复位于 `util/sample_text_target_bank.py` 和 `util/shared_memory_text_target_bank.py`，不改变训练公式或 cache 身份，不需要重生成 cache。另补正 `tests/test_macdiff_text.py` 中 scaler 测试替身的 `get_scale` 接口。真实 GPU/DDP smoke 和新版 LP 尚未执行；旧 checkpoint-130 是否最终恢复成功仍未知。
+**前次完整链路检查没有发现首次训练的阻塞错误；发现并修复了续训快照残留问题。** 目标库先于模型 checkpoint 保存，中断可能留下同名目标库或临时文件；现在仅在模型 checkpoint 不存在时原子重建孤立快照，已配对的 checkpoint 不允许覆盖。修复位于 `util/sample_text_target_bank.py` 和 `util/shared_memory_text_target_bank.py`，不改变训练公式或 cache 身份，不需要重生成 cache。另补正 `tests/test_macdiff_text.py` 中 scaler 测试替身的 `get_scale` 接口。新版首轮已完成；旧 checkpoint-130 是否最终恢复成功仍未知。
+
+2026-10-02追加检查：CLIP的77是离线句子token上限，提取时 `padding=True` 仅补到当前batch最长句；训练用global+六local共7个向量，没有补到77。v3 reader改为批量读取六句；目标库更新先过滤空crop人物，只对有效local做remap（全有效v3保留原dense路径）；LP的两个evaluate入口将测试loss改为按样本数加权，原来等权平均不同大小的batch有偏。未改变训练目标公式、模型参数或cache身份，旧缓存与同实验checkpoint可继续使用。
+
+首轮证据：预训练epoch0..399、LP epoch0..99连续且指标有限；总loss核算确认这一轮T→S/S→T均为0.1，不能当作权重1的结果。最后S→T=0.510913、text uni=0.167875、global+local variance=0.926353、保存global能量=0.999576。LP best在epoch87：Top1=85.801795%、Top5=97.531538%、train CE=0.466444、test CE=4.616537；最后Top1=85.547065%。LP LR日程对应每epoch313次更新、与有效batch128一致，但日志没有原始args，不能独断实际每卡batch。与历史85.82%/85.86%接近，尚无可归因于新版文本的增益。
+
+后续诊断优先级：256隐藏→512噪声输出的S→T结构瓶颈；同一样本六local uni只迫使部位互相正交，需检查各部位跨样本是否退化成固定原型；合并variance不能排除该情况；完整视频描述和随机0.5..1时间crop/90%mask的可见信息可能不匹配。LP较大train/test CE差需logits和错误置信度才能判断原因，末batch加权修复不会改变已报告Top1。这些是限制/待验证假设，没有擅自扩宽decoder、增加正则或改变crop。
 
 最近服务器输出：
 
@@ -30,7 +36,7 @@ HEAD is now at edc924a 1
 
 这表示 GitHub 代码已覆盖服务器手动同步的修改，上述未跟踪文件仍保留。`vlm_pilot/` 是生成文本、渲染和缓存所在目录，不是要删除的残留。这个输出确认目录保留，但没有验证其中每份缓存的完整性。
 
-本地 HEAD 为 `edc924a`。后续检查开始时，交接与旧交接副本已经有未提交修改；本次再修改上述两个目标库文件及相关回归测试，未提交/推送，也未同步服务器。正式运行前需同步两个目标库文件；不要用 `git clean` 清理生成数据。
+本次padding检查开始时本地HEAD为 `4088ad0`，工作区干净。本次修改 `util/person_text_cache.py`、`util/sample_text_target_bank.py`、`engine_linprobe.py`、三份回归测试与交接/审计文档，未提交/推送，也未同步服务器。运行新优化前需同步这三份运行文件；不要用 `git clean` 清理生成数据。
 
 ## 2. 环境与用户偏好
 
@@ -183,9 +189,9 @@ global 和有效 local 均这样递推。T→S 用在线 remap 文本条件训�
 
 variance 不含人物/部位 embedding、padding、非活动空人物；每卡当前 microbatch 计算，日志沿用原有各卡/各步汇总，不是两卡合并后的总体方差。它包含部位之间的差异，不能单独证明同部位跨样本健康。历史日志的 variance 是保存 global 目标的批内方差，不能与新版直接比较。取消 empty 输出不意味着允许空 crop 参与 loss 或借 person1 替代 person0；全批为空仍可报错。
 
-## 6. 下一步计划与可直接执行的服务器命令
+## 6. 基线命令与后续实验
 
-顺序：确认新版文本完整 → 抽检六部位内容 → 编码并验证 v3 cache → 固定 RMS 双卡 smoke → 新目录训练 → 同协议 LP → 再考虑其他优化。各命令均从服务器仓库根目录执行；Qwen、CLIP 提取、旧训练可能需要各自原先可用的环境。
+以下保留生成、固定RMS基线和共享组命令供参考；用户已确认cache完成且共享组首轮预训练/LP已有结果，不要机械重跑生成流程。下一组按用户要求改T→S=1，其余预训练和LP参数对齐首轮；新输出目录为 `output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_t2s1`，预训练每卡32/累积2，LP每卡64/累积1。各命令均从服务器仓库根目录执行；Qwen、CLIP提取、旧训练可能需要各自原先可用的环境。
 
 ### 6.1 双卡生成新版文本并自动恢复
 
@@ -280,7 +286,7 @@ cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1
 
 该 LP 有效 batch128。历史85.82%基线的 LP 有效 batch64，不能直接称严格同协议提升；需以统一 LP 设置对照。共享组 LP 需换成它自己的 checkpoint 和独立输出目录。
 
-本次推荐共享组 LP 使用每卡32、累积1，即有效 batch64，与历史85.82%基线交接中记载的 batch 一致。未找到该85.82%实验完整原始 CLI/日志，不能据此声称核实了所有历史参数：
+下面是与历史85.82%基线记载batch一致的有效batch64对照命令；首轮新版LP的日程对应有效batch128，后续T→S=1组按用户要求使用每卡64/累积1以对齐首轮。未找到85.82%实验完整原始CLI/日志，不能据此声称核实了所有历史参数：
 
 ~~~bash
 cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10255 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_lp_399_bs32 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_lp_399_bs32/tensorboard --batch_size 32 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
@@ -288,7 +294,7 @@ cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1
 
 ## 7. 已做验证与证据边界
 
-cache 完成后的本次复查实际重跑 `tests.test_structured_text_cache`、`tests.test_clip_text_cache`、`tests.test_sample_text_target_bank`、`tests.test_shared_memory_text_target_bank`、`tests.test_macdiff_text`：63项，33项通过、30项因缺 Torch/Transformers/PyYAML 跳过，无失败。其中8项新增 CPU 回归覆盖两个目标库后端的孤立临时/完成快照重建、已配对 checkpoint 拒绝覆盖、发布失败保留旧完整库和发布阶段出现模型文件时拒绝覆盖。Python3.8 AST、smoke/LP CLI parser 和 diff whitespace 检查通过。此次没有服务器执行能力，GPU/AMP/DDP 未实测。
+2026-10-02实际重跑 `tests.test_structured_text_cache`、`tests.test_clip_text_cache`、`tests.test_sample_text_target_bank`、`tests.test_shared_memory_text_target_bank`、`tests.test_macdiff_text`、`tests.test_linprobe_eval_metrics`、`tests.test_target_bank_packed_updates`：75项，45项通过、30项因缺Torch/Transformers/PyYAML跳过，无失败。本次新增12项CPU检查覆盖六句批量读取与旧reader结果一致、padding/空人物不进入目标remap且SQLite/RAM递推一致、LP末batch与多视角样本加权。目标库/LP计算使用NumPy-backed Torch替身及实际函数，不是真实Torch/CUDA验证。六份改动Python通过3.8 AST语法检查，diff whitespace检查通过；服务器尚未执行这些优化。
 
 以下是前面开发阶段的结果，不是本次文档更新重跑出来的：
 
@@ -300,7 +306,7 @@ cache 完成后的本次复查实际重跑 `tests.test_structured_text_cache`、
 
 相关测试文件包括 `tests/test_caption_output.py`、`tests/test_caption_dual_gpu.py`、`tests/test_structured_text_cache.py`、`tests/test_macdiff_text.py`、`tests/test_shared_memory_text_target_bank.py`。以后若修具体失败，再运行对应检查；文档编辑不必反复运行缺依赖的大套件。
 
-尚未验证：真实 Transformers CLIP 编码、服务器全量新版数据校验、Linux 共享内存、真实模型前向/梯度、AMP/DDP、性能改进、新版 LP。用户提供日志后再补状态。
+用户首轮日志已提供真实预训练/LP成功的证据，但没有cache validation输出、完整args或逐rank信息，不能扩展为全部实现正确的证明。本次优化尚未验证：真实Torch/CUDA前向/AMP/DDP、Linux共享内存行为和epoch性能提升；本地也没有服务器cache可独立复核。
 
 ## 8. 绝对不要再踩的坑与仍未解决的限制
 
@@ -325,7 +331,7 @@ cache 完成后的本次复查实际重跑 `tests.test_structured_text_cache`、
 19. 真实 LP 读出是 `ActionHeadLinprobe2` 的25关节×256=6400维（人物/时间平均），随后BN+Linear；`feature_only=True` 的global256不是实际LP输入。比较需best对best且相同训练协议。
 20. 旧诊断脚本各有模式限制：`diagnose_ema_bidirectional.py` 针对旧参数EMA，`compare_fixed_clip_conditions.py` 针对固定CLIP，`diagnose_text_conditioning.py` 针对旧remap。不能未经适配强读sample_target或v3 checkpoint并解释为新方案结果。
 
-## 9. 历史实验背景，不能当作新版结果
+## 9. 实验结果与历史背景
 
 旧 Qwen 单段逐人物描述的40091条已全量完成，历史18个GIF错误已补齐；旧v2 cache可用。**这是旧版，不证明global+六部位新版已完成。**
 
@@ -337,7 +343,7 @@ cache 完成后的本次复查实际重跑 `tests.test_structured_text_cache`、
 | 固定CLIP RMS，S→T=1 / 0.1 | 约83.7% / 85.82%（暂定基线） |
 | 旧参数EMA双向，不share / share | 85.77% / 85.78% |
 | 逐样本0.9/0.1保存目标 | 有早期训练日志，尚无已确认LP |
-| 新global+六部位文本/v3 cache | 尚无已确认预训练或LP结果 |
+| 新global+六部位文本/v3 cache，共享decoder、T→S/S→T均0.1 | 首轮400预训练+100 LP；best 85.8018%（epoch87），LP日程与有效batch128一致 |
 
 旧参数EMA和逐样本目标不要混同。旧EMA诊断global跨样本明显集中，而local未同样收缩；shuffle后S→T总MSE增幅很小，但约0.5结构下限稀释百分比，不能直接断言骨架条件没用。完整诊断、数字与历史命令见旧交接副本。
 

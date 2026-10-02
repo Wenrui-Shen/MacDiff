@@ -232,20 +232,42 @@ class SampleTextTargetBank:
         pieces = []
         with torch.no_grad():
             for batch_indices, arrays, tensors, active in batches:
+                active = np.asarray(active, dtype=bool)
                 if not active.any():
                     continue
+                batch_indices = np.asarray(batch_indices, dtype=np.int64)
                 features = tensors['text_features']
                 tokens = tensors['text_tokens']
                 valid = tensors['text_token_mask']
+                if not active.all():
+                    selected = np.flatnonzero(active)
+                    selected_tensor = torch.from_numpy(selected).to(features.device)
+                    features = features.index_select(0, selected_tensor)
+                    tokens = tokens.index_select(0, selected_tensor)
+                    valid = valid.index_select(0, selected_tensor)
+                    batch_indices = batch_indices[selected]
+                    arrays = {key: arrays[key][selected] for key in
+                              ('text_features', 'text_tokens', 'text_token_mask')}
                 global_online = model.text_remap(model.fixed_clip_target(features))
-                local_online = model.text_remap(model.fixed_clip_target(tokens, valid))
-                local_online = local_online.masked_fill(~valid[..., None], 0)
+                # Use the already available CPU mask to avoid a CUDA all()/item()
+                # synchronization. The v3 all-valid six-sentence path stays dense.
+                local_mask = np.asarray(arrays['text_token_mask'], dtype=bool)
+                if local_mask.size and local_mask.all():
+                    local_online = model.text_remap(model.fixed_clip_target(tokens, valid))
+                else:
+                    local_online = torch.zeros_like(tokens, dtype=torch.float32)
+                    selected_local = np.flatnonzero(local_mask.reshape(-1))
+                    if len(selected_local):
+                        local_indices = torch.from_numpy(selected_local).to(tokens.device)
+                        packed = tokens.reshape(-1, self.dim).index_select(0, local_indices)
+                        remapped = model.text_remap(model.fixed_clip_target(packed))
+                        local_online.reshape(-1, self.dim).index_copy_(0, local_indices, remapped)
                 pieces.append((
-                    np.asarray(batch_indices, dtype=np.int64)[active],
-                    {key: arrays[key][active] for key in
+                    batch_indices,
+                    {key: arrays[key] for key in
                      ('text_features', 'text_tokens', 'text_token_mask')},
-                    global_online.cpu().numpy()[active],
-                    local_online.cpu().numpy()[active]))
+                    global_online.cpu().numpy(),
+                    local_online.cpu().numpy()))
         if not pieces:
             return
         # Different micro-batches can have different local padding lengths.

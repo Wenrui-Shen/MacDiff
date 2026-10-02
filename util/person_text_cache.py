@@ -22,22 +22,41 @@ class PersonTokenFeatureCache:
             raise ValueError('Invalid raw training indices for text lookup')
         people = 1 if one_person else 2
         valid = self.mask[indices, :people]
-        length = max(1, int(valid.sum(axis=-1).max()))
+        counts = valid.sum(axis=-1)
+        length = max(1, int(counts.max()))
         dim = self.features.shape[-1]
         rows = len(indices) * people
-        tokens = np.zeros((rows, length, dim), dtype=np.float32)
-        mask = np.zeros((rows, length), dtype=bool)
-        persons = np.zeros((rows, length), dtype=np.int64)
-        positions = np.zeros_like(persons)
-        for sample, index in enumerate(indices):
-            for person in range(people):
-                row = sample * people + person
-                pos = np.flatnonzero(valid[sample, person])
-                count = len(pos)
-                tokens[row, :count] = self.features[index, person, pos]
-                mask[row, :count] = True
-                persons[row, :count] = person
-                positions[row, :count] = pos + self.position_offset
+        sentence_rows = (self.position_offset == 1 and valid.shape[-1] == 6
+                         and np.all((counts == 0) | (counts == 6)))
+        if sentence_rows and length == 6:
+            # v3 has six sentences for every present person. Gather only the
+            # retained slots, preserving sample-major/person-minor ordering.
+            tokens = np.asarray(self.features[indices, :people], dtype=np.float32).reshape(rows, 6, dim)
+            mask = valid.reshape(rows, 6)
+            persons = np.broadcast_to((np.arange(rows, dtype=np.int64) % people)[:, None],
+                                      mask.shape).copy()
+            positions = np.broadcast_to(np.arange(1, 7, dtype=np.int64), mask.shape).copy()
+            absent = ~mask[:, 0]
+            tokens[absent] = 0
+            persons[absent] = 0
+            positions[absent] = 0
+        else:
+            tokens = np.zeros((rows, length, dim), dtype=np.float32)
+            mask = np.zeros((rows, length), dtype=bool)
+            persons = np.zeros((rows, length), dtype=np.int64)
+            positions = np.zeros_like(persons)
+            # All-empty v3 batches keep the original single zero slot. v2 and
+            # partial v3 masks still need compaction at their original positions.
+            if not sentence_rows:
+                for sample, index in enumerate(indices):
+                    for person in range(people):
+                        row = sample * people + person
+                        pos = np.flatnonzero(valid[sample, person])
+                        count = len(pos)
+                        tokens[row, :count] = self.features[index, person, pos]
+                        mask[row, :count] = True
+                        persons[row, :count] = person
+                        positions[row, :count] = pos + self.position_offset
         return dict(text_features=np.asarray(self.global_text[indices, :people], dtype=np.float32).reshape(rows, dim),
                     text_tokens=tokens, text_token_mask=mask,
                     text_person_ids=persons, text_positions=positions)

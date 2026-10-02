@@ -15,7 +15,7 @@ import numpy as np
 
 import cache_clip_motion_text as cache
 from tests.test_clip_text_cache import Encoder, Tokenizer
-from util.person_text_cache import load_person_token_cache
+from util.person_text_cache import PersonTokenFeatureCache, load_person_token_cache
 from util.structured_text_cache import (DEFINITION, LOCAL_PARTS, PROTOCOL, train_person_valid,
                                        validate_cache, validate_training_definition)
 
@@ -24,6 +24,113 @@ class SentenceTokenizer(Tokenizer):
     def __call__(self, texts, **kwargs):
         kwargs.setdefault('max_length', max(len(text) + 2 for text in texts))
         return super().__call__(texts, **kwargs)
+
+
+class SentenceReaderTests(unittest.TestCase):
+    """Compare the fixed-slot fast path with the original generic packing."""
+
+    def setUp(self):
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        root = Path(directory.name)
+        globals_ = np.arange(6 * 2 * 8, dtype=np.float32).reshape(6, 2, 8)
+        features = np.arange(6 * 2 * 6 * 8, dtype=np.float32).reshape(6, 2, 6, 8)
+        present = np.array([[1, 0], [1, 1], [0, 1], [0, 0], [1, 0], [0, 0]], dtype=bool)
+        np.save(root / 'person_features.npy', globals_)
+        # Nonzero masked contents check that the reader itself still zeros padding.
+        np.save(root / 'token_features.npy', features)
+        np.save(root / 'token_mask.npy', np.repeat(present[..., None], 6, axis=-1))
+        self.storage = PersonTokenFeatureCache(root, {'protocol': PROTOCOL})
+        self.addCleanup(lambda: [array._mmap.close() for array in
+                               (self.storage.global_text, self.storage.features, self.storage.mask)
+                               if hasattr(array, '_mmap')])
+
+    @staticmethod
+    def generic_batch(storage, indices, one_person):
+        people = 1 if one_person else 2
+        valid = storage.mask[indices, :people]
+        length = max(1, int(valid.sum(axis=-1).max()))
+        rows, dim = len(indices) * people, storage.features.shape[-1]
+        tokens = np.zeros((rows, length, dim), dtype=np.float32)
+        mask = np.zeros((rows, length), dtype=bool)
+        persons = np.zeros((rows, length), dtype=np.int64)
+        positions = np.zeros_like(persons)
+        for sample, index in enumerate(indices):
+            for person in range(people):
+                row = sample * people + person
+                pos = np.flatnonzero(valid[sample, person])
+                count = len(pos)
+                tokens[row, :count] = storage.features[index, person, pos]
+                mask[row, :count] = True
+                persons[row, :count] = person
+                positions[row, :count] = pos + storage.position_offset
+        return dict(text_features=np.asarray(storage.global_text[indices, :people],
+                                             dtype=np.float32).reshape(rows, dim),
+                    text_tokens=tokens, text_token_mask=mask,
+                    text_person_ids=persons, text_positions=positions)
+
+    def assert_batch_equal(self, actual, expected):
+        self.assertEqual(set(actual), set(expected))
+        for key in actual:
+            self.assertEqual(actual[key].dtype, expected[key].dtype, key)
+            np.testing.assert_array_equal(actual[key], expected[key], err_msg=key)
+            self.assertTrue(actual[key].flags.c_contiguous, key)
+
+    def test_vectorized_rows_match_generic_for_shuffle_repeats_and_empty_people(self):
+        indices = np.array([2, 1, 0, 2, 3, 4, 1])
+        for one_person in (True, False):
+            with self.subTest(one_person=one_person):
+                expected = self.generic_batch(self.storage, indices, one_person)
+                with patch('util.person_text_cache.np.flatnonzero',
+                           side_effect=AssertionError('Fixed sentence rows need no compaction')):
+                    actual = self.storage.get_batch(indices, one_person)
+                self.assert_batch_equal(actual, expected)
+                actual['text_tokens'][0] = -1
+                np.testing.assert_array_equal(self.storage.features[2, 0],
+                    np.arange(6 * 2 * 6 * 8, dtype=np.float32).reshape(6, 2, 6, 8)[2, 0])
+
+    def test_all_empty_batches_keep_one_zero_slot(self):
+        for one_person, indices in ((True, np.array([2, 3, 5, 2])),
+                                    (False, np.array([5, 3, 5]))):
+            with self.subTest(one_person=one_person):
+                expected = self.generic_batch(self.storage, indices, one_person)
+                with patch('util.person_text_cache.np.flatnonzero',
+                           side_effect=AssertionError('Empty sentence rows need no compaction')):
+                    actual = self.storage.get_batch(indices, one_person)
+                self.assert_batch_equal(actual, expected)
+                self.assertEqual(actual['text_tokens'].shape[1], 1)
+
+    def test_partial_masks_and_v2_keep_generic_compaction(self):
+        original = self.storage.mask
+        self.storage.mask = np.array(original)
+        original._mmap.close()
+        self.storage.mask[1, 0] = [1, 0, 1, 0, 0, 1]
+        indices = np.array([1, 2, 1, 0])
+        for offset in (1, 0):
+            self.storage.position_offset = offset
+            for one_person in (True, False):
+                with self.subTest(offset=offset, one_person=one_person):
+                    expected = self.generic_batch(self.storage, indices, one_person)
+                    actual = self.storage.get_batch(indices, one_person)
+                    self.assert_batch_equal(actual, expected)
+
+    def test_single_person_gathers_only_person_zero(self):
+        arrays = self.storage.features
+        calls = []
+
+        class RetainedSlotArray:
+            shape = arrays.shape
+
+            def __getitem__(self, key):
+                calls.append(key)
+                return arrays[key]
+
+        self.storage.features = RetainedSlotArray()
+        self.addCleanup(arrays._mmap.close)
+        actual = self.storage.get_batch(np.array([1, 0, 1]), one_person=True)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][1], slice(None, 1))
+        self.assertEqual(actual['text_tokens'].shape, (3, 6, 8))
 
 
 class StructuredCacheTests(unittest.TestCase):

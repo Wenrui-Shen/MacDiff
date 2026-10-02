@@ -91,3 +91,21 @@ python -m unittest tests.test_structured_text_cache tests.test_clip_text_cache t
 覆盖新 JSON/JSONL 与 metadata、整句编码、六部位/双人顺序、RMS、NPZ 人物校验、覆盖与重复拒绝、过长句拒绝、生成中断恢复、旧 v2 reader 回归、SQLite/RAM 六部位目标更新和配对快照恢复。另有 PyTorch S→T 梯度检查，本机缺少 Torch 时明确跳过。
 
 本次连同旧 geometry/model 回归共收集 63 项：33 项 CPU 检查通过，30 项依赖 PyTorch/Transformers 或 PyYAML 的检查跳过。新增代码通过 Python 3.8 语法检查和 CLI help 检查。服务器实际 CLIP 编码、全量缓存、训练前向/梯度及两卡 DDP 尚未验证。
+
+## 5. 2026-10-02：首轮结果与padding检查
+
+用户已提供新版400轮预训练、100轮LP日志，LP best 85.801795%（epoch87）、Top5 97.531538%；这一轮T→S/S→T均为0.1。没有明显训练中断或非有限值。与历史85.82%和原MacDiff约85.86%接近；历史LP batch等协议不完全一致，不能据此判定新版文本有提升或下降。
+
+77只用于离线CLIP句子编码的上限，`padding=True` 补到当前编码batch最长句。v3缓存只有六个local句向量，配置context_length=7，训练attention实际收到global+6local；模型默认77仅保留旧v2兼容，不会自动补齐。共享目标库按有效人物/向量打包，也没有77槽位。
+
+本次修复/优化：
+
+- `util/person_text_cache.py`：全六句或全空的v3人物批量读取，保持原样本/人物顺序、单人只读取person0、缺失槽位清零；v2和部分mask继续原压缩路径。
+- `util/sample_text_target_bank.py`：先按active过滤空crop人物，部分local有效时仅对有效向量归一化/remap，再散射回原槽位；全有效六句仍走dense路径。保留post-step权重、重复样本更新次序、0.9old+0.1online公式及快照格式；共享内存后端继承同一实现。
+- `engine_linprobe.py`：两个evaluate入口把CE按实际batch样本数累计，避免小末batch和完整batch等权造成偏差。Top1/Top5原本已正确加权，不受修改影响。
+
+不修改cache生成/身份绑定的四份源码，不需重生成cache；不修改模型参数形状，同实验checkpoint兼容。新版有效人物本来没有文本padding，性能收益主要是CPU逐行打包和少量空crop的无效remap，尚无GPU/epoch提速证据。
+
+当前回归75项：45项CPU通过、30项依赖跳过；新增4项reader、5项目标更新、3项LP聚合检查。目标更新和LP测试以NumPy-backed Torch API运行实际方法，未验证真实CUDA/AMP/DDP；六份改动Python通过3.8 AST检查，diff whitespace检查通过。
+
+结果仍需关注：S→T最后0.510913接近256→512仿射输出的各向同性噪声期望MSE下限约0.5；text uni最后0.167875接近六句下限1/6，仅说明同样本部位接近正交，不能排除各部位跨样本变成固定原型；合并variance=0.926353可由部位差异维持，也不能排除这一情况。首轮LP best的train CE=0.466444/test CE=4.616537，需logits/错误置信度分析；不能凭此直接认定BN或标签错误。完整描述与0.5..1随机时间crop/90%mask的监督可见性仍未检验。暂未扩大decoder、改uniformity/crop或添加正则。
