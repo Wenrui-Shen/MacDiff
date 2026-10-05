@@ -1,378 +1,236 @@
-# MacDiff 交接：全局/六部位文本、CLIP 缓存与 Stage1 训练（2026-10-02）
+# MacDiff 会话交接（2026-10-04）
 
-本文面向完全没有上下文的新会话。**global + 六部位新版文本/cache 已完成，用户已提供首轮400 epoch预训练和100 epoch LP日志，LP best为85.8018%。** 不要重新生成 cache。padding优化完成后，用户明确要求修复S→T的维度瓶颈并询问512/1024；当前已采用512隐藏宽度、取消末端输出LayerNorm，修改两份sentence配置并使用独立 `_st512` 输出目录，尚未同步服务器或训练。用户此前要求下一组T→S权重改为1、预训练每卡batch32、LP每卡batch64，训练和LP用 `&&` 连接；更新命令见6.4，尚无这组结果。
+本文写给完全没有上下文的新会话。先读第1节，再看当前命令和注意事项。用户在服务器执行训练；本地助手负责代码检查、日志分析、记录实验及提供命令。
 
-这是本会话结束时的当前状态。旧交接完整保存在 `handoff_artifacts/handoff_before_20261001_refresh.md`，仅供历史追溯；其中“不要重新生成文本/缓存”“还需手动同步性能版文件”“当前 variance 是保存 global 目标”等说法已经被本文件更新。详细链路检查见 `tools/vlm_pilot/TEXT_CACHE_CHAIN_AUDIT.md`。
+## 1. 接手时必须知道的当前状态
 
-## 1. 当前做到哪里、还缺什么
+- 任务：在 **NTU60 XSub** 上，用逐样本/逐人物的 global + 六部位文本辅助 MacDiff 骨架自监督预训练，最终用只输入骨架的 linear probe（LP）评价表征。
+- 新版文本和 **v3 七句 CLIP cache 已生成完成**，已有多轮完整训练结果。不要机械重跑文本生成、缓存生成或把“链路尚未跑通”当作当前状态。
+- 已修复 S→T 文本 decoder 的输出瓶颈：hidden256/末端LayerNorm改为 **hidden512、末端output_norm=none**，内部归一化保留。
+- 512、share=True、归一化A、**T→S=1/S→T=0.1** 的400epoch预训练已完成。用户最终更正 **LP best=85.79%**，不是最初说的85.75%；新LP完整日志未提供。
+- 用户尝试了该预训练 **checkpoint-150** 的LP：首轮准确率只有“72多”，而checkpoint-399的LP首轮为 **74.65%**。**用户决定不继续150的LP。** 这是未完成实验，不能记录成150最终只有72%，也不能据首轮证明它最终更差。
+- **当前用户继续推进的实验：512/share=True/A，T→S=1/S→T=1。** 已提供从头预训练400epoch与LP100epoch的串联命令。用户尚未提供这组的日志、进度或结果；不要假装助手已运行服务器命令。
+- **用户最新下一步：先看权重1结果，再根据结果测试归一化B。** 归一化B先于备选no-share；不要沿用之前“先0.3”“继续150 LP”“权重1之后立即no-share”的旧建议。
+- 当前没有已确认的训练报错或外部阻塞；主要未解决的是 **文本去噪显著改善尚未转化成稳定LP提升**，以及512 S→T后期回升的原因。正在等待权重1结果，B实验还没创建成对配置/运行。
 
-| 项目 | 当前状态 |
+本轮关闭会话仅更新文档，不更改正在跑的训练配置、模型、缓存或服务器进程。旧版交接归档在 [handoff_before_20261004_session_close.md](D:/program/MacDiff/handoff_artifacts/handoff_before_20261004_session_close.md)，更早历史见 [handoff_before_20261001_refresh.md](D:/program/MacDiff/handoff_artifacts/handoff_before_20261001_refresh.md)。旧文档中的“未生成”“待跑512”“先做150 LP”等状态不再适用。
+
+## 2. 环境、用户偏好与关键路径
+
+| 项目 | 当前信息 |
 |---|---|
-| 简短英文提示词及中文翻译 | 已完成；固定 global + 六部位，不再以 tokenizer 的词元当作 local 描述 |
-| 文本输出清理 | 已完成；每个样本一行，只含序号和描述；模型/设备/运行设置单独保存 |
-| 双卡生成、按序号合并、自动 resume | 代码及 CPU 模拟验证已完成；尚无本会话内的真实双卡全量完成证据 |
-| 旧文本→缓存→训练链检查 | 已完成代码检查；人物配对等历史修正已经确认 |
-| 新版 v3 CLIP 缓存生成/恢复/校验 | 用户已确认生成完成；本地没有服务器文件，首次训练保留完整启动校验 |
-| v3 reader、训练保护和两份新配置 | 已接入；用户提供首轮预训练400轮及LP100轮日志，best 85.8018%；本次读取/目标库优化尚未做GPU验证 |
-| 训练日志调整 | 已完成；保留 uni，删除 empty 骨架日志及 target drift MSE，改 global+local 方差 |
-| 服务器 Git 同步 | 最近明确的服务器HEAD记录为 `edc924a`；首轮日志未带最新Git SHA，本次优化尚未同步 |
+| 本地仓库 | D:\program\MacDiff，Windows PowerShell |
+| 服务器仓库 | /home/user9/public3/swr/MacDiff |
+| 数据 | ../data/MAMP/ntu/NTU60_XSub.npz，训练40091个样本 |
+| 历史训练环境 | conda macdiff，Python3.8、PyTorch1.8.1+cu111、两张RTX4090 24GB；服务器实际版本优先 |
+| 本地Python | C:/Users/97537/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe |
+| 本地依赖边界 | 有NumPy/PIL，缺Torch/Transformers/PyYAML；不能声称本机验证了真实autograd、CUDA、AMP、DDP |
+| 服务器访问 | 本会话没有SSH；用户自己执行Linux命令 |
+| 本地Git | 会话末HEAD为c9dfb87；512修复在该版本。分析/交接文档仍未提交 |
+| 服务器Git | 最新日志没有SHA；不要把历史edc924a当作当前服务器版本，也不要无依据声称尚未同步 |
 
-**前次完整链路检查没有发现首次训练的阻塞错误；发现并修复了续训快照残留问题。** 目标库先于模型 checkpoint 保存，中断可能留下同名目标库或临时文件；现在仅在模型 checkpoint 不存在时原子重建孤立快照，已配对的 checkpoint 不允许覆盖。修复位于 `util/sample_text_target_bank.py` 和 `util/shared_memory_text_target_bank.py`，不改变训练公式或 cache 身份，不需要重生成 cache。另补正 `tests/test_macdiff_text.py` 中 scaler 测试替身的 `get_scale` 接口。新版首轮已完成；旧 checkpoint-130 是否最终恢复成功仍未知。
-
-2026-10-02追加检查：CLIP的77是离线句子token上限，提取时 `padding=True` 仅补到当前batch最长句；训练用global+六local共7个向量，没有补到77。v3 reader改为批量读取六句；目标库更新先过滤空crop人物，只对有效local做remap（全有效v3保留原dense路径）；LP的两个evaluate入口将测试loss改为按样本数加权，原来等权平均不同大小的batch有偏。未改变训练目标公式、模型参数或cache身份，旧缓存与同实验checkpoint可继续使用。
-
-首轮证据：预训练epoch0..399、LP epoch0..99连续且指标有限；总loss核算确认这一轮T→S/S→T均为0.1，不能当作权重1的结果。最后S→T=0.510913、text uni=0.167875、global+local variance=0.926353、保存global能量=0.999576。LP best在epoch87：Top1=85.801795%、Top5=97.531538%、train CE=0.466444、test CE=4.616537；最后Top1=85.547065%。LP LR日程对应每epoch313次更新、与有效batch128一致，但日志没有原始args，不能独断实际每卡batch。与历史85.82%/85.86%接近，尚无可归因于新版文本的增益。
-
-首轮诊断发现256隐藏→512噪声输出的S→T结构瓶颈，现按用户授权修复。其余待验证：同一样本六local uni只迫使部位互相正交，需检查各部位跨样本是否退化成固定原型；合并variance不能排除该情况；完整视频描述和随机0.5..1时间crop/90%mask的可见信息可能不匹配。LP较大train/test CE差需logits和错误置信度才能判断原因，末batch加权修复不会改变已报告Top1。未增加正则或改变crop。
-
-S→T修复细节：原末端 `LayerNorm(H)→Linear(H,512)` 的输出至多落在H−1维仿射空间；H=256时标准高斯噪声的期望残差下限约257/512=0.502。只扩到512仍有1/512的秩限制，因此新配置同时设 `text_decoder_hidden_dim: 512` 和 `text_decoder_output_norm: 'none'`，仅取消最后一次输出归一化，内部block归一化保留。512 decoder约2759.6万参数，1024约1.076亿（约3.9倍），先用512解除瓶颈。模型默认保留256/LayerNorm，历史配置仍可加载；新结构必须从头预训练，旧256 checkpoint不能完整resume到512，但仍可做LP。cache、目标库定义、骨架encoder/共享decoder和loss权重均不变，修复不保证LP提升。
-
-最近服务器输出：
-
-~~~text
-HEAD is now at edc924a 1
-?? config/ntu60_xsub_joint/exemplar_indices.json
-?? config/ntu60_xsub_joint/stage2_exemplar_seed0.json
-?? vlm_pilot/
-~~~
-
-这表示 GitHub 代码已覆盖服务器手动同步的修改，上述未跟踪文件仍保留。`vlm_pilot/` 是生成文本、渲染和缓存所在目录，不是要删除的残留。这个输出确认目录保留，但没有验证其中每份缓存的完整性。
-
-本次padding检查开始时本地HEAD为 `4088ad0`，工作区干净。本次修改 `util/person_text_cache.py`、`util/sample_text_target_bank.py`、`engine_linprobe.py`、三份回归测试与交接/审计文档，未提交/推送，也未同步服务器。运行新优化前需同步这三份运行文件；不要用 `git clean` 清理生成数据。
-
-后续S→T检查开始时本地HEAD已为 `f6b1b85`，工作区干净，前述padding修改已进入本地Git。本次修改 `model/transformer_macdiff_text.py`、两份sentence YAML、交接/审计及新增decoder回归测试，尚未提交/同步。服务器最新SHA仍未知。
-
-## 2. 环境与用户偏好
-
-- 本地：`D:\program\MacDiff`，Windows PowerShell。
-- 服务器：`/home/user9/public3/swr/MacDiff`；用户自己运行命令。本会话没有可用 SSH，不得声称替用户跑过服务器。
-- 数据：从仓库根目录访问 `../data/MAMP/ntu/NTU60_XSub.npz`；训练样本 40091。
-- 历史 MacDiff 训练环境：conda `macdiff`、Python 3.8、PyTorch 1.8.1+cu111、两张 RTX 4090 24GB。以服务器实际环境为准。
-- Qwen 推理应使用之前能运行 Qwen3-VL 的环境；不要默认旧 macdiff 环境也能运行新版 Transformers/Qwen。
-- 本地可用 Python：`C:/Users/97537/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe`，有 NumPy/PIL，缺 PyTorch、Transformers、PyYAML。不能在本机宣称验证了真实模型梯度/GPU/DDP。
-- 用户偏好中文、简短提示词、结构化输出、可直接复制的**单行 Linux 命令**。用户已明确授权新版文本生成和链路改动，不要每一步重新请求确认。
-
-关键路径：
+用户用中文交流。命令要 **单行Linux、不要cd**，两卡，预训练和LP用 **&&** 连接。固定训练每卡batch32/accum2，LP每卡batch64/accum1，两者有效batch均128；训练400epoch，LP100epoch、lr0.1、seed0、dist_eval。不要擅自改成LP每卡32。
 
 | 用途 | 路径 |
 |---|---|
-| 既有渲染，复用 | `vlm_pilot/ntu60_xsub_train_rendered_v3_2view_smooth_w5` |
-| Qwen 模型 | `/home/user9/public3/swr/models/Qwen3-VL-8B-Instruct` |
-| CLIP 模型 | `/home/user9/public3/swr/models/clip-vit-base-patch32` |
-| 新版文本输出 | `vlm_pilot/ntu60_xsub_global_local_v2` |
-| 新版七句 RMS cache | `vlm_pilot/ntu60_xsub_clip_sentence_cache_v3` |
-| 旧 BPE local cache，保留历史实验 | `vlm_pilot/ntu60_xsub_clip_cache_v2` |
+| 已有双视角骨架渲染 | vlm_pilot/ntu60_xsub_train_rendered_v3_2view_smooth_w5 |
+| 新版文本 | vlm_pilot/ntu60_xsub_global_local_v2/captions.json及sidecar |
+| 当前CLIP cache | vlm_pilot/ntu60_xsub_clip_sentence_cache_v3 |
+| 历史BPE cache | vlm_pilot/ntu60_xsub_clip_cache_v2 |
+| Qwen | /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct |
+| CLIP | /home/user9/public3/swr/models/clip-vit-base-patch32 |
+| 当前预训练YAML | config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_shared.yaml |
+| 当前LP YAML | config/ntu60_xsub_joint/linprobe_madiff.yaml |
 
-这里的 prompt v2、caption schema v2、CLIP cache v3、render v3 是不同组件的版本，不要混为同一个版本号。
+上表实验目录是此前提供命令的路径；服务器真实文件/args以用户实际运行记录为准。prompt v2、caption schema v2、CLIP cache v3、render v3是不同组件版本。
 
-## 3. 用户已经确认的文本方案
+## 3. 我们具体在训练什么
 
-参考工作由用户指定为 2025 TMM 的 “Vision-Language Meets the Skeleton: Progressively Distillation With Cross-Modal Knowledge for 3D Action Representation Learning”，仓库 [C2VL](https://github.com/cseeyangchen/C2VL)。用户指出其公开内容主要在 text 文件夹；本项目采用的是逐样本生成的思路，不应未经核对宣称完整复现该工作的输入和生成流程。
+每个原始样本中的每个人分别生成一个global和六句local。部位顺序固定：
+`head, torso, left_arm, right_arm, left_leg, right_leg`。
+每句简短描述对应区域的主要运动，静止区域描述维持的姿态。front/side是同一人物的两个视角；不是两个人。person0红色、person1蓝色。
 
-一个原始样本可有一个或两个人；**每个人分别生成一个 global 和六个固定部位 local**。两块视频画面是同一批人的 front/side 视角，不是两个人。红色 person_index=0、蓝色 person_index=1；数量优先由 render metadata 提供。
+当前 `one_person=True`，只保留骨架person0和它自己的文本；person0在crop中为空时过滤，不拿person1替代。feeder返回原始sample index供缓存查表，不是shuffle后的batch顺序。
 
-提示词文件：
+v3缓存每句独立经冻结CLIP pooled projected `text_embeds`，逐向量unit RMS、FP32：
+- global：`person_features.npy [N,2,512]`。
+- 六句local：`token_features.npy [N,2,6,512]`，名字保留token，内容是完整句向量。
+- validity：`person_valid.npy [N,2]`、`token_mask.npy [N,2,6]`。
+- 文本/身份：samples.json、manifest.json；缓存约1.07GiB，person0七向量目标库约0.535GiB，另有元数据。
 
-- 英文执行版：`tools/vlm_pilot/skeleton_motion_prompt_v2.txt`。
-- 中文翻译：`tools/vlm_pilot/skeleton_motion_prompt_v2_zh.txt`。中文文件是翻译说明，实际要求仍生成英文描述。
+**训练长度是7个向量，不是77个词元。** CLIP的77只是离线每句分词上限；编码padding=True仅补到当次batch最长句，超长报错、不静默截断。当前七句训练不存在补到77的浪费。
 
-已确认的核心句子：
+当前三条任务：
+1. 原生骨架重建：encoder读取90%mask后保留的75个骨架token，decoder预测骨架高斯噪声；维持原uniformity。
+2. **T→S**：在线remap文本作为条件，预测同样本骨架噪声；直接训练remap和骨架decoder，**没有直接encoder梯度是用户确认的设计**。
+3. **S→T**：保存的文本目标detach后加噪，独立文本decoder读取同一样本的骨架encoder条件并预测文本噪声；梯度进入encoder和文本decoder。
 
-> Global: Briefly describe the overall motion throughout the video.
->
-> Local: For the head, torso, left arm, right arm, left leg, and right leg, describe each region's main motion. If a region shows no obvious movement, briefly describe its maintained pose.
+`share_skeleton_decoder=True` 共享的是原生骨架decoder与T→S骨架decoder主体（输入、时空embedding、调制blocks、norm/head）；**S→T文本decoder始终独立**。no-share减少一条共享主体影响路径，但保留T→S→remap→保存目标→S→T→encoder的间接路径；可能有效，尚未证实。
 
-对应中文：
-
-> 全局描述：简短描述整段视频的整体运动。
->
-> 局部描述：按照头部、躯干、左臂、右臂、左腿、右腿，分别描述该部位的主要运动。没有明显运动时，简短说明其保持的姿态。
-
-每条是一句简短英文；用户明确不喜欢大量额外约束。固定部位顺序：
-
-~~~text
-head, torso, left_arm, right_arm, left_leg, right_leg
-~~~
-
-VLM 返回 `{"persons":[...]}`，脚本添加原始 `sample_index`。最终文件结构示意：
-
-~~~json
-[
-{"sample_index": 0, "persons": [{"person_index": 0, "global": "...", "local": {"head": "...", "torso": "...", "left_arm": "...", "right_arm": "...", "left_leg": "...", "right_leg": "..."}}]},
-{"sample_index": 1, "persons": [{"person_index": 0, "global": "...", "local": {"head": "...", "torso": "...", "left_arm": "...", "right_arm": "...", "left_leg": "...", "right_leg": "..."}}]}
-]
-~~~
-
-`captions.json` 是合法 JSON 数组，每个样本一个物理行，按 sample_index 排序；JSONL 分片则每行都是独立 JSON 对象，没有外层数组，不可把两个 JSON 数组直接用 cat 拼接。
-
-`tools/vlm_pilot/caption_output.py` 已把模型型号、设备型号、prompt、运行设置移到 `*.metadata.json`，原始回复/重试/错误等放 `*.diagnostics.jsonl`，不在每个样本文本里重复写这些信息。
-
-## 4. 已完成的文本→缓存→训练接入
-
-当前链路：
-
-~~~text
-双视角骨架 GIF
-  → Qwen：每个样本/人物 global + 六部位句子
-  → captions.json + captions.metadata.json
-  → cache_clip_motion_text.py：七句分别经冻结 CLIP 编码、RMS、FP32
-  → v3 NPY + manifest
-  → util/person_text_cache.py：按 feeder 原始 sample/person 索引取特征
-  → engine_pretrain.py / transformer_macdiff_text.py
-  → Stage1 骨架 encoder
-  → linear probe（仅骨架 encoder，不带文本分支）
-~~~
-
-新增/调整文件：
-
-| 文件 | 作用 |
-|---|---|
-| `tools/vlm_pilot/run_caption_dual_gpu.py` | 一卡一独立 Qwen worker，分片生成、自动 resume、排序合并、进程清理与输出锁 |
-| `tools/vlm_pilot/caption_output.py` | 文本主文件与运行/诊断 sidecar 分离、格式和身份校验、末行恢复 |
-| `cache_clip_motion_text.py` | 新七句 CLIP 缓存生成和恢复；旧 `cache_clip_text.py` 保留 |
-| `util/structured_text_cache.py` | NumPy 级格式/人物/尺度/文件身份/训练定义校验 |
-| `util/person_text_cache.py` | 同时支持旧 v2 BPE 与新 v3 六句，维持原始索引和人物配对 |
-| `main_pretrain.py` | v3 context/dim/归一化与 flip 保护，现有目标库接入 |
-| `model/transformer_macdiff_text.py` | global/local 内容统计，去除旧诊断指标；原训练目标保留 |
-| `engine_pretrain.py` | 去除 ordinary empty 骨架输出，仍过滤空人物 loss/目标更新 |
-| 两份 `pretrain_madiff_text_sentence_*.yaml` | 新 cache 的固定 RMS 和逐样本目标共享组配置 |
-
-v3 协议为 `macdiff_clip_sentence_cache_v3`：
-
-| 文件/字段 | 含义 |
-|---|---|
-| `person_features.npy [N,2,512]` | 每个人的 global 句向量 |
-| `token_features.npy [N,2,6,512]` | 六个完整部位句子的向量；名字保留 token，含义不再是 BPE |
-| `person_valid.npy [N,2]` | 对照原始 x_train 非零人物槽位 |
-| `token_mask.npy [N,2,6]` | 有该人物则六句都有效，静止姿态句也有效；空人物全部置零 |
-| `samples.json` | 文本副本 |
-| `manifest.json` | 定义、进度、输入/实现身份及文件校验和 |
-| `context_length=7` | 训练的 global + 六部位结构容量 |
-| `clip_context_length=77` | CLIP 编码一句话的 token 上限，两种长度不可混用 |
-
-七个句子独立取 CLIP projected pooled `text_embeds`，逐向量 unit RMS 后保存 FP32。缓存里没有可训练 remap、人物/部位 embedding，也没有旧 BPE token_ids。reader 的 local positions=1..6 绑定上述部位顺序；这是结构提示，不是时间位置，也不是关节硬 attention mask。
-
-输入需要完整覆盖原始训练行、无重复 sample_index、合法且连续的 person_index、六个精确部位。缓存生成实际流式读取 `x_train` 校验人物，不读取 `y_train`。句子超过 CLIP 上限会报错，不静默截断；model/prompt/revision 不一致不能混用。40091×两个人槽位的 global/local FP32 特征约 1.07 GiB；person0 七向量目标库约 0.535 GiB，另有元数据。
-
-旧链路审计结论：
-
-- 早期跨人物聚合文本配单人骨架的问题，历史 `879c232` 已改成逐人 reader/模型配对；不能靠重新写 cache 修正仍使用旧模型的计算。
-- 旧 v2 是正确的 L2 CLIP 特征，能量约 1/512；训练后加 RMS 是扩散目标尺度选择，不是提取算错。新版在生成 cache 时直接完成 RMS。
-- 旧 local 是 BPE 投影状态，EOS 与 global 句向量有结构性重复。新版用六个完整部位句子解决此定义问题；不能平均旧词元或重命名槽位冒充新版描述。
-- 固定人物槽位、RMS、六部位顺序、padding 可在 cache 阶段固定；随机 crop 的空人物、在线 remap、历史目标更新必须保留在训练端。
-
-## 5. 训练目标、uniformity 与最新日志定义
-
-用户确认的逐样本模式是 `sample_target_blend`，不是旧的参数 EMA teacher 网络：
-
-~~~text
+目标模式为 **sample_target_blend**，不是旧参数EMA：
+```text
 initial_target_i = RMS(CLIP_i)
-成功 optimizer step 后：
+每次成功optimizer step后：
 target_i = 0.9 * old_target_i + 0.1 * current_online_remap(RMS(CLIP_i))
-~~~
+```
+global和有效local都递推，用step后的remap，AMP跳步不更新。不要改成0.9固定CLIP+0.1remap；不要把混合后的保存目标强行重新RMS。
 
-global 和有效 local 均这样递推。T→S 用在线 remap 文本条件训练 remap；S→T 用 detach 的保存目标训练骨架 encoder 与文本噪声 decoder。**T→S 不直接给骨架 encoder 梯度是用户设计，不要作为 bug 擅自改变。** 更新使用 step 后的在线 remap；AMP 跳过 step 则不更新。不要改成每步 0.9 固定 CLIP + 0.1 remap，也不要把混合后的保存目标再次强行 RMS，那都会改变公式。
+当前骨架/文本扩散均预测epsilon，1000步inverse_cosine、均匀t采样。骨架window120、t_patch4、joint_patch1，共750tokens、mask0.9保留75；S→T memory为75个可见token+全局池化，共76，骨架特征维度仍256。crop=[0.5,1]、flip=False、joint_noise=[1,0.005]；没有加入部位到关节的attention mask。
 
-`shared_memory` 后端在同机 RAM 保存目标，只在 checkpoint 时写兼容 SQLite 快照；旧 SQLite 后端可回退。恢复必须有同次保存、同组的 `checkpoint-X.pth` 和 `checkpoint-X-target-bank.sqlite`。`current.shared.json` 不是可恢复的完整目标库。旧 v2 目标库约 1.6 GiB；新版 person0 七句约 0.535 GiB。共享内存的 Linux /dev/shm、GPU性能和真实 DDP 尚无本会话验证；不能保证消除用户之前反馈的每轮多约10分钟。
+LP只加载骨架encoder，不使用文本/remap/decoder/bank。真正的ActionHeadLinprobe2读出是25关节×256=6400维（人物和时间平均），再BN+Linear；不是feature_only的global256。
 
-用户基于“remap 后方差低/坍缩”询问 uni 是否合适，最终决定**暂时保留原 uniformity，只改日志**：
+## 4. 已完成的代码检查与修复
 
-- 原 `masked_text_uniformity_loss` 仅对每个样本内有效 local 两两平方 cosine 做均值，含对角项；不含 global、不跨样本。
-- 六个 local 的对角下限约 1/6，旧约20个词元则约 1/20。它可抑制句内所有 local 相同，但全体样本共用相同的六个正交向量也能达到下限，因此不能声称解决了跨样本坍缩。
-- 按部位跨样本方差下限/VICReg式正则只是讨论，未实施。用户没有要求新增这项 loss。
+1. **新版文本/缓存链路接入**：逐样本逐人物、global+六部位、metadata分离、覆盖/身份/RMS/人物有效性校验、v3 reader、固定RMS和逐样本共享目标配置。用户已确认cache完成且提供真实训练日志，生成不再是待办。
+2. **目标库续训残留修复**：目标快照先于模型保存，中断可能产生孤立快照；仅模型checkpoint不存在时允许原子重建孤立快照，已配对快照保护，不能覆盖。
+3. **padding/读取优化**：v3六句批量gather，保留旧v2部分有效token压紧；目标库更新先过滤无效人物/local再remap，全有效v3走dense路径，不改变目标公式。
+4. **LP测试CE聚合修复**：两个evaluate入口改成按样本数加权，避免最后小batch等权偏差；Top1/Top5不受该聚合修复影响。
+5. **S→T512输出空间修复**：旧hidden256+末端LN→Linear512最多255维仿射输出，高斯噪声期望误差下限约257/512=0.502。新sentence配置hidden512、output_norm=none解除限制；内部norm保留，历史模型默认仍256/LN以兼容。
+6. **日志整理**：取消普通empty骨架日志与text_target_drift_mse，内部空人物过滤保留；保留原uni，variance换为在线global+有效local内容的合并总体方差。
 
-最新输出改动已经提交在 `edc924a`：
+关键实现：`model/transformer_macdiff_text.py`、`util/person_text_cache.py`、`util/sample_text_target_bank.py`、`util/shared_memory_text_target_bank.py`、`engine_pretrain.py`、`engine_linprobe.py`、两份sentence YAML。
+缓存生成/校验：`cache_clip_motion_text.py`、`util/structured_text_cache.py`；旧cache_clip_text.py/util/clip_text_cache.py保留。
 
-| 指标/行为 | 最新定义 |
+512 decoder约2759.6万参数，旧256约724.5万；1024约1.076亿，缺少继续扩宽的收益依据。
+历史回归：padding75项（45通过/30依赖跳过）；512相关81项（49通过/32依赖跳过），新增4项CPU输出空间/兼容性检查通过，2项真实Torch检查因缺依赖跳过。Python3.8 AST与diff检查通过。**这些是历史开发验证，不是此次交接重跑，更不等于助手真实GPU测试。** 用户512400epoch训练日志提供实际运行成功证据，但无完整args/SHA/逐rank/AMP诊断，不能延伸为所有细节均验证。
+
+## 5. 已有结果、当前问题与证据边界
+
+最新三组都是新版七句、sample_target_blend、共享骨架decoder；权重以日志核算为准，结构以用户说明/当前代码为准：
+
+| 实验 | T→S | S→T | LP best |
+|---|---:|---:|---:|
+| 旧256/LN首轮 | 0.1 | 0.1 | 85.801795% |
+| 旧256/LN权重1 | 1 | 0.1 | 85.892771% |
+| 新512/无末端LN | 1 | 0.1 | **85.79%**（用户更正，仅口述best） |
+| 新512/无末端LN，当前继续 | 1 | 1 | **尚无结果** |
+| 新512的checkpoint-150 LP | 1 | 0.1 | **未完成：仅首轮72多，用户不再继续** |
+
+checkpoint-399的LP首轮74.65也是用户口述；不能与最终85.79混为同一指标。150首轮差距不是最终表征优劣的结论。不要重新催用户把该实验跑完。
+
+512预训练完整400条epoch0..399，全部数值有限、6个local始终有效；LR与旧256/T→S=1每epoch完全相同。总loss确认：
+`native + .02*skel_uni + .02*text_uni + 1*T→S + .1*S→T`，最大误差3.55e-9。
+bank epoch0=40064、epoch1起40091，首轮未覆盖/采样不是cache漏样本证据。
+
+| loss，最后50epoch均值 | 旧256/T→S1 | 新512/T→S1 |
+|---|---:|---:|
+| 总loss | 0.08901706 | 0.04063979 |
+| native | 0.01439415 | 0.01435490 |
+| T→S | 0.01991729 | 0.01989607 |
+| S→T | 0.51023321 | 0.02710436 |
+
+512末轮S→T=0.02788974，最低在epoch142为0.00996099，后期为最低的2.80倍：
+100..149均值0.010192→150..199的0.010623→200..249的0.012662→250..299的0.017566→300..349的0.023785→350..399的0.027104。
+同期native/T→S持续下降，后期与旧版几乎相同。旧256也在约139epoch最低后回升，0.5结构下限掩盖了相对变化。
+
+末轮total0.04085835、native0.01442973、T→S0.01996165；S→T加权为0.00278897，占total约6.83%。总loss较旧版下降约54%，几乎全部来自解除S→T限制，**不能据此证明encoder语义改善、梯度不足或应该按比例补权重**。512 LP85.79比同权重旧版低0.10277个百分点；单次且缺本轮LP完整日志，不能判显著退化，可以明确的是没有显示收益。
+
+候选解释仅是：动态目标方向变化、encoder条件变化、多任务竞争、LR下降后文本分支跟随能力不足。训练日志不能区分，也不能直接叫过拟合或代码错误。
+文本uni末约0.168，variance约0.936、目标global energy约1；这些不排除语义/方向问题。
+
+指标口径：
+- text_uniformity：同样本有效local两两cosine平方均值，含对角，不含global，不跨样本；六句下限1/6，可能出现固定部位原型，不能称跨样本抗坍缩。
+- text_batch_variance：在线remap后的global+有效local内容向量合并，每卡microbatch通道总体方差均值，排除embedding/padding/空人物；部位差异也会抬高它。
+- text_energy：保存目标global的能量，和variance不是同一批向量。旧variance曾只统计保存global，不能跨口径比。
+
+更早结果供背景：原MacDiff约85.86%；固定CLIP原L2尺度S→T1/0.1为84.64%/85.95%；固定RMS为约83.7%/85.82%；旧参数EMA no-share/share为85.77%/85.78%。旧EMA共享比较的T→S均0.1、旧BPE local/不同目标；部分历史LP有效batch64，当前128，不能直接宣称稳定收益或分享结论。
+
+## 6. 当前继续的权重1实验与命令
+
+用户选择 **T→S=1、S→T=1**，此前建议0.3已被其选择替代。使用512/share=True/归一化A，从头训练、独立目录；不要将这组混称为“只有T→S=1”。
+
+**YAML当前两个lambda默认仍是0.1，batch默认64/accum1。** 因此必须保留命令里的两个权重覆盖和batch/accum参数。仅看YAML不能判断用户实际权重。
+
+| 当前实验路径 | 目录 |
 |---|---|
-| 空骨架普通提示、`empty_skeleton_persons` | 已取消输出和记录；内部过滤仍执行 |
-| `text_target_drift_mse` | 已删除计算和日志 |
-| `text_batch_variance` | 在线 remap 后 global 与所有有效 local 内容向量拼接，逐通道总体方差 `var(unbiased=False)` 后取均值 |
-| fixed_clip 的 variance | 该模式没有 remap，统计固定内容向量 |
-| `text_energy` | 仍统计保存目标的 global 能量，没有随 variance 一起改群体 |
+| 已完成512、S→T0.1对照 | output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1 |
+| 该对照399 LP | 上述目录名后缀_lp_399_bs64 |
+| 已放弃的150 LP | 上述目录名后缀_lp_150_bs64 |
+| 当前S→T1预训练 | output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1 |
+| 当前S→T1 LP | 上述目录名后缀_lp_399_bs64 |
 
-variance 不含人物/部位 embedding、padding、非活动空人物；每卡当前 microbatch 计算，日志沿用原有各卡/各步汇总，不是两卡合并后的总体方差。它包含部位之间的差异，不能单独证明同部位跨样本健康。历史日志的 variance 是保存 global 目标的批内方差，不能与新版直接比较。取消 empty 输出不意味着允许空 crop 参与 loss 或借 person1 替代 person0；全批为空仍可报错。
+以下是已提供用户的命令，供核对其实际运行；**用户已在继续，不默认重复启动相同目录**：
 
-## 6. 基线命令与后续实验
+```bash
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10254 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_shared.yaml --lambda_text_to_skeleton 1 --lambda_skeleton_to_text 1 --batch_size 32 --accum_iter 2 --epochs 400 --seed 0 --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1/tensorboard && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10255 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1_lp_399_bs64 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1_lp_399_bs64/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
+```
 
-以下保留生成、固定RMS基线和共享组命令供参考；用户已确认cache完成且共享组首轮预训练/LP已有结果，不要机械重跑生成流程。新版sentence配置现在使用512/无末端LayerNorm。下一组按用户要求改T→S=1，新输出目录为 `output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1`，预训练每卡32/累积2，LP每卡64/累积1。若要分别归因结构与权重变化，可先跑配置默认的T→S=0.1组，再做同结构权重1对照。各命令均从服务器仓库根目录执行；Qwen、CLIP提取、旧训练可能需要各自原先可用的环境。
+两种CLI都用实际get_args_parser AST抽取验证，无Torch导入；参数可解析、有效batch128、无resume、新LP指向新399checkpoint。未在本地验证服务器checkpoint存在或实际GPU运行。当前代码每10epoch及最后保存一次，完整预训练的末轮为399。
 
-### 6.1 双卡生成新版文本并自动恢复
+## 7. 下一步：权重1结果 → 归一化B
 
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_dual_gpu.py --rendered_root vlm_pilot/ntu60_xsub_train_rendered_v3_2view_smooth_w5 --model /home/user9/public3/swr/models/Qwen3-VL-8B-Instruct --output_dir vlm_pilot/ntu60_xsub_global_local_v2 --gpus 0,1 --expected_samples 40091
-~~~
+1. 新会话承接用户的权重1进度/结果。先看实际400epoch训练日志、LP结果；若用户只给best就注明来源，不编造末10轮/分类loss/完整args。
+2. 比较512/S→T1与已完成的512/S→T0.1：LP是否有明确收益，S→T后期是否仍回升，native/T→S是否变化。不能只看rawloss或首轮LP。
+3. **随后根据结果测试B。** 选择明确父对照：如果权重1更有意义，就用其权重；如果未改善，可保留0.1父对照。当前尚未锁定B实验的权重。其他设置固定、只变骨架input_mean/input_var，独立预训练和LP目录，从头训练。
+4. 创建一对独立B YAML（预训练和LP）再给命令；不要修改正在跑的共享基线文件，也不要同时改share、crop、v或uniformity。B实验配置目前尚未创建/运行。
+5. no-share、仅S→T的v参数化、六部位软区域bias仍为备选，**当前优先级在B之后**，不机械跑完全组合，不把讨论当作用户已经要求实现。
 
-GPU0 偶数、GPU1 奇数；一卡一份模型，不是模型切两卡。launcher 自动给 worker 添加 `--resume`，**中断后原样重跑同一条命令即可**。可先加 `--max_samples 4` 试跑，再去掉继续全量；`--dry_run` 只检查待生成数量与命令，`--merge_only` 仅合并已存分片。launcher 参数是下划线，不要写成 cache 的连字符参数。
+### 归一化A与B
 
-输出目录需保留：
+```yaml
+# A：当前全部NTU60 XSub预训练/LP实际使用
+input_mean: [-0.0058, -0.1333, -0.0246]
+input_var: [0.0206, 0.0805, 0.0218]
 
-- `captions.json`、`captions.metadata.json`。
-- `shard0.jsonl` / `shard1.jsonl` 和各自 `*.metadata.json`。
-- 各自 `*.diagnostics.jsonl`、`*.log`。
+# B：pretrain/LP中注释的#new，待测
+input_mean: [-0.0024, -0.2132, -0.0446]
+input_var: [0.0525, 0.1527, 0.0513]
+```
 
-resume 跳过合法 accepted，重试失败/无效样本；模型、提示词、revision 和渲染来源需一致。只对未完整写入的最终 JSONL 行做备份并移除；完整坏行和身份不符会报错，不能强行忽略。输出锁阻止同目录双启动；Ctrl+C 会停止子进程并尽量生成排序后的部分结果。**最终 JSON 存在不等于全量完成。**
+扫描31份YAML共8组mean/var、50处成对出现（31生效、19注释）。A在28份配置生效；B在NTU60 XSub、NTU120 XSub/XSet的pretrain/LP共6处注释，**不是NTU60独有，也不能证明原始统计来自NTU120**。初始提交已有这些值，未找到计算脚本/统计来源。
+NTU60 finetune的#new是另一组C：mean=[-0.0034,-0.1322,-0.0271]、var=[0.088325,0.106987,0.065367]，**不是本次要测的B**。
 
-检查完成摘要（应 expected=accepted=40091、missing_count=0、complete=true）：
+实际归一化是(raw-mean)/sqrt(var)。A→B时同骨架XYZ波动幅度变为原来的0.626/0.726/0.652，中心化方差及同t有效SNR变为0.392/0.527/0.425；噪声仍单位高斯。可能使epsilon更容易预测而降低loss，不能因此认定LP更好或B更正确。
 
-~~~bash
-cd /home/user9/public3/swr/MacDiff && python -c "import json; print(json.load(open('vlm_pilot/ntu60_xsub_global_local_v2/captions.metadata.json'))['summary'])"
-~~~
+B只改骨架归一化，复用文本cache。PT/LP都必须B；这些值是Python普通属性、不在state_dict里，LP加载旧checkpoint不会覆盖YAML统计。只给旧A权重的LP换B不能验证B预训练收益。含空人物、padding、person0/两人、crop/旋转的统计口径未知，不凭#new标签定性。
 
-随后抽检单/双人、左右部位、静止姿态、brief 程度与视频配对。`tools/vlm_pilot/inspect_random_captions.py` 可帮助检查；先查看其 CLI，不杜撰参数。
+## 8. 用户明确的研究约束与备选方案
 
-### 6.2 把新文本编码为可复用 CLIP cache
+- 暂不考虑对比学习及类似batch结构/关系相似性蒸馏；**不做跨样本内容**。
+- 冻结CLIP作为扩散干净目标已经试过；不要当新方向重复推荐。
+- 固定t/噪声后条件打乱，以及部位跨样本方差/相似度检查已经做过；不要再把重复诊断列为默认下一步。
+- 保留原uniformity是用户选择，不擅自加VICReg、跨样本方差正则或额外辅助loss。
+- 单样本v和区域bias仅讨论，未实现。当前文本模型要求全局diff_prediction=noise，不能直接改全局v来实现“仅S→T改v”；需要独立S→T开关。
+- v=a_t*epsilon-sigma_t*text_target，改变时间步监督权重，不增加信息、没有LP保证；它不同于更换干净目标来源。原生/T→S应保持epsilon。epsilon/v的rawloss不可直接比。
+- 区域bias仅作读取先验：local优先对应关节、保留全局key和空区域回退；随机mask打乱token后必须用原始joint身份，不能把75个可见token按顺序分六段。encoder全身self-attention已混合信息，不能宣传严格局部隔离。
+- 全视频描述和随机[0.5,1]crop/90%mask可能信息不匹配，但未证明是当前主因；完整序列/带时间边界的文本方案未实施。
 
-使用之前能成功提取 CLIP 的环境：
+## 9. 绝对不要再踩的坑
 
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 python -u cache_clip_motion_text.py --data-path ../data/MAMP/ntu/NTU60_XSub.npz --captions vlm_pilot/ntu60_xsub_global_local_v2/captions.json --clip-model /home/user9/public3/swr/models/clip-vit-base-patch32 --output-dir vlm_pilot/ntu60_xsub_clip_sentence_cache_v3 --batch-size 16 --resume
-~~~
+1. **不要git clean -fd/-fdx服务器。** vlm_pilot/包含生成文本、渲染、缓存，未跟踪不代表垃圾。历史reset --hard只因当时用户明确要求，不能泛化；也不要为clean status删cache、目标库、checkpoint。
+2. 当前cache已完成，不能重生成或改caption来“修”未证实的性能问题。生成文件和captions.metadata.json、诊断/分片sidecar保留；不得cat两个JSON数组当合并。
+3. 缓存身份SHA绑定实现：cache_clip_motion_text.py、util/structured_text_cache.py、cache_clip_text.py、util/clip_text_cache.py。**避免与任务无关的改动（包括格式），否则可能触发已有cache身份不匹配。** 归一化B只需YAML，别改这些文件。
+4. 缓存查表必须原始sample/person身份；空person0不替换person1，front/side不当两人。左右部位顺序不改；v3禁止flip=True，除非同时实现文本交换/方向转换。
+5. 77是CLIP句长上限，训练是7个句向量；不要把旧BPE缓存/EOS重复问题与新六句混同。
+6. **512修复必须从头训练，不能完整resume旧256权重。** 旧256骨架encoder仍可做LP；不同缓存/目标模式/share/权重实验不能用strict=False假称完整恢复。
+7. sample_target完整resume需要同次保存的checkpoint-X.pth与checkpoint-X-target-bank.sqlite；current.shared.json不是完整快照。LP只要模型，不需bank。只重建没有模型对应的孤立快照，不覆盖配对数据。
+8. 目标更新严格0.9历史+0.1当前step后remap，AMP跳步不更新；不改成固定CLIP混合或每forward更新，不给保存混合目标额外RMS。
+9. 两个lambda默认都0.1，CLI覆盖别漏。**当前“权重1”是S→T=1，T→S也保留1**；区别历史只把T→S改1的实验。
+10. 命令不加cd，PT与LP用&&。历史曾把cd误拼成argparse参数导致整次没跑；父进程CalledProcessError要找前面真正rank traceback。保持每卡32/accum2与LP64/accum1。
+11. share只连接native与T→S骨架decoder，S→T独立；T→S无直接encoder梯度是设计，别当bug改变。
+12. 约0.502是旧输出子空间的高斯期望下限，不是有限batch硬界，也不是LP上限。去噪loss/variance/energy更好不等于LP好；loss占比不等梯度占比。
+13. text_uni含local对角、六句下限1/6；在线合并variance和保存global energy不能混比，旧variance口径也不同。删除empty日志不等于取消内部过滤。
+14. **LP首轮72多 vs74.65不能替代最终结果。** 用户不继续150LP；不要记录完整失败分数，不强推重跑或把早期更好/更差作为确定结论。
+15. 512基线最终是**85.79**，不要恢复成85.75。最新S→T1尚无结果，B也未跑；不得编造成绩或断言显著退化。
+16. B必须PT/LP成对使用、独立目录、从头；不能只在旧权重LP换B。不同mean/var数组出现次数、#new标签不证明统计适配当前person0/crop。
+17. 本地缺Torch等依赖，CPU/AST/替身测试与用户真实GPU训练证据区分；文档变更无需反复跑缺依赖大套件，不为验证文档安装Torch。
+18. 旧诊断脚本适配模式不同（参数EMA、fixed_clip、旧remap），不能未经适配直接读v3/sample_target/512并解释。当前不重复shuffle/geometry。
+19. 早期同步记录不能当当前状态；确认实际SHA/args时再处理，不机械重复要求用户同步已提交代码，也不擅自停止权重1训练。
+20. 原始渲染每帧减去person0 root、丢失世界位移；global文本不能恢复未展示的信息。文本格式合法或RMS≈1不证明语义质量。
 
-一个 batch 是16个人、112句。单卡即可；CLIP 编码完成后，后续训练直接读取 NPY，不重复加载/运行 CLIP。脚本必读配套 `captions.metadata.json`，不能只复制文本主文件。
+## 10. 日志、资料与建议阅读顺序
 
-cache 的 `--resume` 需显式写；重复上述命令恢复。不完整缓存先 flush 每人的七向量再发布 `completed_persons`；已完整缓存经校验后直接复用。dataset、captions、metadata、CLIP 或相关实现 SHA256 变更必须换输出目录，不要删除 manifest 绕过身份保护。暂停缓存生成时不要继续修改其输入文本/metadata。
+最新对比数据：
+- 256/T→S0.1 PT：[22235368附件](C:/Users/97537/.codex/attachments/22235368-fb22-4b3a-b4bb-9a3e2de686df/已粘贴的文本.txt)；LP：[d2e7f9e1附件](C:/Users/97537/.codex/attachments/d2e7f9e1-4468-49bf-8cc1-7d9a30f822c4/已粘贴的文本.txt)。
+- 256/T→S1 PT：[81d248b4附件](C:/Users/97537/.codex/attachments/81d248b4-c708-4b84-ac44-3cf027e8f732/已粘贴的文本.txt)；LP：[6cc77fa4附件](C:/Users/97537/.codex/attachments/6cc77fa4-58fa-4466-9fa3-8afb35f169f9/已粘贴的文本.txt)。此前fe23bb66/a64cb5b7重复上传内容相同，不是另一个实验。
+- 512/T→S1/S→T0.1 PT：[64857d73附件](C:/Users/97537/.codex/attachments/64857d73-03e2-4bf9-97ed-e6ca4fba0355/已粘贴的文本.txt)；LP只有用户口述85.79，150/399首轮也是口述。
 
-检查进度：
+按需读：
+1. [当前实验计划](D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md)：最新用户路线覆盖此前建议。
+2. [512日志分析](D:/program/MacDiff/tools/vlm_pilot/ST512_TRAINING_LOG_ANALYSIS.md)：完整数值、回升趋势与证据边界。
+3. [归一化审计](D:/program/MacDiff/tools/vlm_pilot/INPUT_NORMALIZATION_AUDIT.md)：8组、31YAML、50处完整位置。
+4. [链路审计](D:/program/MacDiff/tools/vlm_pilot/TEXT_CACHE_CHAIN_AUDIT.md)：实现与缓存定义；其早期“待生成/未跑GPU/同步后smoke”是历史状态，以本handoff为准。
+5. 当前两个YAML及对应模型/engine/target bank代码；仅具体报错时读相关测试。
+6. 更早日志/生成细节才读归档交接、STAGE1_TEXT_DIFFUSION.md/STAGE1_TEXT_GEOMETRY.md；这些包含旧BPE/旧EMA及旧命令，不是当前执行清单。
 
-~~~bash
-cd /home/user9/public3/swr/MacDiff && python -c "import json; m=json.load(open('vlm_pilot/ntu60_xsub_clip_sentence_cache_v3/manifest.json')); print({k:m.get(k) for k in ('protocol','complete','sample_count','completed_persons','total_persons','context_length','clip_context_length')})"
-~~~
-
-应 complete=true、sample_count=40091、completed_persons=total_persons。total_persons 是实际人物数量，不一定等于40091或80182。若出现人物槽位不匹配，定位 sample/person，检查渲染/描述；32帧采样可能漏掉短暂出现的人，不能用另一人的文字补齐。
-
-### 6.3 固定 RMS 双卡 smoke，再从头训练
-
-两份新配置均 `context_length=7`、`flip=False`、文本decoder隐藏512/无末端输出LayerNorm、400轮；输出目录有 `_st512` 后缀，区别于首轮256结构：
-
-| 配置 | 训练模式 | T→S / S→T | 文本 uni | 共享骨架 decoder |
-|---|---|---|---|---|
-| `pretrain_madiff_text_sentence_fixed_rms.yaml` | fixed_clip / rms | 0 / 0.1 | 0 | False |
-| `pretrain_madiff_text_sentence_sample_target_blend_shared.yaml` | sample_target_blend / rms | 0.1 / 0.1 | 0.02 | True |
-
-先在独立目录运行：
-
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10252 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_fixed_rms.yaml --batch_size 2 --accum_iter 1 --epochs 1 --warmup_epochs 0 --min_lr_epochs 0 --max_train_steps 2 --num_workers 0 --output_dir output_dir/ntu60_xsub_sentence_fixed_smoke --log_dir output_dir/ntu60_xsub_sentence_fixed_smoke/tensorboard
-~~~
-
-首次真实运行保留完整 cache validation；通过后才考虑 `--skip_text_cache_validation`，其 header/size 模式不能发现同大小内容篡改。上面 smoke 不是 epoch 性能测量，也尚未执行成功。
-
-正式固定组：
-
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10252 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_fixed_rms.yaml --batch_size 32 --accum_iter 2
-~~~
-
-正式逐样本共享组；先确认 /dev/shm 和快照磁盘空间：
-
-用户确认 cache 完成后的检查继续采用此组。该组的两卡 smoke 应覆盖共享目标库和两个 optimizer step；在原训练环境中运行，使用新的 smoke 输出目录：
-
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10254 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_shared.yaml --batch_size 2 --accum_iter 2 --epochs 1 --warmup_epochs 0 --min_lr_epochs 0 --max_train_steps 4 --num_workers 0 --output_dir output_dir/ntu60_xsub_sentence_sampletarget_shared_smoke_20261001 --log_dir output_dir/ntu60_xsub_sentence_sampletarget_shared_smoke_20261001/tensorboard
-~~~
-
-通过后，在配置的正式目录从头训练：
-
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10254 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_shared.yaml --batch_size 32 --accum_iter 2
-~~~
-
-两组使用相同GPU，应顺序运行；共享组正式训练前也需要真实 smoke。两卡每卡32×累积2=有效 batch128，CLI 覆盖 YAML 中的 batch64/累积1。新配置各自已有独立输出目录，**不要添加旧实验的 --resume**。完整 resume 只用于同文本、同配置、同输出实验；新 sample_target 实验需要该实验自己的配对目标库快照。
-
-这两组同时改变了目标模式/共享设置，不是仅文本版本的单变量对照。比较新旧文本应优先对齐固定 RMS 0.1 的其余预训练与 LP 参数。
-
-新固定组完成后，LP 示例（只加载骨架 encoder）：
-
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10253 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_st512/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_st512_lp_399_bs64 --log_dir output_dir/ntu60_xsub_macdiff_sentence_fixed_rms_st01_st512_lp_399_bs64/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
-~~~
-
-该 LP 有效 batch128。历史85.82%基线的 LP 有效 batch64，不能直接称严格同协议提升；需以统一 LP 设置对照。共享组 LP 需换成它自己的 checkpoint 和独立输出目录。
-
-下面是与历史85.82%基线记载batch一致的有效batch64对照命令；首轮新版LP的日程对应有效batch128，后续T→S=1组按用户要求使用每卡64/累积1以对齐首轮。未找到85.82%实验完整原始CLI/日志，不能据此声称核实了所有历史参数：
-
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10255 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_lp_399_bs32 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_lp_399_bs32/tensorboard --batch_size 32 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
-~~~
-
-### 6.4 用户要求的512结构、T→S=1，训练后自动LP
-
-同步模型和两份sentence配置后从头运行；不要加旧256结构的 `--resume`。以下同时改变结构与T→S权重，不能将相对首轮的变化只归因于其中一项：
-
-~~~bash
-cd /home/user9/public3/swr/MacDiff && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10254 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_shared.yaml --lambda_text_to_skeleton 1 --batch_size 32 --accum_iter 2 --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1/tensorboard && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10255 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_lp_399_bs64 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_lp_399_bs64/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
-~~~
-
-## 7. 已做验证与证据边界
-
-S→T结构修复后实际重跑下述7组及 `tests.test_text_decoder_width`，共81项：49项通过、32项依赖跳过。新增4项CPU检查通过，使用实际decoder构造器和NumPy-backed层验证输出保留全部512方向、历史LN路径、非法norm及配置；新增2项真实Torch检查（完整前向/padding/梯度、严格checkpoint恢复）因缺Torch跳过。新模型/测试通过Python3.8 AST检查及diff whitespace检查。未在服务器验证512结构的AMP/DDP、显存、性能和LP。
-
-2026-10-02实际重跑 `tests.test_structured_text_cache`、`tests.test_clip_text_cache`、`tests.test_sample_text_target_bank`、`tests.test_shared_memory_text_target_bank`、`tests.test_macdiff_text`、`tests.test_linprobe_eval_metrics`、`tests.test_target_bank_packed_updates`：75项，45项通过、30项因缺Torch/Transformers/PyYAML跳过，无失败。本次新增12项CPU检查覆盖六句批量读取与旧reader结果一致、padding/空人物不进入目标remap且SQLite/RAM递推一致、LP末batch与多视角样本加权。目标库/LP计算使用NumPy-backed Torch替身及实际函数，不是真实Torch/CUDA验证。六份改动Python通过3.8 AST语法检查，diff whitespace检查通过；服务器尚未执行这些优化。
-
-以下是前面开发阶段的结果，不是本次文档更新重跑出来的：
-
-- caption 输出与双卡调度：24项 CPU/模拟测试通过；不等于真实 Qwen 双卡推理成功。
-- v3 cache/旧 reader/目标库等某轮回归：63项，33项 CPU 通过、30项因缺 Torch/Transformers/PyYAML 跳过。
-- 最近日志修改那轮：55项，25项 CPU 通过、30项依赖测试跳过。覆盖 `tests.test_macdiff_text`、`tests.test_sample_text_target_bank`、`tests.test_shared_memory_text_target_bank`、`tests.test_structured_text_cache`、`tests.test_clip_text_cache`。
-- global+local variance 用 NumPy-backed torch API 模拟验证：global [[0,2],[2,0]]、有效 local [[4,0],[0,4]]，合并 variance=2.75；无效 padding/NaN 被排除。不是实际 Torch 训练测试。
-- Python3.8 AST 语法检查、CLI help、Git diff whitespace 检查通过；不是实际 Python3.8/GPU执行。
-
-相关测试文件包括 `tests/test_caption_output.py`、`tests/test_caption_dual_gpu.py`、`tests/test_structured_text_cache.py`、`tests/test_macdiff_text.py`、`tests/test_shared_memory_text_target_bank.py`。以后若修具体失败，再运行对应检查；文档编辑不必反复运行缺依赖的大套件。
-
-用户首轮日志已提供真实预训练/LP成功的证据，但没有cache validation输出、完整args或逐rank信息，不能扩展为全部实现正确的证明。本次优化尚未验证：真实Torch/CUDA前向/AMP/DDP、Linux共享内存行为和epoch性能提升；本地也没有服务器cache可独立复核。
-
-## 8. 绝对不要再踩的坑与仍未解决的限制
-
-1. **不要对服务器执行 git clean -fd/-fdx。** `vlm_pilot/` 未被 Git 跟踪且没有整体忽略，其中有重要生成结果；清理可能删除文本/cache。本次 git reset --hard 仅因用户明确要求以 GitHub 覆盖代码而执行，已成功，不能把这个授权套到未来任意修改。命令针对服务器，不要误在 Windows 本地执行覆盖。
-2. Git reset --hard 会覆盖跟踪改动及挡住远端跟踪路径的未跟踪文件/目录；其他未跟踪数据通常保留。`.gitignore` 不是发生路径冲突时的绝对保护。最近两个 exemplar JSON 和 vlm_pilot 已保留，不要为获得空 git status 而删除。
-3. 新旧文本/cache/实验目录分开；保护旧 v2 数据，但用户已授权生成新版。不能用旧“禁止重生成”阻断现在的新任务，也不能覆盖旧实验来省事。
-4. captions.metadata.json 必须与 captions.json 一起保存；生成 resume 还要保留分片及其 metadata。只剩最终 JSON，不能期待 launcher 自动恢复全部原会话身份/分片。
-5. 保持原始 sample_index 与 person_index；person0 配自己的文本，空 person0 不替换为person1。front/side 是视角，不是人物。shuffle/crop 后 feeder 原始索引仍是查表依据。
-6. cache 结构长度7不是 CLIP长度77；local 是六句完整语义，不是六个词/BPE，也不是按时间切的六段动作。
-7. 左右语义需抽检。现有渲染没有明确逐关节左右标注；格式合法不等于识别正确。v3 当前禁止 flip=True，因为训练没有相应文本交换/方向转换机制。
-8. 全段描述与 p_interval=[0.5,1] 的随机时间 crop 可能不一致；某个主要动作不一定在当次 crop 可见。完整序列或带时间边界描述的消融未实施。
-9. 渲染逐帧减去person0 root，世界坐标位移已丢失；global 不能补出没有展示的信息。已有 render provenance 的路径/size/mtime 也不能完全证明历史 captions 来自内容相同的NPZ；新 cache 仅能绑定当前 NPZ SHA256。
-10. S→T 统一平均 global/local。旧约20个local时 global约占1/21，新六句时约1/7；外层权重相同并不意味着内部监督分配相同。当前没有新增 global/local 独立权重。
-11. text_batch_variance 是在线global+local、text_energy 是保存global目标；旧 variance/新 variance、L2/RMS、旧20词元uni/新6句uni不能直接跨口径解释。
-12. 保留原uni是用户决定；不要把它宣传成跨样本抗坍缩正则，也不要擅自加新正则/辅助loss。RMS能量≈1也不代表方向不坍缩或语义好。
-13. 新文本不可完整 resume 旧 checkpoint/旧目标库，涉及缓存身份、结构 embedding 尺寸及历史目标改变。不同 share设置、旧参数EMA和sample_target也不能互相完整resume。不要用 strict=False 部分加载却称完整恢复。
-14. sample_target 续训必须模型与同名目标库快照配对；不要缺库时静默初始化，不删除配对快照省空间。LP只需模型，不需要目标bank。快照是GiB级，长期保存需关注空间。
-15. 历史恢复命令曾把训练后直接拼 `cd ... && LP`，缺少训练与cd间分隔，argparse报 unrecognized arguments: cd；那次根本没有恢复模型/目标库。训练后自动LP应是 `完整训练命令 && 完整LP命令`。只有父进程 CalledProcessError 时，要找前面的真实rank traceback。
-16. share=True共享的是**原生骨架重建与T→S骨架decoder主体**，不是T→S和S→T共用decoder。首轮S→T独立文本decoder隐藏256/输出512/末端LayerNorm有约0.502的高斯噪声期望MSE下限；不是有限batch硬下限，也不是LP上限。新sentence配置512/无末端LN已解除这项输出子空间限制。
-17. text_decoder_hidden_dim=512和无末端输出归一化现已实施；noisy-input skip、辅助干净global预测未实施。扩宽独立文本decoder继续保留共享骨架decoder，但旧256 checkpoint不能完整恢复为512。T→S 512→256条件投影没有相同的512噪声输出下限；是否限制语义监督尚无证据。
-18. loss下降、shuffle效应、目标方差都不能代替LP。两条文本方向日志是未乘外层权重的原始MSE，不能把loss占比当作encoder梯度占比。
-19. 真实 LP 读出是 `ActionHeadLinprobe2` 的25关节×256=6400维（人物/时间平均），随后BN+Linear；`feature_only=True` 的global256不是实际LP输入。比较需best对best且相同训练协议。
-20. 旧诊断脚本各有模式限制：`diagnose_ema_bidirectional.py` 针对旧参数EMA，`compare_fixed_clip_conditions.py` 针对固定CLIP，`diagnose_text_conditioning.py` 针对旧remap。不能未经适配强读sample_target或v3 checkpoint并解释为新方案结果。
-
-## 9. 实验结果与历史背景
-
-旧 Qwen 单段逐人物描述的40091条已全量完成，历史18个GIF错误已补齐；旧v2 cache可用。**这是旧版，不证明global+六部位新版已完成。**
-
-| 历史方案 | 用户提供的LP best |
-|---|---:|
-| 原始MacDiff | 约85.86% |
-| 第一版双向remap/动态目标，S→T=1 | 83.03% |
-| 固定CLIP原尺度，S→T=1 / 0.1 | 84.64% / 85.95% |
-| 固定CLIP RMS，S→T=1 / 0.1 | 约83.7% / 85.82%（暂定基线） |
-| 旧参数EMA双向，不share / share | 85.77% / 85.78% |
-| 逐样本0.9/0.1保存目标 | 有早期训练日志，尚无已确认LP |
-| 新global+六部位文本/v3 cache，共享decoder、T→S/S→T均0.1 | 首轮400预训练+100 LP；best 85.8018%（epoch87），LP日程与有效batch128一致 |
-
-旧参数EMA和逐样本目标不要混同。旧EMA诊断global跨样本明显集中，而local未同样收缩；shuffle后S→T总MSE增幅很小，但约0.5结构下限稀释百分比，不能直接断言骨架条件没用。完整诊断、数字与历史命令见旧交接副本。
-
-最近明确运行的旧sample_target是共享骨架decoder组，用户曾尝试从 `output_dir/ntu60_xsub_macdiff_rms_st01_sampletarget01_t2s01_shared/checkpoint-130.pth` 恢复；第一次因上述shell拼接失败，修正后成功与否未知。若新会话用户继续这个旧任务，先确认配对 `checkpoint-130-target-bank.sqlite` 与真实恢复日志，不能因为新版准备工作就擅自中断或改旧训练。
-
-旧样本目标epoch0～19日志：保存global方差约0.13008→0.04038、能量1→0.79619、drift0→0.73816；总loss1.265→0.08744、S→T约0.535。目标有集中趋势但没有LP结论。这些日志使用旧方差定义，且旧drift已从新日志删除。
-
-历史几何文件 `handoff_artifacts/stage1_text_geometry_summary.json` 是固定均衡train批的文字/骨架几何比较，不是测试准确率；其文字是两人聚合global，与当前person0/七句协议不同。不要整份dump或编造新版增益。
-
-## 10. 新会话建议读取顺序
-
-1. 本文件第1、5、6、8节：当前状态、用户决定、可执行步骤与坑。
-2. `tools/vlm_pilot/TEXT_CACHE_CHAIN_AUDIT.md`：链路审计及新版缓存细节。
-3. 实际执行的提示词、launcher、cache脚本与选定sentence YAML。
-4. 用户提供的服务器文件/日志：确认生成summary、cache manifest、smoke traceback或训练配置。
-5. 需要继续旧实验时才读 `handoff_artifacts/handoff_before_20261001_refresh.md`，以及 `tools/vlm_pilot/STAGE1_TEXT_DIFFUSION.md`、`tools/vlm_pilot/STAGE1_TEXT_GEOMETRY.md`、根目录 `TEXT_CONDITION_DIAGNOSTIC.md` / `STAGE1_READOUT_COMPARISON.md`。
-
-收到新消息时优先承接用户实际运行到的步骤；没有新版完成证据就先验证，看到真实报错再修具体问题。不要重复要求用户手动同步已在edc924a中的代码，不要把未实施建议当作已完成工作。
+新会话应从“权重1进度或结果”承接，之后协助建立B的成对配置与单变量对照。**不要重新开始生成cache，不要继续催150LP，不要先跑0.3/no-share，也不要擅自实施跨样本或新目标结构。**
