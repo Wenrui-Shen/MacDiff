@@ -1,10 +1,24 @@
-# Stage1 文本实验待测变量与顺序（2026-10-04）
+# Stage1 文本实验待测变量与顺序（2026-10-07）
+
+## 当前选择：No-share 的 S→T 0.1 → 0.5
+
+用户最新决定继续文本版no-share，并明确选择S→T=0.5，替代助手建议的0.2。保持T→S=1、归一化A、512/无末端输出LN、sample_target_blend及目标更新比例0.1不变。已完成父对照LP best86.196021%、末20均值86.000728%；shared512口述best85.79%。原版B本次best85.183164%，不叠加到文本版。完整分析见 [NOSHARE_NORMB_LOG_ANALYSIS.md](D:/program/MacDiff/tools/vlm_pilot/NOSHARE_NORMB_LOG_ANALYSIS.md)。
+
+沿用配置：[pretrain_madiff_text_sentence_sample_target_blend_noshare_st02.yaml](D:/program/MacDiff/config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_noshare_st02.yaml)。文件名和YAML默认权重仍为0.2，由CLI显式覆盖为0.5；无需修改该文件。从头PT400、LP100；双卡PT每卡32/accum2，LP每卡64/accum1，有效batch均128，seed0，LP lr0.1/dist_eval。复用现有cache，输出与日志目录全部使用_s2t05；助手未启动训练，用户尚未提供进度或结果。参数更改不能当作原0.1实验的完整resume。
+
+```bash
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10260 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_noshare_st02.yaml --lambda_text_to_skeleton 1 --lambda_skeleton_to_text 0.5 --batch_size 32 --accum_iter 2 --epochs 400 --seed 0 --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_noshare_st512_t2s1_s2t05 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_noshare_st512_t2s1_s2t05/tensorboard && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10261 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_noshare_st512_t2s1_s2t05/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_noshare_st512_t2s1_s2t05_lp_399_bs64 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_noshare_st512_t2s1_s2t05_lp_399_bs64/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
+```
+
+判断先看LP best、末20轮均值与末轮，再看S→T后期曲线、native/T→S是否变化。更低文本loss不能单独证明表征改善；单次训练差异仍需后续确认。
+
+## 以下保留2026-10-04历史规划，当前状态以上述选择为准
 
 用户已授权将骨架输入归一化 A/B 加入待测试变量。本文件记录候选方案与建议顺序；未切换训练配置、未实现新模型结构、未启动服务器训练。用户现已提供512修复后的400epoch预训练日志，并口述LP best=85.79%；尚无本轮完整LP日志。日志分析见 [ST512_TRAINING_LOG_ANALYSIS.md](D:/program/MacDiff/tools/vlm_pilot/ST512_TRAINING_LOG_ANALYSIS.md)。
 
 会话结束时用户决定：checkpoint-150的LP首轮仅72多，低于399的首轮74.65，不再继续该LP；继续S→T=1实验，随后根据结果测试归一化B。150的最终LP未完成，不能把首轮当最终分数。以下路线已按这一最新选择更新。
 
-## 当前对照组
+## 当时的共享对照组
 
 | 项目 | 固定设置 |
 |---|---|

@@ -1,4 +1,4 @@
-# MacDiff 会话交接（2026-10-04）
+# MacDiff 会话交接（2026-10-07）
 
 本文写给完全没有上下文的新会话。先读第1节，再看当前命令和注意事项。用户在服务器执行训练；本地助手负责代码检查、日志分析、记录实验及提供命令。
 
@@ -9,9 +9,11 @@
 - 已修复 S→T 文本 decoder 的输出瓶颈：hidden256/末端LayerNorm改为 **hidden512、末端output_norm=none**，内部归一化保留。
 - 512、share=True、归一化A、**T→S=1/S→T=0.1** 的400epoch预训练已完成。用户最终更正 **LP best=85.79%**，不是最初说的85.75%；新LP完整日志未提供。
 - 用户尝试了该预训练 **checkpoint-150** 的LP：首轮准确率只有“72多”，而checkpoint-399的LP首轮为 **74.65%**。**用户决定不继续150的LP。** 这是未完成实验，不能记录成150最终只有72%，也不能据首轮证明它最终更差。
-- **当前用户继续推进的实验：512/share=True/A，T→S=1/S→T=1。** 已提供从头预训练400epoch与LP100epoch的串联命令。用户尚未提供这组的日志、进度或结果；不要假装助手已运行服务器命令。
-- **用户最新下一步：先看权重1结果，再根据结果测试归一化B。** 归一化B先于备选no-share；不要沿用之前“先0.3”“继续150 LP”“权重1之后立即no-share”的旧建议。
-- 当前没有已确认的训练报错或外部阻塞；主要未解决的是 **文本去噪显著改善尚未转化成稳定LP提升**，以及512 S→T后期回升的原因。正在等待权重1结果，B实验还没创建成对配置/运行。
+- 2026-10-05 用户报告 **S→T=1 的 LP 明显下降**，决定恢复 S→T=0.1，T→S 保留1；未提供具体 best 或该组日志，不能编造分数。
+- **No-share512/A/T→S=1/S→T=0.1 已完成 PT400+LP100。** 2026-10-07 用户提供两份完整日志：LP best **86.196021% @75**，末轮85.892771%，末20轮 **86.000728±0.061392%**。相对 shared512 口述85.79%提高0.406021个百分点，单次正向结果，尚未做独立训练重复。
+- 用户选择 B 先在原版 MacDiff 测。**原版B/PT与LP每卡128、双卡有效256 已完成**：LP best **85.183164% @92**，末轮85.037603%，末20轮85.110990±0.043181%。PT min_lr=0.0005，与文本组0.00001不同；尚无同协议原版A，不能把下降单独归因于B。
+- No-share 末50轮 S→T MSE 比 shared 低24.52%，原生/T→S几乎持平，后期回升仍在。建议保留 no-share/A 为工作基线并确认可重复性，B暂不叠加。后续训练未自动启动；最新依据见 [本轮日志分析](D:/program/MacDiff/tools/vlm_pilot/NOSHARE_NORMB_LOG_ANALYSIS.md)，旧计划中的等待权重1/B未跑状态已失效。
+- **用户最新决定继续no-share，并明确改用S→T=0.5、T→S=1**，替代助手建议的0.2。沿用 `pretrain_madiff_text_sentence_sample_target_blend_noshare_st02.yaml`，文件默认0.2由CLI的0.5覆盖；实际输出与日志全部_s2t05，LP指向该目录399。A/512及PT32×accum2、LP64×accum1不变；从头PT400接LP100，对照已完成0.1组。尚无运行结果，助手未启动训练；命令见更新后的实验计划，不要因st02文件名将它记成0.2实验。
 
 本轮关闭会话仅更新文档，不更改正在跑的训练配置、模型、缓存或服务器进程。旧版交接归档在 [handoff_before_20261004_session_close.md](D:/program/MacDiff/handoff_artifacts/handoff_before_20261004_session_close.md)，更早历史见 [handoff_before_20261001_refresh.md](D:/program/MacDiff/handoff_artifacts/handoff_before_20261001_refresh.md)。旧文档中的“未生成”“待跑512”“先做150 LP”等状态不再适用。
 
@@ -29,7 +31,7 @@
 | 本地Git | 会话末HEAD为c9dfb87；512修复在该版本。分析/交接文档仍未提交 |
 | 服务器Git | 最新日志没有SHA；不要把历史edc924a当作当前服务器版本，也不要无依据声称尚未同步 |
 
-用户用中文交流。命令要 **单行Linux、不要cd**，两卡，预训练和LP用 **&&** 连接。固定训练每卡batch32/accum2，LP每卡batch64/accum1，两者有效batch均128；训练400epoch，LP100epoch、lr0.1、seed0、dist_eval。不要擅自改成LP每卡32。
+用户用中文交流。命令要 **单行Linux、不要cd**，两卡，预训练和LP用 **&&** 连接。文本组训练每卡batch32/accum2，LP每卡batch64/accum1，两者有效batch均128；原版B用户明确要求PT/LP均每卡batch128/accum1，有效batch256。训练400epoch，LP100epoch、lr0.1、seed0、dist_eval；具体新要求优先，不机械套用旧batch。
 
 | 用途 | 路径 |
 |---|---|
@@ -41,6 +43,8 @@
 | CLIP | /home/user9/public3/swr/models/clip-vit-base-patch32 |
 | 当前预训练YAML | config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_shared.yaml |
 | 当前LP YAML | config/ntu60_xsub_joint/linprobe_madiff.yaml |
+| No-share预训练YAML | config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_noshare.yaml |
+| 原版B PT/LP YAML | config/ntu60_xsub_joint/pretrain_madiff_norm_b.yaml / linprobe_madiff_norm_b.yaml |
 
 上表实验目录是此前提供命令的路径；服务器真实文件/args以用户实际运行记录为准。prompt v2、caption schema v2、CLIP cache v3、render v3是不同组件版本。
 
@@ -96,14 +100,16 @@ LP只加载骨架encoder，不使用文本/remap/decoder/bank。真正的ActionH
 
 ## 5. 已有结果、当前问题与证据边界
 
-最新三组都是新版七句、sample_target_blend、共享骨架decoder；权重以日志核算为准，结构以用户说明/当前代码为准：
+文本组均为新版七句、sample_target_blend；早期为共享骨架decoder，最新no-share为独立T→S decoder。权重以日志核算为准，结构以用户说明/当前代码为准：
 
 | 实验 | T→S | S→T | LP best |
 |---|---:|---:|---:|
 | 旧256/LN首轮 | 0.1 | 0.1 | 85.801795% |
 | 旧256/LN权重1 | 1 | 0.1 | 85.892771% |
 | 新512/无末端LN | 1 | 0.1 | **85.79%**（用户更正，仅口述best） |
-| 新512/无末端LN，当前继续 | 1 | 1 | **尚无结果** |
+| 新512/shared/无末端LN，S→T1 | 1 | 1 | 用户报告明显下降，具体分数/日志未提供 |
+| 新512/no-share/A/无末端LN | 1 | 0.1 | **86.196021% @75**，完整PT/LP日志 |
+| 原版MacDiff/B/有效batch256 | — | — | **85.183164% @92**，完整PT/LP日志 |
 | 新512的checkpoint-150 LP | 1 | 0.1 | **未完成：仅首轮72多，用户不再继续** |
 
 checkpoint-399的LP首轮74.65也是用户口述；不能与最终85.79混为同一指标。150首轮差距不是最终表征优劣的结论。不要重新催用户把该实验跑完。
@@ -135,7 +141,7 @@ bank epoch0=40064、epoch1起40091，首轮未覆盖/采样不是cache漏样本�
 
 更早结果供背景：原MacDiff约85.86%；固定CLIP原L2尺度S→T1/0.1为84.64%/85.95%；固定RMS为约83.7%/85.82%；旧参数EMA no-share/share为85.77%/85.78%。旧EMA共享比较的T→S均0.1、旧BPE local/不同目标；部分历史LP有效batch64，当前128，不能直接宣称稳定收益或分享结论。
 
-## 6. 当前继续的权重1实验与命令
+## 6. 历史权重1实验与命令（2026-10-04提供，现已恢复低权重）
 
 用户选择 **T→S=1、S→T=1**，此前建议0.3已被其选择替代。使用512/share=True/归一化A，从头训练、独立目录；不要将这组混称为“只有T→S=1”。
 
@@ -149,7 +155,7 @@ bank epoch0=40064、epoch1起40091，首轮未覆盖/采样不是cache漏样本�
 | 当前S→T1预训练 | output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1 |
 | 当前S→T1 LP | 上述目录名后缀_lp_399_bs64 |
 
-以下是已提供用户的命令，供核对其实际运行；**用户已在继续，不默认重复启动相同目录**：
+以下是当时已提供用户的命令，供核对历史运行；用户后来报告LP下降并恢复S→T0.1，**不要默认重复启动这组**：
 
 ```bash
 OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10254 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_shared.yaml --lambda_text_to_skeleton 1 --lambda_skeleton_to_text 1 --batch_size 32 --accum_iter 2 --epochs 400 --seed 0 --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1/tensorboard && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10255 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1/checkpoint-399.pth --output_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1_lp_399_bs64 --log_dir output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_shared_st512_t2s1_s2t1_lp_399_bs64/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --seed 0 --dist_eval
@@ -157,22 +163,21 @@ OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --
 
 两种CLI都用实际get_args_parser AST抽取验证，无Torch导入；参数可解析、有效batch128、无resume、新LP指向新399checkpoint。未在本地验证服务器checkpoint存在或实际GPU运行。当前代码每10epoch及最后保存一次，完整预训练的末轮为399。
 
-## 7. 下一步：权重1结果 → 归一化B
+## 7. 当前结果与后续对照
 
-1. 新会话承接用户的权重1进度/结果。先看实际400epoch训练日志、LP结果；若用户只给best就注明来源，不编造末10轮/分类loss/完整args。
-2. 比较512/S→T1与已完成的512/S→T0.1：LP是否有明确收益，S→T后期是否仍回升，native/T→S是否变化。不能只看rawloss或首轮LP。
-3. **随后根据结果测试B。** 选择明确父对照：如果权重1更有意义，就用其权重；如果未改善，可保留0.1父对照。当前尚未锁定B实验的权重。其他设置固定、只变骨架input_mean/input_var，独立预训练和LP目录，从头训练。
-4. 创建一对独立B YAML（预训练和LP）再给命令；不要修改正在跑的共享基线文件，也不要同时改share、crop、v或uniformity。B实验配置目前尚未创建/运行。
-5. no-share、仅S→T的v参数化、六部位软区域bias仍为备选，**当前优先级在B之后**，不机械跑完全组合，不把讨论当作用户已经要求实现。
+1. No-share/A/T→S1/S→T0.1已完成，LP best86.196021%、末20均值86.000728%；shared512 best85.79%只有用户口述，缺完整LP。用户决定继续no-share并提高S→T，本轮明确选择0.5单变量实验，其他设置固定，从头训练。结果出来后比较best和末20均值，不能据单seed宣称稳定显著收益。
+2. 原版B已完成；本轮best85.183164%。每卡128/有效256与文本组batch不同，PT min_lr还相差50倍。若要判断B的纯影响，补同协议原版A对照、只变mean/var；这是建议，尚未创建/启动该实验。
+3. B暂不叠加到no-share。拆分decoder使末50轮S→T降低24.52%，但最低epoch142后仍回升到2.394倍；没有证明其成因或消除动态目标问题。
+4. 仅S→T的v参数化、区域bias仍是未实现的备选；不机械跑全部组合，不把讨论当作用户已要求实施。
 
 ### 归一化A与B
 
 ```yaml
-# A：当前全部NTU60 XSub预训练/LP实际使用
+# A：文本组当前使用
 input_mean: [-0.0058, -0.1333, -0.0246]
 input_var: [0.0206, 0.0805, 0.0218]
 
-# B：pretrain/LP中注释的#new，待测
+# B：原配置的#new，原版B成对配置已完成测试
 input_mean: [-0.0024, -0.2132, -0.0446]
 input_var: [0.0525, 0.1527, 0.0513]
 ```
@@ -205,13 +210,13 @@ B只改骨架归一化，复用文本cache。PT/LP都必须B；这些值是Pytho
 6. **512修复必须从头训练，不能完整resume旧256权重。** 旧256骨架encoder仍可做LP；不同缓存/目标模式/share/权重实验不能用strict=False假称完整恢复。
 7. sample_target完整resume需要同次保存的checkpoint-X.pth与checkpoint-X-target-bank.sqlite；current.shared.json不是完整快照。LP只要模型，不需bank。只重建没有模型对应的孤立快照，不覆盖配对数据。
 8. 目标更新严格0.9历史+0.1当前step后remap，AMP跳步不更新；不改成固定CLIP混合或每forward更新，不给保存混合目标额外RMS。
-9. 两个lambda默认都0.1，CLI覆盖别漏。**当前“权重1”是S→T=1，T→S也保留1**；区别历史只把T→S改1的实验。
-10. 命令不加cd，PT与LP用&&。历史曾把cd误拼成argparse参数导致整次没跑；父进程CalledProcessError要找前面真正rank traceback。保持每卡32/accum2与LP64/accum1。
+9. 通用文本YAML两个lambda默认都0.1，CLI覆盖别漏；no-share_st02默认1/0.2，由当前命令覆盖成1/0.5。**父对照T→S=1/S→T=0.1，新候选1/0.5**；已放弃的shared强S→T实验是两者都1，不能把它当成no-share权重1的结果。
+10. 命令不加cd，PT与LP用&&。历史曾把cd误拼成argparse参数导致整次没跑；父进程CalledProcessError要找前面真正rank traceback。文本组每卡32/accum2与LP64/accum1，原版B按用户要求每卡128/accum1。
 11. share只连接native与T→S骨架decoder，S→T独立；T→S无直接encoder梯度是设计，别当bug改变。
 12. 约0.502是旧输出子空间的高斯期望下限，不是有限batch硬界，也不是LP上限。去噪loss/variance/energy更好不等于LP好；loss占比不等梯度占比。
 13. text_uni含local对角、六句下限1/6；在线合并variance和保存global energy不能混比，旧variance口径也不同。删除empty日志不等于取消内部过滤。
 14. **LP首轮72多 vs74.65不能替代最终结果。** 用户不继续150LP；不要记录完整失败分数，不强推重跑或把早期更好/更差作为确定结论。
-15. 512基线最终是**85.79**，不要恢复成85.75。最新S→T1尚无结果，B也未跑；不得编造成绩或断言显著退化。
+15. Shared512基线最终是**85.79**，不要恢复成85.75。No-share86.196021与原版B85.183164已有完整日志；S→T1只有用户报告下降，无精确分数。不得编造成绩或把不同协议差距当纯归一化/文本增益。
 16. B必须PT/LP成对使用、独立目录、从头；不能只在旧权重LP换B。不同mean/var数组出现次数、#new标签不证明统计适配当前person0/crop。
 17. 本地缺Torch等依赖，CPU/AST/替身测试与用户真实GPU训练证据区分；文档变更无需反复跑缺依赖大套件，不为验证文档安装Torch。
 18. 旧诊断脚本适配模式不同（参数EMA、fixed_clip、旧remap），不能未经适配直接读v3/sample_target/512并解释。当前不重复shuffle/geometry。
@@ -221,16 +226,17 @@ B只改骨架归一化，复用文本cache。PT/LP都必须B；这些值是Pytho
 ## 10. 日志、资料与建议阅读顺序
 
 最新对比数据：
+- [No-share与原版B分析](D:/program/MacDiff/tools/vlm_pilot/NOSHARE_NORMB_LOG_ANALYSIS.md)：2026-10-07四份日志；[精确统计](D:/program/MacDiff/handoff_artifacts/noshare_normb_20261007/summary.json)和[曲线](D:/program/MacDiff/handoff_artifacts/noshare_normb_20261007/comparison.png)。
 - 256/T→S0.1 PT：[22235368附件](C:/Users/97537/.codex/attachments/22235368-fb22-4b3a-b4bb-9a3e2de686df/已粘贴的文本.txt)；LP：[d2e7f9e1附件](C:/Users/97537/.codex/attachments/d2e7f9e1-4468-49bf-8cc1-7d9a30f822c4/已粘贴的文本.txt)。
 - 256/T→S1 PT：[81d248b4附件](C:/Users/97537/.codex/attachments/81d248b4-c708-4b84-ac44-3cf027e8f732/已粘贴的文本.txt)；LP：[6cc77fa4附件](C:/Users/97537/.codex/attachments/6cc77fa4-58fa-4466-9fa3-8afb35f169f9/已粘贴的文本.txt)。此前fe23bb66/a64cb5b7重复上传内容相同，不是另一个实验。
 - 512/T→S1/S→T0.1 PT：[64857d73附件](C:/Users/97537/.codex/attachments/64857d73-03e2-4bf9-97ed-e6ca4fba0355/已粘贴的文本.txt)；LP只有用户口述85.79，150/399首轮也是口述。
 
 按需读：
-1. [当前实验计划](D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md)：最新用户路线覆盖此前建议。
+1. [本轮日志分析](D:/program/MacDiff/tools/vlm_pilot/NOSHARE_NORMB_LOG_ANALYSIS.md)：最新完成状态、结果；[实验计划](D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md)顶部为最新no-share权重0.5候选与命令，下面保留的等待权重1/B未跑内容仅为历史规划。
 2. [512日志分析](D:/program/MacDiff/tools/vlm_pilot/ST512_TRAINING_LOG_ANALYSIS.md)：完整数值、回升趋势与证据边界。
 3. [归一化审计](D:/program/MacDiff/tools/vlm_pilot/INPUT_NORMALIZATION_AUDIT.md)：8组、31YAML、50处完整位置。
 4. [链路审计](D:/program/MacDiff/tools/vlm_pilot/TEXT_CACHE_CHAIN_AUDIT.md)：实现与缓存定义；其早期“待生成/未跑GPU/同步后smoke”是历史状态，以本handoff为准。
 5. 当前两个YAML及对应模型/engine/target bank代码；仅具体报错时读相关测试。
 6. 更早日志/生成细节才读归档交接、STAGE1_TEXT_DIFFUSION.md/STAGE1_TEXT_GEOMETRY.md；这些包含旧BPE/旧EMA及旧命令，不是当前执行清单。
 
-新会话应从“权重1进度或结果”承接，之后协助建立B的成对配置与单变量对照。**不要重新开始生成cache，不要继续催150LP，不要先跑0.3/no-share，也不要擅自实施跨样本或新目标结构。**
+新会话应从已完成的no-share86.196021%与原版B85.183164%承接；用户最新选择no-share上调S→T到0.5，使用st02配置加CLI覆盖、_s2t05目录。**不要重新生成cache，不要继续催150LP，不要重复启动已完成的目录，也不要擅自实施跨样本或新目标结构。**
