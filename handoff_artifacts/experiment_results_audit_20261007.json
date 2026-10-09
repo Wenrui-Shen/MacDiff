@@ -1,0 +1,235 @@
+{
+  "audit_date": "2026-10-07",
+  "scope": "local documents, configuration inventory and explicitly referenced attachments; no server access",
+  "configuration_yaml_count": 35,
+  "ledger_ids": {
+    "T": [
+      "T01",
+      "T02",
+      "T03",
+      "T04",
+      "T05",
+      "T06",
+      "T07",
+      "T08",
+      "T09",
+      "T10",
+      "T11",
+      "T12",
+      "T13"
+    ],
+    "S": [
+      "S01",
+      "S02",
+      "S03",
+      "S04",
+      "S05",
+      "S06"
+    ],
+    "P": [
+      "P01",
+      "P02",
+      "P03",
+      "P04",
+      "P05",
+      "P06",
+      "P07",
+      "P08",
+      "P09",
+      "P10"
+    ]
+  },
+  "unique_local_file_links_checked": 22,
+  "all_local_file_links_exist": true,
+  "raw_evidence": {
+    "T09_PT": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\22235368-fb22-4b3a-b4bb-9a3e2de686df\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "a311936967282a9b9de20c924a0c81e063744909dd07584b0f5528bcd95248e2",
+      "kind": "epoch_jsonl",
+      "records": 400,
+      "first_epoch": 0,
+      "last_epoch": 399,
+      "unique_epochs": 400,
+      "all_numeric_values_finite": true
+    },
+    "T09_LP": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\d2e7f9e1-4468-49bf-8cc1-7d9a30f822c4\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "2cdec2544a7020a93d658986a9ca48a829a25f85b1372e779d27de02d0b1143d",
+      "kind": "epoch_jsonl",
+      "records": 100,
+      "first_epoch": 0,
+      "last_epoch": 99,
+      "unique_epochs": 100,
+      "all_numeric_values_finite": true,
+      "best_acc1": 85.80179525057937,
+      "best_epoch": 87,
+      "last_acc1": 85.54706453733338
+    },
+    "T10_PT": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\81d248b4-c708-4b84-ac44-3cf027e8f732\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "3144cd08382539d87ef61ca90cb1e308015be034d62bdfc5ce6dc27c16252f84",
+      "kind": "epoch_jsonl",
+      "records": 400,
+      "first_epoch": 0,
+      "last_epoch": 399,
+      "unique_epochs": 400,
+      "all_numeric_values_finite": true
+    },
+    "T10_LP": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\6cc77fa4-58fa-4466-9fa3-8afb35f169f9\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "51f7d8daf9364e4ffdb754a2403bf6426697c87f62d56242406dee4b76f2ec93",
+      "kind": "epoch_jsonl",
+      "records": 100,
+      "first_epoch": 0,
+      "last_epoch": 99,
+      "unique_epochs": 100,
+      "all_numeric_values_finite": true,
+      "best_acc1": 85.89277051271367,
+      "best_epoch": 88,
+      "last_acc1": 85.61984475037244
+    },
+    "T11_PT": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\64857d73-03e2-4bf9-97ed-e6ca4fba0355\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "3b8c5e6de9f59de91361f664b596633d6437d39c3ddd97f945e0e2e6ddad1221",
+      "kind": "epoch_jsonl",
+      "records": 400,
+      "first_epoch": 0,
+      "last_epoch": 399,
+      "unique_epochs": 400,
+      "all_numeric_values_finite": true
+    },
+    "T12_PT": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\02d00a0e-de94-42cb-98f4-6ad1cc73af47\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "ce9775f0e06c4d98c9cacb9b36026cec0ec1e7c8946158b517b7c73e9cdb6c50",
+      "kind": "epoch_jsonl",
+      "records": 400,
+      "first_epoch": 0,
+      "last_epoch": 399,
+      "unique_epochs": 400,
+      "all_numeric_values_finite": true
+    },
+    "T12_LP": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\cc1abd5f-c4d1-481b-8670-badf284c8140\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "af1bcb80ed2e3c1c314eb569191203cd4592a2ffb378b5f1f482a5de188b6ae4",
+      "kind": "epoch_jsonl",
+      "records": 100,
+      "first_epoch": 0,
+      "last_epoch": 99,
+      "unique_epochs": 100,
+      "all_numeric_values_finite": true,
+      "best_acc1": 86.19602137662322,
+      "best_epoch": 75,
+      "last_acc1": 85.89277051641547
+    },
+    "T13_PT": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\826649bf-4dae-4569-b341-3e1581c0cf92\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "151723639bd0f1396031dd1e097643e2c09514ce7c2637d8bb3b59223f67568e",
+      "kind": "epoch_jsonl",
+      "records": 400,
+      "first_epoch": 0,
+      "last_epoch": 399,
+      "unique_epochs": 400,
+      "all_numeric_values_finite": true
+    },
+    "T13_LP": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\4cb61fd1-2294-42bf-82dd-a231581f3661\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "966d110ee215e94321bb13d52b35565a4796a44f5afc0d382b678536a22ac38a",
+      "kind": "epoch_jsonl",
+      "records": 100,
+      "first_epoch": 0,
+      "last_epoch": 99,
+      "unique_epochs": 100,
+      "all_numeric_values_finite": true,
+      "best_acc1": 85.18316354432308,
+      "best_epoch": 92,
+      "last_acc1": 85.03760313675393
+    },
+    "P05_partial_PT": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\d0c2985f-c3a5-4814-a2e2-5ba0fc9ef962\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "c1fb248974c122bba40ab39dcb79937be0c219687001cd499cce23e0a522b630",
+      "kind": "epoch_jsonl",
+      "records": 20,
+      "first_epoch": 0,
+      "last_epoch": 19,
+      "unique_epochs": 20,
+      "all_numeric_values_finite": true
+    },
+    "T07_T08_diagnostic": {
+      "path": "C:\\Users\\97537\\.codex\\attachments\\d027fa4a-f322-41be-9472-8ebf4c422cfa\\已粘贴的文本.txt",
+      "exists": true,
+      "sha256": "3af33658e853775009ae95a3b6d445e1113c567cd168222eb65471f6c4affd75",
+      "kind": "single_json",
+      "protocol": "ema_bidirectional_targeted_diagnostic_v1"
+    }
+  },
+  "stage1_summary": {
+    "path": "D:\\program\\MacDiff\\STAGE1_EXPERIMENT_RESULTS.md",
+    "numeric_result_ids": [
+      "T01",
+      "T02",
+      "T03",
+      "T04",
+      "T05",
+      "T06",
+      "T07",
+      "T08",
+      "T09",
+      "T10",
+      "T11",
+      "T12",
+      "T13"
+    ],
+    "other_status_ids": [
+      "P01",
+      "P02",
+      "P03",
+      "P04",
+      "P05",
+      "P06",
+      "P07",
+      "P09",
+      "P10"
+    ],
+    "unique_local_file_links_checked": 21,
+    "lp_statistics_recomputed": {
+      "T09": {
+        "best_acc1": 85.80179525057937,
+        "best_epoch": 87,
+        "last_acc1": 85.54706453733338,
+        "last20_mean": 85.63955604760523,
+        "last20_population_std": 0.07085629777743933
+      },
+      "T10": {
+        "best_acc1": 85.89277051271367,
+        "best_epoch": 88,
+        "last_acc1": 85.61984475037244,
+        "last20_mean": 85.70536149065221,
+        "last20_population_std": 0.0730047674293968
+      },
+      "T12": {
+        "best_acc1": 86.19602137662322,
+        "best_epoch": 75,
+        "last_acc1": 85.89277051641547,
+        "last20_mean": 86.00072783118947,
+        "last20_population_std": 0.061391636022286165
+      },
+      "T13": {
+        "best_acc1": 85.18316354432308,
+        "best_epoch": 92,
+        "last_acc1": 85.03760313675393,
+        "last20_mean": 85.11098983446294,
+        "last20_population_std": 0.04318104633467424
+      }
+    }
+  }
+}

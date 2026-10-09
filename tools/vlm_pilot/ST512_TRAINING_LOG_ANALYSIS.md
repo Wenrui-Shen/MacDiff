@@ -1,5 +1,7 @@
 # 512文本decoder首轮训练日志分析（2026-10-04）
 
+> 2026-10-07说明：本文数值分析对应shared512/S→T0.1首轮；文末等待权重1结果、先测B等步骤是当时计划。后来用户已报告shared/S→T1下降，并完成no-share0.1与原版B；当前选择no-share/S→T0.5。最新状态以 [handoff](D:/program/MacDiff/handoff.md)及 [实验结果总表](D:/program/MacDiff/EXPERIMENT_RESULTS.md)为准，本文85.79%的LP仍缺完整日志。
+
 用户提供完整400epoch预训练JSONL，并口述LP best=85.79%。尚未提供本轮完整LP日志、checkpoint中的args或服务器Git SHA。512结构依据用户说明；当前配置采用hidden512/output_norm=none，但日志本身未打印模型结构、share或input_mean/input_var，不能独立确认这些配置。
 
 - 新日志：[用户附件](C:/Users/97537/.codex/attachments/64857d73-03e2-4bf9-97ed-e6ca4fba0355/已粘贴的文本.txt)

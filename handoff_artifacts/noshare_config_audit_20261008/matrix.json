@@ -1,0 +1,1204 @@
+{
+  "scope": "All 12 current text configs; effective CLI overrides are listed separately.",
+  "native_base": "config\\ntu60_xsub_joint\\pretrain_madiff.yaml",
+  "current_plan": {
+    "yaml": "pretrain_madiff_text_sentence_sample_target_blend_noshare_st02.yaml",
+    "cli_lambda_text_to_skeleton": 1.0,
+    "cli_lambda_skeleton_to_text": 0.5,
+    "per_gpu_batch": 32,
+    "accum_iter": 2,
+    "world_size": 2,
+    "pt_global_batch": 128,
+    "lp_global_batch": 128,
+    "status": "No result provided; saved command defines intended run, not independently verified checkpoint args."
+  },
+  "configs": [
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_context_length": 77,
+        "text_target_mode": "fixed_clip",
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 1.0,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_cache_v2"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "fixed_clip",
+        "text_target_norm": "none",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.0,
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 1.0,
+        "text_decoder_output_norm": "layernorm"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_rms.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_context_length": 77,
+        "text_target_mode": "fixed_clip",
+        "text_target_norm": "rms",
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 1.0,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_cache_v2"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "fixed_clip",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.0,
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 1.0,
+        "text_decoder_output_norm": "layernorm"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_rms_ema_bidirectional.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_target_mode": "ema_remap",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "lambda_text_uniformity": 0.02,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_cache_v2"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "ema_remap",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "layernorm"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_rms_ema_bidirectional_shared.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_target_mode": "ema_remap",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "lambda_text_uniformity": 0.02,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": true
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_cache_v2"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": true,
+        "text_target_mode": "ema_remap",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "layernorm"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_rms_sample_target_blend.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_cache_v2"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "layernorm"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_rms_sample_target_blend_shared.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": true
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_cache_v2"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": true,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "layernorm"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_rms_st01.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_context_length": 77,
+        "text_target_mode": "fixed_clip",
+        "text_target_norm": "rms",
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_cache_v2"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "fixed_clip",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.0,
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "layernorm"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_sentence_fixed_rms.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_context_length": 7,
+        "text_target_mode": "fixed_clip",
+        "text_target_norm": "rms",
+        "text_decoder_hidden_dim": 512,
+        "text_decoder_output_norm": "none",
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_sentence_cache_v3"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 7,
+        "text_decoder_hidden_dim": 512,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "fixed_clip",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.0,
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "none"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_sentence_sample_target_blend_noshare.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 7,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "text_decoder_hidden_dim": 512,
+        "text_decoder_output_norm": "none",
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_sentence_cache_v3"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 7,
+        "text_decoder_hidden_dim": 512,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "none"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_sentence_sample_target_blend_noshare_st02.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 7,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "text_decoder_hidden_dim": 512,
+        "text_decoder_output_norm": "none",
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 1.0,
+        "lambda_skeleton_to_text": 0.2,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 32,
+        "accum_iter": 2,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_sentence_cache_v3"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 7,
+        "text_decoder_hidden_dim": 512,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "lambda_text_to_skeleton": 1.0,
+        "lambda_skeleton_to_text": 0.2,
+        "text_decoder_output_norm": "none"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "accum_iter": {
+          "native": 1,
+          "text": 2
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_sentence_sample_target_blend_shared.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 7,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "text_decoder_hidden_dim": 512,
+        "text_decoder_output_norm": "none",
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": true
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_sentence_cache_v3"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 7,
+        "text_decoder_hidden_dim": 512,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": true,
+        "text_target_mode": "sample_target_blend",
+        "text_target_norm": "rms",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.02,
+        "lambda_text_to_skeleton": 0.1,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "none"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    },
+    {
+      "path": "config\\ntu60_xsub_joint\\pretrain_madiff_text_st01.yaml",
+      "native_model_parameter_differences": {},
+      "text_model_parameters": {
+        "text_input_dim": 512,
+        "text_context_length": 77,
+        "text_target_mode": "fixed_clip",
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false
+      },
+      "yaml_training_defaults": {
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 0.1,
+        "epochs": 400,
+        "warmup_epochs": 20,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "lr": 0.001,
+        "min_lr": 1e-05,
+        "weight_decay": 0.05,
+        "mask_ratio": 0.9,
+        "motion_aware_tau": -1,
+        "text_cache": "vlm_pilot/ntu60_xsub_clip_cache_v2"
+      },
+      "feeder_random_rot": false,
+      "feeder_flip": false,
+      "ignored_yaml_representation_difference": {
+        "qk_scale": {
+          "native_yaml_literal": "None",
+          "text_yaml_literal": "null",
+          "native_yaml_semantics": "string None",
+          "text_yaml_semantics": null,
+          "runtime_effect": "none: Attention always uses head_dim**-0.5"
+        }
+      },
+      "resolved_text_constructor_parameters": {
+        "text_input_dim": 512,
+        "text_hidden_dim": 512,
+        "text_context_length": 77,
+        "text_decoder_hidden_dim": 256,
+        "text_decoder_depth": 5,
+        "share_skeleton_decoder": false,
+        "text_target_mode": "fixed_clip",
+        "text_target_norm": "none",
+        "text_target_momentum": 0.999,
+        "text_target_update_ratio": 0.1,
+        "lambda_text_uniformity": 0.0,
+        "lambda_text_to_skeleton": 0.0,
+        "lambda_skeleton_to_text": 0.1,
+        "text_decoder_output_norm": "layernorm"
+      },
+      "effective_feeder_parameters": {
+        "label_path": null,
+        "p_interval": [
+          0.5,
+          1
+        ],
+        "split": "train",
+        "random_choose": false,
+        "random_shift": false,
+        "random_move": false,
+        "random_rot": false,
+        "source_rot": false,
+        "window_size": 120,
+        "normalization": false,
+        "debug": false,
+        "use_mmap": true,
+        "frame_noise": [
+          0,
+          0
+        ],
+        "joint_noise": [
+          1,
+          0.005
+        ],
+        "impulse_noise": 0,
+        "motion_noise": 0,
+        "flip": false,
+        "bone": false,
+        "vel": false,
+        "data_path": "../data/MAMP/ntu/NTU60_XSub.npz"
+      },
+      "feeder_parameter_differences": {},
+      "training_parameter_differences_vs_native_yaml": {
+        "batch_size": {
+          "native": 32,
+          "text": 64
+        },
+        "min_lr": {
+          "native": 0.0005,
+          "text": 1e-05
+        }
+      }
+    }
+  ],
+  "verification": {
+    "configs_checked": 12,
+    "native_constructor_parameters_equal_except_ignored_qk_scale": true,
+    "all_text_native_encoder_depth": 8,
+    "all_text_native_decoder_depth": 5,
+    "all_text_native_dim_feat": 256,
+    "all_text_one_person": true,
+    "all_text_skeleton_statistics": "A",
+    "note": "Static field extraction and constructor-default resolution; actual runtime CLI/checkpoint identity must be inspected separately.",
+    "training_executed": false,
+    "feeder_parameters_equal_to_native_effective_defaults": true
+  }
+}

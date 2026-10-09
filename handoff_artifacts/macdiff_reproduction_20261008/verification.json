@@ -1,0 +1,105 @@
+{
+  "selected_model_methods_ast_equal_ignoring_docstrings": {
+    "_init_weights": true,
+    "random_masking": true,
+    "forward_encoder": false,
+    "patchify": true,
+    "forward_loss": true,
+    "update_diffusion_sampler": true
+  },
+  "model_comparison_note": "forward_encoder adds optional checkpoint_blocks=False and removes unused loop index; native forward leaves checkpoint_blocks disabled. No end-to-end tensor comparison was run.",
+  "schedule_ast_equal": {
+    "get_named_beta_schedule": true,
+    "betas_for_alpha_bar": true
+  },
+  "string_vs_list_tau1_max_abs_difference": 0.0,
+  "train_size": 40091,
+  "test_size": 16487,
+  "ddp_test_padding_extra_2_or_4_gpu": 1,
+  "ddp_test_padding_accuracy_difference_upper_bound_pp": 0.0060650169820475495,
+  "official_pt": {
+    "world": 4,
+    "per_gpu_batch": 32,
+    "accum": 1,
+    "global_batch": 128,
+    "microsteps_per_epoch": 313,
+    "complete_optimizer_steps_per_epoch": 313,
+    "incomplete_accumulation_microsteps": 0
+  },
+  "two_gpu_pt128": {
+    "world": 2,
+    "per_gpu_batch": 32,
+    "accum": 2,
+    "global_batch": 128,
+    "microsteps_per_epoch": 626,
+    "complete_optimizer_steps_per_epoch": 313,
+    "incomplete_accumulation_microsteps": 0
+  },
+  "T13_pt256": {
+    "world": 2,
+    "per_gpu_batch": 128,
+    "accum": 1,
+    "global_batch": 256,
+    "microsteps_per_epoch": 156,
+    "complete_optimizer_steps_per_epoch": 156,
+    "incomplete_accumulation_microsteps": 0
+  },
+  "official_lp": {
+    "world": 4,
+    "per_gpu_batch": 64,
+    "accum": 1,
+    "global_batch": 256,
+    "microsteps_per_epoch": 156,
+    "complete_optimizer_steps_per_epoch": 156,
+    "incomplete_accumulation_microsteps": 0
+  },
+  "two_gpu_lp256": {
+    "world": 2,
+    "per_gpu_batch": 64,
+    "accum": 2,
+    "global_batch": 256,
+    "microsteps_per_epoch": 313,
+    "complete_optimizer_steps_per_epoch": 156,
+    "incomplete_accumulation_microsteps": 1
+  },
+  "T13_PT": {
+    "records": 400,
+    "first_epoch": 0,
+    "last_epoch": 399,
+    "last_10_train_lr": [
+      0.0005000000000000003,
+      0.0005000000000000003,
+      0.0005000000000000003,
+      0.0005000000000000003,
+      0.0005000000000000003,
+      0.0005000000000000003,
+      0.0005000000000000003,
+      0.0005000000000000003,
+      0.0005000000000000003,
+      0.0005000000000000003
+    ],
+    "first_train_lr": 2.4920127795527157e-05
+  },
+  "T13_LP": {
+    "records": 100,
+    "first_epoch": 0,
+    "last_epoch": 99,
+    "last_10_train_lr": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "first_train_lr": 0.09998994411989928,
+    "best_epoch": 92,
+    "best_acc1": 85.18316354432308,
+    "last_acc1": 85.03760313675393,
+    "n_parameters": 384060
+  }
+}

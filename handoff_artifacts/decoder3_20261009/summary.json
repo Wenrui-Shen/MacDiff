@@ -1,0 +1,297 @@
+{
+  "date": "2026-10-09",
+  "id": "T14",
+  "source": {
+    "path": "C:\\Users\\97537\\.codex\\attachments\\f6643024-0636-4677-ab2b-60b92d4ec967\\已粘贴的文本.txt",
+    "sha256": "62423f6bde046d5d5bffa237d2fbc6ab24062742e925af70322aaeb0b788fc80",
+    "rows": 600
+  },
+  "integrity": {
+    "pt_epochs": 500,
+    "lp_epochs": 100,
+    "ordered_contiguous": true,
+    "nonfinite_values": []
+  },
+  "user_reported": {
+    "normalization": "A",
+    "decoder_depth": 3
+  },
+  "command_confirmed": {
+    "world_size": 2,
+    "pt_batch_per_gpu": 64,
+    "pt_accum_iter": 1,
+    "pt_epochs": 500,
+    "lp_batch_per_gpu": 128,
+    "lp_accum_iter": 1,
+    "lp_epochs": 100,
+    "seed": 0,
+    "lp_lr": 0.1,
+    "lp_finetune": "output_dir/ntu60_xsub_macdiff_decoder3/checkpoint-499.pth",
+    "pt_lp_shared_output_directory": true
+  },
+  "not_yet_verified": [
+    "server checkpoint actual depth/args",
+    "server code SHA",
+    "NPZ identity",
+    "checkpoint actual args/identity"
+  ],
+  "pt": {
+    "first": {
+      "train_lr": 2.4920127795527157e-05,
+      "train_loss": 1.0187384302433307,
+      "train_cuda_peak_allocated_mb": 17951.21923828125,
+      "train_cuda_peak_reserved_mb": 19658.0,
+      "epoch": 0
+    },
+    "last": {
+      "train_lr": 0.0005000000000000003,
+      "train_loss": 0.015615065887082403,
+      "train_cuda_peak_allocated_mb": 17951.03173828125,
+      "train_cuda_peak_reserved_mb": 19658.0,
+      "epoch": 499
+    },
+    "epoch399": {
+      "train_lr": 0.0005368417982740225,
+      "train_loss": 0.01577029927981833,
+      "train_cuda_peak_allocated_mb": 17951.03173828125,
+      "train_cuda_peak_reserved_mb": 19658.0,
+      "epoch": 399
+    },
+    "minimum_loss": {
+      "train_lr": 0.0005099754983626221,
+      "train_loss": 0.015432511393825848,
+      "train_cuda_peak_allocated_mb": 17951.03173828125,
+      "train_cuda_peak_reserved_mb": 19658.0,
+      "epoch": 438
+    },
+    "last20_loss": {
+      "start_epoch": 480,
+      "end_epoch": 499,
+      "mean": 0.015573653700083089,
+      "population_std": 5.3627870046311276e-05,
+      "min": 0.015466156924446932,
+      "max": 0.015663066518882784
+    },
+    "last50_loss": {
+      "start_epoch": 450,
+      "end_epoch": 499,
+      "mean": 0.015580999786926867,
+      "population_std": 7.508284222015127e-05,
+      "min": 0.015435490693254308,
+      "max": 0.01576955221480312
+    },
+    "last100_loss": {
+      "start_epoch": 400,
+      "end_epoch": 499,
+      "mean": 0.015594541405643017,
+      "population_std": 7.809378846945951e-05,
+      "min": 0.015432511393825848,
+      "max": 0.015833635778782277
+    },
+    "late_min_lr_observed": 0.0005000000000000003,
+    "peak_lr_observed": 0.000999998065860602,
+    "loss_drop_399_to_499_percent": 0.9843401826532412
+  },
+  "lp": {
+    "best": {
+      "train_lr": 0.0,
+      "train_loss": 0.1607636898029924,
+      "test_loss": 2.314045485190429,
+      "test_acc1": 85.7047549825684,
+      "test_acc5": 97.42236779743696,
+      "epoch": 94,
+      "n_parameters": 384060
+    },
+    "first": {
+      "train_lr": 0.09998994411989928,
+      "train_loss": 3.102634009642479,
+      "test_loss": 2.5090359301314895,
+      "test_acc1": 77.29864146025767,
+      "test_acc5": 95.49369241380391,
+      "epoch": 0,
+      "n_parameters": 384060
+    },
+    "last": {
+      "train_lr": 0.0,
+      "train_loss": 0.16312308780881069,
+      "test_loss": 2.3454179272149616,
+      "test_acc1": 85.5955846991023,
+      "test_acc5": 97.42843281441901,
+      "epoch": 99,
+      "n_parameters": 384060
+    },
+    "last20": {
+      "start_epoch": 80,
+      "end_epoch": 99,
+      "mean": 85.63591705546224,
+      "population_std": 0.038371717383694964,
+      "min": 85.54706455214055,
+      "max": 85.7047549825684
+    },
+    "last10": {
+      "start_epoch": 90,
+      "end_epoch": 99,
+      "mean": 85.64228532097977,
+      "population_std": 0.03093158238404497,
+      "min": 85.5955846991023,
+      "max": 85.7047549825684
+    },
+    "zero_lr_epochs": [
+      90,
+      91,
+      92,
+      93,
+      94,
+      95,
+      96,
+      97,
+      98,
+      99
+    ],
+    "n_parameters": [
+      384060
+    ]
+  },
+  "history": {
+    "T12": {
+      "identity": {
+        "path": "C:\\Users\\97537\\.codex\\attachments\\cc1abd5f-c4d1-481b-8670-badf284c8140\\已粘贴的文本.txt",
+        "sha256": "af1bcb80ed2e3c1c314eb569191203cd4592a2ffb378b5f1f482a5de188b6ae4",
+        "rows": 100
+      },
+      "lp": {
+        "best": {
+          "train_lr": 0.006272586470403717,
+          "train_loss": 0.5500353455058894,
+          "test_loss": 4.465098074755294,
+          "test_acc1": 86.19602137662322,
+          "test_acc5": 97.51940805619346,
+          "epoch": 75,
+          "n_parameters": 384060
+        },
+        "first": {
+          "train_lr": 0.09998989530877832,
+          "train_loss": 5.73179306808752,
+          "test_loss": 5.386250151759614,
+          "test_acc1": 76.23726349395204,
+          "test_acc5": 95.45730228599908,
+          "epoch": 0,
+          "n_parameters": 384060
+        },
+        "last": {
+          "train_lr": 0.0,
+          "train_loss": 0.5289177338884882,
+          "test_loss": 4.4934049961516385,
+          "test_acc1": 85.89277051641547,
+          "test_acc5": 97.47088792033706,
+          "epoch": 99,
+          "n_parameters": 384060
+        },
+        "last20": {
+          "start_epoch": 80,
+          "end_epoch": 99,
+          "mean": 86.00072783118947,
+          "population_std": 0.061391636022286165,
+          "min": 85.89277051641547,
+          "max": 86.14750125187221
+        },
+        "last10": {
+          "start_epoch": 90,
+          "end_epoch": 99,
+          "mean": 85.98981079960379,
+          "population_std": 0.0649834839428017,
+          "min": 85.89277051641547,
+          "max": 86.14750125187221
+        },
+        "zero_lr_epochs": [
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99
+        ],
+        "n_parameters": [
+          384060
+        ]
+      }
+    },
+    "T13": {
+      "identity": {
+        "path": "C:\\Users\\97537\\.codex\\attachments\\4cb61fd1-2294-42bf-82dd-a231581f3661\\已粘贴的文本.txt",
+        "sha256": "966d110ee215e94321bb13d52b35565a4796a44f5afc0d382b678536a22ac38a",
+        "rows": 100
+      },
+      "lp": {
+        "best": {
+          "train_lr": 0.0,
+          "train_loss": 0.20972228314671015,
+          "test_loss": 2.314704288923295,
+          "test_acc1": 85.18316354432308,
+          "test_acc5": 97.34958759365239,
+          "epoch": 92,
+          "n_parameters": 384060
+        },
+        "first": {
+          "train_lr": 0.09998994411989928,
+          "train_loss": 3.5135701313996925,
+          "test_loss": 2.8450393741828384,
+          "test_acc1": 75.60043670343346,
+          "test_acc5": 95.08733626119955,
+          "epoch": 0,
+          "n_parameters": 384060
+        },
+        "last": {
+          "train_lr": 0.0,
+          "train_loss": 0.21022603722611585,
+          "test_loss": 2.329487072140311,
+          "test_acc1": 85.03760313675393,
+          "test_acc5": 97.40417274649081,
+          "epoch": 99,
+          "n_parameters": 384060
+        },
+        "last20": {
+          "start_epoch": 80,
+          "end_epoch": 99,
+          "mean": 85.11098983446294,
+          "population_std": 0.04318104633467424,
+          "min": 85.03760313675393,
+          "max": 85.18316354432308
+        },
+        "last10": {
+          "start_epoch": 90,
+          "end_epoch": 99,
+          "mean": 85.10856383266754,
+          "population_std": 0.04254599835463958,
+          "min": 85.03760313675393,
+          "max": 85.18316354432308
+        },
+        "zero_lr_epochs": [
+          90,
+          91,
+          92,
+          93,
+          94,
+          95,
+          96,
+          97,
+          98,
+          99
+        ],
+        "n_parameters": [
+          384060
+        ]
+      }
+    }
+  },
+  "statistics_note": "Epoch SD is within-run fluctuation, not a multi-seed confidence interval.",
+  "comparison_pp": {
+    "paper_86_4_minus_T14_best": 0.6952450174316027,
+    "T12_best_minus_T14_best": 0.49126639405481853,
+    "T12_tail20_minus_T14_tail20": 0.3648107757272214
+  }
+}

@@ -1,5 +1,7 @@
 # 骨架输入均值/方差配置审查（2026-10-04）
 
+> 2026-10-07补充：以下31 YAML/B生效0/NTU60 XSub全A是2026-10-04的历史扫描快照。当前有35份YAML，新增no-share、no-share_st02及原版B的PT/LP四份；`pretrain_madiff_norm_b.yaml`和`linprobe_madiff_norm_b.yaml`已启用B，原版B也已取得LP85.183164%。本次没有重写旧快照的逐项计数。最新实验与保存缺项见 [实验结果总表](D:/program/MacDiff/EXPERIMENT_RESULTS.md)。
+
 范围：`config/` 全部31份YAML；按 input_mean 与紧邻 input_var 成对统计，包含注释。共8组不同值、50次成对出现，其中31次生效、19次注释。模型构造器默认 mean=[0,0,0]、var=[1,1,1] 不计入配置分组；这些YAML均显式指定了一组生效值。未修改训练配置或模型。
 
 这里的生效仅指 YAML 未注释；self_shift=True 时模型先按样本中心化并强制 input_mean=[0,0,0]，input_var 仍使用配置值。

@@ -1,0 +1,187 @@
+{
+  "upstream_commit": "692888f1e2a4227216511aac6733dff31b587213",
+  "local_head": "38016d82ef40db3f3f8e7779a6be49725ea10892",
+  "scope": "NTU60 XSub joint-only linear probe",
+  "not_executed": "Only configurations and static checks were prepared; no dataset/checkpoint/GPU training was run.",
+  "profiles": {
+    "official_four_gpu": {
+      "pt": {
+        "world_size": 4,
+        "batch_size": 32,
+        "accum_iter": 1,
+        "global_batch": 128
+      },
+      "lp": {
+        "world_size": 4,
+        "batch_size": 64,
+        "accum_iter": 1,
+        "global_batch": 256
+      }
+    },
+    "two_gpu_alternative": {
+      "pt": {
+        "world_size": 2,
+        "batch_size": 32,
+        "accum_iter": 2,
+        "global_batch": 128
+      },
+      "lp": {
+        "world_size": 2,
+        "batch_size": 64,
+        "accum_iter": 2,
+        "global_batch": 256
+      },
+      "caveat": "Local BN remains 64, but DDP/seed grouping and BN update count differ; LP has one unstepped accumulation microbatch per epoch at train size 40091."
+    },
+    "t13_matched_control": {
+      "pt": {
+        "world_size": 2,
+        "batch_size": 128,
+        "accum_iter": 1,
+        "global_batch": 256,
+        "min_lr": 0.0005
+      },
+      "lp": {
+        "world_size": 2,
+        "batch_size": 128,
+        "accum_iter": 1,
+        "global_batch": 256
+      },
+      "caveat": "Reconstructs saved-command protocol, not independently verified checkpoint args."
+    }
+  },
+  "variants": [
+    {
+      "id": "r0_pretrain",
+      "stage": "pt",
+      "kind": "control",
+      "path": "configs/r0_pretrain.yaml",
+      "changes_vs_phase_control": {},
+      "sha256": "dd8e975461427006e3f6eeac5896fd4363cc04bf5b0cda89c6bf9d8f27ebc7cf",
+      "paired_lp": "lp_a"
+    },
+    {
+      "id": "p1_decoder3_pretrain",
+      "stage": "pt",
+      "kind": "single_factor",
+      "path": "configs/p1_decoder3_pretrain.yaml",
+      "changes_vs_phase_control": {
+        "model_args.decoder_depth": "3"
+      },
+      "sha256": "538f2009e7b35ff4fe5a909223d2a01a05f8db43b68ca5fc44726a4505923650",
+      "paired_lp": "lp_a"
+    },
+    {
+      "id": "p2_epochs500_pretrain",
+      "stage": "pt",
+      "kind": "single_factor",
+      "path": "configs/p2_epochs500_pretrain.yaml",
+      "changes_vs_phase_control": {
+        "epochs": "500"
+      },
+      "sha256": "5e4c8e4342fc7f745e369f6db1fe299ec488a6b167069a15e823cf9b7ee7c113",
+      "paired_lp": "lp_a",
+      "caveat": "Plan epochs=500 from initialization; appending 100 epochs to a completed 400-epoch schedule is a different experiment."
+    },
+    {
+      "id": "p3_rotation_pretrain",
+      "stage": "pt",
+      "kind": "single_factor",
+      "path": "configs/p3_rotation_pretrain.yaml",
+      "changes_vs_phase_control": {
+        "train_feeder_args.random_rot": "True"
+      },
+      "sha256": "814646764e7083ab1722d88ca60f101eb5ef56b54624a276ffa68da72da1c10a",
+      "paired_lp": "lp_a"
+    },
+    {
+      "id": "p4_uniformity0_pretrain",
+      "stage": "pt",
+      "kind": "single_factor",
+      "path": "configs/p4_uniformity0_pretrain.yaml",
+      "changes_vs_phase_control": {
+        "model_args.lambda_loss_uni": "0.0"
+      },
+      "sha256": "f09213c546df19c15b3a477aa5c95e92de89350cad55592426ef5ace19e12d2e",
+      "paired_lp": "lp_a"
+    },
+    {
+      "id": "p5_norm_b_pretrain",
+      "stage": "pt",
+      "kind": "single_factor_group",
+      "path": "configs/p5_norm_b_pretrain.yaml",
+      "changes_vs_phase_control": {
+        "model_args.input_mean": "[-0.0024, -0.2132, -0.0446]",
+        "model_args.input_var": "[0.0525, 0.1527, 0.0513]"
+      },
+      "sha256": "b4a8f8dc49df845a140a2fed0a8477e54f407b04ba2b4cb3252ef109ff902032",
+      "paired_lp": "lp_b"
+    },
+    {
+      "id": "p6_two_person_pretrain",
+      "stage": "pt",
+      "kind": "single_factor",
+      "path": "configs/p6_two_person_pretrain.yaml",
+      "changes_vs_phase_control": {
+        "model_args.one_person": "False"
+      },
+      "sha256": "d40586dbcb58d74ec7aa5b04a2fd01b2cd82c482b8eccef2c9868844b5fcf6d5",
+      "paired_lp": "lp_a",
+      "caveat": "Both persons contribute to diffusion MSE; upstream uniformity term still uses person0."
+    },
+    {
+      "id": "p7_paper_combination_pretrain",
+      "stage": "pt",
+      "kind": "combination",
+      "path": "configs/p7_paper_combination_pretrain.yaml",
+      "changes_vs_phase_control": {
+        "model_args.decoder_depth": "3",
+        "epochs": "500",
+        "train_feeder_args.random_rot": "True"
+      },
+      "sha256": "b917d23c89ef649a69f4fde8d74fc8d2862a858607f95501005b888d7fe45ca5",
+      "paired_lp": "lp_a"
+    },
+    {
+      "id": "c1_t13_matched_a_pretrain",
+      "stage": "pt",
+      "kind": "matched_history_control",
+      "path": "configs/c1_t13_matched_a_pretrain.yaml",
+      "changes_vs_phase_control": {
+        "batch_size": "128",
+        "min_lr": "5e-4"
+      },
+      "sha256": "6c6eb1a7346fe776e475a7c67278c5566d456da2241d442fc283da5d6141700e",
+      "paired_lp": "lp_a",
+      "required_profile": "t13_matched_control"
+    },
+    {
+      "id": "lp_a",
+      "stage": "lp",
+      "kind": "evaluation_control",
+      "path": "configs/lp_a.yaml",
+      "changes_vs_phase_control": {},
+      "sha256": "8790bbbc073c3260774f3730436a3a027f1b5d821fb0a3927817bbcf726f0e78"
+    },
+    {
+      "id": "lp_b",
+      "stage": "lp",
+      "kind": "paired_evaluation",
+      "path": "configs/lp_b.yaml",
+      "changes_vs_phase_control": {
+        "model_args.input_mean": "[-0.0024, -0.2132, -0.0446]",
+        "model_args.input_var": "[0.0525, 0.1527, 0.0513]"
+      },
+      "sha256": "9f25e823c989c4daf4868090b47ee3a3d240e1895f411d59ff82104a4ea494a0"
+    }
+  ],
+  "training_executed": false,
+  "validation": {
+    "single_factor_diff_checks": "passed",
+    "top_level_parser_field_checks": "passed",
+    "model_constructor_argument_checks": "passed",
+    "duplicate_active_key_checks": "passed",
+    "training_environment_yaml_parse": false,
+    "gpu_startup_or_training": false
+  }
+}
