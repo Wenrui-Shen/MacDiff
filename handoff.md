@@ -1,17 +1,33 @@
-# MacDiff 会话交接（2026-10-09）
+# MacDiff 会话交接（2026-10-10）
 
 本文写给完全没有上下文的新会话。用户在服务器运行训练；本地助手负责代码/论文审查、日志分析、准备配置及提供命令。先读第 0 节最新状态，再按用户继续讨论的方向读后面的记录。写入前的完整交接已备份到 [2026-10-07 交接归档](D:/program/MacDiff/handoff_artifacts/handoff_before_20261008_session_close.md)。
 
-## 0. 2026-10-09 最新状态（优先于下文2026-10-08计划）
+## 0. 2026-10-10 最新状态（优先于下文历史计划）
+
+- **T15：当前 no-share 骨架 decoder3 组，用户口述 LP 成绩 85.84%。**按上一会话上下文登记为 native/T→S 各3层、S→T text decoder 5层/hidden512/output_norm=none，T→S=1、S→T=0.1、归一化A、PT不旋转。85.84来自本次用户反馈；未提供完整PT/LP日志，best/末轮统计口径、best epoch、last及末20均值未核实。最终实际batch/accum、checkpoint、完整args及服务器SHA也未核验，不用库存YAML或失败尝试命令补填。
+- **当前下一组：用户自己将 text_decoder_depth 从5改为3试验。**以上述85.84组为控制，骨架 decoder_depth 保持3（native/T→S不再改），仅S→T文本decoder深度5→3；hidden512/output_norm=none、权重、cache/target、归一化和实际PT/LP协议保持控制组设置。新组暂未回传成绩；本次助手只登记，没有修改训练YAML/模型或启动训练。
+- **随机旋转方向已明确改为原版MacDiff。**用户要求准备原版不旋转/旋转的顺序复现脚本；两组共同decoder3、PT500、lr1e-3/min_lr1e-5，双卡PT64/accum1，checkpoint499 LP100、lr.1、双卡LP128/accum1；仅PT random_rot不同，LP训练旋转True/测试False。脚本已完成并静态/CPU验证，训练由用户在服务器执行，尚无这两组成绩。见 [启动脚本](D:/program/MacDiff/script_pretrain_madiff_rotation_ablation.sh)、[说明及核对参数](D:/program/MacDiff/tools/MACDIFF_ROTATION_ABLATION.md)。此原版对照不叠加文本分支，不以T15或text decoder3为旋转控制。
+- 10月9日current.shared.json/FileExistsError保留为历史失败尝试。现在用户已回传decoder3成绩，不能再将其描述为当前仍未成功训练；具体处理方式及最终目录未核验。T14是原版decoder3/PT500的85.704755%，与本次文本no-share的T15/85.84%是不同实验，不互相覆盖。
+- 已同步 [Stage1成绩](D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md)、[实验总表](D:/program/MacDiff/EXPERIMENT_RESULTS.md) 和 [当前计划](D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md)。
+
+### 2026-10-09 状态快照（历史，以本节顶部为准）
 
 - 新结果 **T14：原版/A、用户报告decoder3、PT500、checkpoint-499 LP100，best85.7047549825684% @94；last85.5955846991023%，末20均值85.63591705546224±0.038371717383694964%**。完整PT500+LP100合并附件已分析，无缺轮/重复/非有限值。
 - 用户更正实际LP命令为checkpoint-499。**之前给的399命令失效，不能再说85.70漏评了最后100轮，不能重复要求跑499。**
 - 实际命令：PT双卡64/accum1=128，500轮；LP双卡128/accum1=256，100轮，lr.1，seed0。PT日志确认min_lr=5e-4（基础YAML值，命令未覆写），不是论文/脚本的1e-5。A与decoder3依用户说明，actual args/state_dict/server SHA未实物核验。
 - PT/LP用了同一output_dir/ntu60_xsub_macdiff_decoder3，日志/TensorBoard混用；LP每轮保存，所以PT0/10/…/90被同编号LP覆盖。PT399/499不受LP0–99覆盖。后续使用独立目录，不清理已有文件。
 - PT399→499 loss仅降0.9843%，末50稳定；LP已平台，90–99 lr0但BN仍更新。不能凭loss或这一次结果保证更低min_lr/3层能达到86.4。T12与本组LP batch/BN不同，不能把全部差值归于文本。
-- **用户已选当前下一组：以已完成T12（1/.1、PT400、A）为控制，只改decoder_depth5→3；native与no-share T→S都会变3，S→T维持5层/512/none。PT32×accum2、min_lr1e-5、LP64×accum1、seed0保持T12。**此前1/.5计划仍缺结果，但不自动叠加到本组。
+- **用户已选当前decoder3实验：以已完成T12（1/.1、PT400、A）为控制，只改decoder_depth5→3；native与no-share T→S都会变3，S→T维持5层/512/none。PT32×accum2、min_lr1e-5、LP64×accum1、seed0保持T12。**此前1/.5计划仍缺结果，但不自动叠加到本组。
 - 新独立配置：[noshare_decoder3 YAML](D:/program/MacDiff/config/ntu60_xsub_joint/pretrain_madiff_text_sentence_sample_target_blend_noshare_decoder3.yaml)；[中文分析](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/README.md)、[统计JSON](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/summary.json)、[曲线](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/comparison.png)、[单行PT&&LP命令](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/launch_noshare_decoder3.sh)、[用户更正后的原命令](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/commands.json)。
 - 新YAML把库存父文件的权重/batch/accum默认值设成T12实际命令，实验因素仍只有骨架深度。未改原配置/模型，未启动服务器训练、未提交/推送。本地依然无Torch/PyYAML；仅做标准库日志分析、AST/文本配置检查、ReportLab+PDFium绘图及视觉核验。
+
+### 2026-10-09 追加：下次单独测试PT随机旋转
+
+用户已明确要求记录并在下次实验测试。当前no-share decoder3组继续PT random_rot=False；完成后以其为控制，**仅开启train_feeder_args.random_rot=True**。其余深度、权重1/.1、A、PT400、min_lr1e-5、cache/target/seed、实际PT batch/accum与LP协议全部固定。source_rot/flip保持False；LP训练旋转True、测试False保持不变。详见 [最新实验计划](D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md:3)。仅登记计划，未改YAML或启动旋转训练，没有成绩。
+
+公共random_rot在crop后、模型标准化前执行；XYZ每轴角度±.3弧度，同片段所有帧/关节/人物共享R，encoder输入与diffusion干净骨架同转。它与source_rot（仅encoder额外旋转）不同。固定caption的视角方向语义可能受影响，属待验证推断，现有cache不自动重生成。不能保证旋转解释全部复现缺口或必然提高LP。
+
+**2026-10-09启动尝试状态（历史，当前已报告T15成绩）：**用户回传的decoder3 PT命令实际batch64/accum1（原保存命令为32/2），双卡有效128；因已有current.shared.json、未传resume，在prepare阶段报FileExistsError，尚无成功PT/LP新成绩。不要说当前已完成、不要把失败尝试的batch或库存默认当最终控制的实际参数。以后旋转组匹配最终成功控制的actual args。该报错与旋转无关；换未使用的目录从头训练，或用同次模型+target-bank配对快照正式resume；不删除旧目录、不绕过复用保护。当前未确认用户是否已处理该启动障碍。
 
 ## 1. 2026-10-08 接手结论（历史状态，以第0节为准）
 
@@ -328,4 +344,4 @@ OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --
 - T11 shared512 PT：[附件](C:/Users/97537/.codex/attachments/64857d73-03e2-4bf9-97ed-e6ca4fba0355/已粘贴的文本.txt)，LP只有用户口述85.79。
 - 用户论文：[macdiff.pdf](D:/program/paper/macdiff.pdf)。渲染/提取的临时文件已清理，未保留PDF页面PNG；新会话需要看图再读原PDF。
 
-新会话从第0节“T14已完成、499命令已更正、下一组T12基线骨架decoder3已准备”承接，不重启已完成阶段。
+新会话从第0节“T15骨架decoder3口述85.84%、文本下一组仅text_decoder_depth 5→3；随机旋转另测原版decoder3/PT500”承接，不重启已完成阶段。

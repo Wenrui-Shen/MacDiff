@@ -1,10 +1,22 @@
 # Stage1 实验汇总
 
-更新日期：2026-10-07。数据集为NTU60 XSub，评价为只输入骨架的linear probe。汇总所有本地已保存的Stage1数值成绩、定性反馈、未完成评价和计划；保留 [总审计](D:/program/MacDiff/EXPERIMENT_RESULTS.md) 的实验ID。
+更新日期：2026-10-10；10月7日汇总保留为历史快照。数据集为NTU60 XSub，评价为只输入骨架的linear probe。汇总所有本地已保存的Stage1数值成绩、定性反馈、未完成评价和计划；保留 [总审计](D:/program/MacDiff/EXPERIMENT_RESULTS.md) 的实验ID。
 
-目前有13组数值成绩，其中4组有完整PT400+LP100附件，1组有完整PT但LP只有口述，8组主要保存历史成绩摘要。另有9项Stage1状态记录，不能统一算作已完成的独立训练。当前最高LP best为T12的86.196021%；S→T=0.5尚无回传结果。
+2026-10-07快照有13组数值成绩，其中4组有完整PT400+LP100附件，1组有完整PT但LP只有口述，8组主要保存历史成绩摘要。另有9项Stage1状态记录，不能统一算作已完成的独立训练。当前最高LP best为T12的86.196021%；S→T=0.5尚无回传结果。
 
 `T→S`为文本到骨架任务权重，`S→T`为骨架到文本任务权重。`H/norm`是S→T decoder的隐藏维度/末端归一化，与CLIP缓存维度不同。`share=True`共享原生骨架重建与T→S骨架decoder主体；S→T文本decoder独立。
+
+## 2026-10-10：decoder3结果与下一组（当前状态）
+
+新增 **T15**，当前共15组原版/文本Stage1数值记录；下文10月7日的13组统计及10月9日的14组统计均为历史快照。
+
+| ID | 实验身份 | LP成绩 | 证据与缺项 |
+|---|---|---:|---|
+| T15 | 当前七句v3/sample_target_blend/no-share/A；native/T→S各3层，S→T仍5层/512/none；权重1/0.1，PT不旋转（结构身份按上一会话上下文登记） | **85.84%，用户口述** | 2026-10-10用户反馈；完整PT/LP日志、分数统计口径（best/末轮）、对应epoch、last/末20、最终实际batch/accum、checkpoint/args及服务器SHA未核验 |
+
+T15是文本no-share实验；T14是原版A/decoder3/PT500、checkpoint-499 LP的85.704755%，两组分别保留。此前目标库FileExistsError属于历史尝试，不能再据此说当前decoder3没有训练成绩；其处理方式和最终运行参数尚未核验。
+
+**下一组：用户自己仅将text_decoder_depth 5→3，骨架decoder_depth保持3，以T15为控制。**S→T hidden512/output_norm=none及其他实际参数沿用控制组；PT随机旋转延后，下次再做，不叠加到本组。新组目前无回传成绩；本次助手只更新文档，没有改配置/模型或启动训练。详情见 [handoff最新状态](D:/program/MacDiff/handoff.md:5) 和 [当前实验计划](D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md:3)。
 
 ## 1. 全部已保存的数值成绩
 
@@ -114,4 +126,9 @@ NTU60 XView、NTU120、PKU配置及v/区域bias/1024/部分共享等讨论，没
 
 不能把本组登记成“仅decoder5→3”的纯消融，或误写成LP399；epoch/LP组织等也与历史对照不同。PT/LP同目录，部分早期PT checkpoint被LP覆盖，但399/499不在覆盖范围。完整依据见 [T14分析](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/README.md) 与 [命令](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/commands.json)。
 
-用户已确认下一组为T12控制（1/.1、A、PT400），只改骨架decoder_depth为3，S→T仍5层；配置/命令已准备，未运行，无新成绩。此前1/.5计划仍没有回传结果，不将其叠加到decoder3本组。原始日志来源是 [PT500+LP100合并附件](C:/Users/97537/.codex/attachments/f6643024-0636-4677-ab2b-60b92d4ec967/已粘贴的文本.txt)。
+10月9日已准备以T12为控制的骨架decoder3配置/命令，S→T仍5层；10月10日用户已回传该组口述85.84%，登记为T15，当前下一组见顶部最新状态。此前1/.5计划仍没有回传结果，不将其叠加到decoder3本组。原始日志来源是 [PT500+LP100合并附件](C:/Users/97537/.codex/attachments/f6643024-0636-4677-ab2b-60b92d4ec967/已粘贴的文本.txt)。
+
+
+### 2026-10-09追加待实验：PT随机旋转
+
+用户已选择在当前no-share decoder3无旋转控制之后，单独开启train_feeder_args.random_rot=True，其余实际PT/LP参数固定；不改source_rot、flip、cache、权重或深度。此项只是计划，无成绩、不增加已完成实验数；详情见 [最新实验计划](D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md:3)。10月9日decoder3曾因已有目标库描述文件报FileExistsError；10月10日已回传T15口述成绩，不能再把该失败当当前阻塞；尝试命令为PT64/accum1，原准备命令32/accum2，后续消融须匹配最终成功控制的实际组织。

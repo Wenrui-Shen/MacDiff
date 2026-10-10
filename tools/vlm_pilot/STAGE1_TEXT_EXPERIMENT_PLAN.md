@@ -1,6 +1,39 @@
-# Stage1 文本实验待测变量与顺序（2026-10-07）
+# Stage1 文本实验待测变量与顺序（更新2026-10-10）
 
-## 当前选择：No-share 的 S→T 0.1 → 0.5
+## 2026-10-10 最新选择：text decoder depth3；旋转另测原版MacDiff
+
+用户回传当前no-share骨架decoder3组的LP成绩 **85.84%（口述，T15）**；完整日志、best/末轮口径、对应epoch、末20统计及最终实际args尚未提供。native/T→S各3层、S→T仍5层/512/none、权重1/.1、A、PT不旋转的身份按上一会话上下文登记，最终实际batch/accum不从YAML或失败启动命令补填。
+
+**当前下一组由用户自己把text_decoder_depth从5改为3。**以T15为控制，骨架decoder_depth保持3，只改变S→T文本decoder的深度；text_decoder_hidden_dim仍512、text_decoder_output_norm仍none，其他cache/target、权重、归一化、实际PT/LP参数保持控制组设置。使用独立实验目录，从头预训练后再LP；目前没有新组成绩。本次助手仅更新记录，没有修改训练YAML、模型或启动训练。
+
+**随机旋转改为在原版MacDiff单独对照，不叠加文本实验。**用户最新要求已完成脚本：原版两组均decoder3/PT500、lr1e-3/min_lr1e-5、A、双卡PT64/accum1；先不旋转PT+checkpoint499 LP，再旋转PT+checkpoint499 LP；LP100/lr.1/双卡128/accum1一致。唯一组间配置差异为PT random_rot；完成后自动输出两组best LP acc及百分点差。脚本与说明见 [原版旋转对照](D:/program/MacDiff/tools/MACDIFF_ROTATION_ABLATION.md)。尚未真实训练，没有新成绩；旧文本旋转控制计划保留为历史，不再是当前选择。
+
+此前current.shared.json导致的FileExistsError是10月9日历史尝试。现在已报告decoder3成绩，不再把它当当前未成功训练的证据；修复方法、最终目录与实际运行参数仍未核验。成绩记录见 [Stage1汇总](D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md) 和 [handoff](D:/program/MacDiff/handoff.md:5)。
+
+## 2026-10-09 历史计划：decoder3之后独立测试PT随机旋转（顺序已被上文替代）
+
+用户明确要求：“把随机旋转的事情记录一下，下次实验试试”。**先完成当前no-share骨架decoder3、PT不旋转的实验，再以该组为控制，仅开启PT随机旋转。**目前只登记待实验，不修改当前训练YAML，不启动新训练；不能将此计划当成已完成结果。
+
+### 已确认的论文/代码差异
+
+- [论文第9页](https://lehongwu.github.io/ECCV24MacDiff/macdiff-paper.pdf#page=9)写明使用random crop、random rotation与小Gaussian noise（sigma=.005）。公开NTU60 XSub基础PT YAML的random_rot被注释；Feeder构造默认False。当前T12/no-share decoder3 PT同样未开启。
+- 基础LP训练random_rot=True、测试False。LP冻结encoder，因此LP阶段旋转不等同于PT阶段用旋转训练encoder。
+- [实现](D:/program/MacDiff/feeder/tools.py:236)绕XYZ各取uniform(-.3,.3)弧度（每轴约±17.2度）；同一片段所有帧/关节/人物共享矩阵。旋转在模型A标准化之前执行。
+- [Feeder](D:/program/MacDiff/feeder/feeder_ntu.py:222)先crop/resize，再公共random_rot，然后复制encoder输入并加小噪声；native干净骨架和encoder输入共享同次旋转。source_rot只额外旋转encoder输入，是另一个因素，保留False。flip也保留False。
+
+### 下一组的单因素约定
+
+在独立的新PT配置的train_feeder_args中只增加random_rot: True。no-share、native/T→S各3层、S→T5层/512/none、权重1/.1、A、PT400、lr1e-3/min_lr1e-5、cache v3、sample_target_blend更新比.1、uniformity、seed与父控制相同。LP维持父控制的checkpoint399、100轮、lr.1、局部batch/累积/卡数、训练旋转True与测试False。使用新的PT/LP输出目录，不能复用已有目标库目录。
+
+**以实际完成的无旋转控制命令/args为准固定batch组织。**此前保存的decoder3命令是PT每卡32/accum2；最新报错里的用户尝试命令是每卡64/accum1，双卡有效batch均128，但不能自动视为完全相同。该次尝试因已有current.shared.json在目标库prepare阶段退出，尚无成功训练结果；旋转实验须匹配最终成功控制的实际microbatch/accum，而不能再叠加修改。
+
+文本cache先保持现有版本。旋转保留左右关节身份；若caption含相机/世界方向描述，固定文本可能与旋转后的骨架有偏差，这是待验证的可能性，不自动重生成cache。几何增强可能改善泛化，但未证实能补到论文86.4；比较LP best、last、末20均值及主要PT loss，而不只比较去噪loss。
+
+### 2026-10-09启动失败记录（历史，当前已报告T15成绩）
+
+最近报错为FileExistsError: Refusing to reuse target bank，指向output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_noshare_st512_t2s1_s2t01_dec3_pt400/text_target_bank/current.shared.json。未传resume时，prepare拒绝覆盖已存在描述文件；不是随机旋转造成的报错。后续从头训练优先换未使用的输出目录，保留旧文件；若要续跑，需要同次checkpoint及配对的checkpoint-X-target-bank.sqlite，current.shared.json本身不能当完整恢复快照。本会话未删除文件、未修改恢复保护，未确认用户是否已修复启动。
+
+## 2026-10-07历史选择：No-share 的 S→T 0.1 → 0.5（最新选择见上文）
 
 用户最新决定继续文本版no-share，并明确选择S→T=0.5，替代助手建议的0.2。保持T→S=1、归一化A、512/无末端输出LN、sample_target_blend及目标更新比例0.1不变。已完成父对照LP best86.196021%、末20均值86.000728%；shared512口述best85.79%。原版B本次best85.183164%，不叠加到文本版。完整分析见 [NOSHARE_NORMB_LOG_ANALYSIS.md](D:/program/MacDiff/tools/vlm_pilot/NOSHARE_NORMB_LOG_ANALYSIS.md)。
 

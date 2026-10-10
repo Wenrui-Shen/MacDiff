@@ -1,12 +1,24 @@
 # MacDiff 实验结果总表与保存完整性审计
 
-审计日期：2026-10-07。范围为本地 `handoff.md`、归档交接、其他 Markdown、配置、已有 JSON 统计以及文档明确引用的附件。没有访问服务器；不能确认尚未回传的运行进度，也不能恢复从未写入这些材料的聊天内容。
+审计日期：2026-10-07；最新结果追加于2026-10-10。范围为本地 `handoff.md`、归档交接、其他 Markdown、配置、已有 JSON 统计以及文档明确引用的附件。没有访问服务器；不能确认尚未回传的运行进度，也不能恢复从未写入这些材料的聊天内容。
 
 结论：**主要已报告成绩有保存，但不同实验的配置、完整日志与结果没有全部保存齐。** 目前查到13组原版/文本 Stage1 数值成绩、6组 Stage2 数值摘要。Stage1中4组有仍可读取的完整PT400+LP100附件，1组有完整PT但LP仅口述，另外8组主要只有历史成绩摘要。Stage2六组均只有交接里的结果摘要，没有本地完整PT/LP日志或sweep CSV。
 
 35份 YAML 是当前配置库存，不代表35次实际训练。同一个 YAML 的 CLI 权重、batch、代码版本或模型结构不同，仍需分开登记；重复上传日志也不增加实验次数。
 
 原版与文本Stage1另有 [独立汇总](D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md)，包含13组成绩、完整LP统一统计及Stage1待结果/计划项。
+
+## 2026-10-10：decoder3结果与下一组（当前状态）
+
+新增 **T15**，当前共15组原版/文本Stage1数值记录；下文10月7日的13组统计及10月9日的14组统计均为历史快照。
+
+| ID | 实验身份 | LP成绩 | 证据与缺项 |
+|---|---|---:|---|
+| T15 | 当前七句v3/sample_target_blend/no-share/A；native/T→S各3层，S→T仍5层/512/none；权重1/0.1，PT不旋转（结构身份按上一会话上下文登记） | **85.84%，用户口述** | 2026-10-10用户反馈；完整PT/LP日志、分数统计口径（best/末轮）、对应epoch、last/末20、最终实际batch/accum、checkpoint/args及服务器SHA未核验 |
+
+T15是文本no-share实验；T14是原版A/decoder3/PT500、checkpoint-499 LP的85.704755%，两组分别保留。此前目标库FileExistsError属于历史尝试，不能再据此说当前decoder3没有训练成绩；其处理方式和最终运行参数尚未核验。
+
+**下一组：用户自己仅将text_decoder_depth 5→3，骨架decoder_depth保持3，以T15为控制。**S→T hidden512/output_norm=none及其他实际参数沿用控制组；PT随机旋转延后，下次再做，不叠加到本组。新组目前无回传成绩；本次助手只更新文档，没有改配置/模型或启动训练。详情见 [handoff最新状态](D:/program/MacDiff/handoff.md:5) 和 [当前实验计划](D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md:3)。
 
 ## 1. 原版与文本 Stage1：已有数值结果
 
@@ -116,4 +128,4 @@ T10的fe23bb66/a64cb5b7是重复上传，不另计实验。T07/T08的[d027fa4a](
 
 不能把本组登记成“仅decoder5→3”的纯消融，或误写成LP399；epoch/LP组织等也与历史对照不同。PT/LP同目录，部分早期PT checkpoint被LP覆盖，但399/499不在覆盖范围。完整依据见 [T14分析](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/README.md) 与 [命令](D:/program/MacDiff/handoff_artifacts/decoder3_20261009/commands.json)。
 
-用户已确认下一组为T12控制（1/.1、A、PT400），只改骨架decoder_depth为3，S→T仍5层；配置/命令已准备，未运行，无新成绩。此前1/.5计划仍没有回传结果，不将其叠加到decoder3本组。原始日志来源是 [PT500+LP100合并附件](C:/Users/97537/.codex/attachments/f6643024-0636-4677-ab2b-60b92d4ec967/已粘贴的文本.txt)。
+10月9日已准备以T12为控制的骨架decoder3配置/命令，S→T仍5层；10月10日用户已回传该组口述85.84%，登记为T15，当前下一组见顶部最新状态。此前1/.5计划仍没有回传结果，不将其叠加到decoder3本组。原始日志来源是 [PT500+LP100合并附件](C:/Users/97537/.codex/attachments/f6643024-0636-4677-ab2b-60b92d4ec967/已粘贴的文本.txt)。
