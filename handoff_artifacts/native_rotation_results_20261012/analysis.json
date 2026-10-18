@@ -1,0 +1,38 @@
+{
+  "date_received": "2026-10-12",
+  "source": "user-pasted runner summary; full logs and manifest not supplied",
+  "experiment_ids": {
+    "no_rot": "T17",
+    "rot": "T18"
+  },
+  "delta_pp": {
+    "best_lp_acc": 0.15162543935835515,
+    "last_lp_acc": 0.14556040756914967,
+    "last20_mean": 0.12645559963353037
+  },
+  "rot_best_gap_to_user_reported_third_party_86_2_pp": 0.4103347611739707,
+  "protocol_from_prepared_runner_not_independently_verified_args": {
+    "pt_decoder_depth": 3,
+    "pt_epochs": 500,
+    "pt_lr": 0.001,
+    "pt_min_lr": 1e-05,
+    "pt_per_gpu_batch": 64,
+    "pt_accum_iter": 1,
+    "pt_world_size": 2,
+    "pt_effective_batch": 128,
+    "lp_epochs": 100,
+    "lp_per_gpu_batch": 128,
+    "lp_accum_iter": 1,
+    "lp_world_size": 2,
+    "lp_effective_batch": 256,
+    "lp_lr": 0.1,
+    "lp_checkpoint_epoch": 499,
+    "normalization": "A",
+    "default_seed": 0
+  },
+  "limitations": [
+    "Epoch tail std is not PT/LP seed variance; no independent repeats.",
+    "Cannot recheck epoch coverage, exact checkpoint args, LR logs, NPZ identity, source/runtime versions from summary alone.",
+    "No training launched locally; next LP64 comparison is a recommendation, not an accepted experiment or new result."
+  ]
+}

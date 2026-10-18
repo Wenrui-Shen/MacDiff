@@ -235,6 +235,270 @@ filename nor an action label. Concatenate the two caption shard files only after
 both processes finish; use `sample_index` when ordered records are required.
 Only JSONL shards can be concatenated directly; merge JSON arrays as JSON.
 
+### 4.1 NTU60 XView、NTU120 与 PKU 的独立入口（2026-10-17）
+
+以下入口仅读取各自划分的 **x_train**，沿用上面的渲染/描述设置：32 帧、8 fps、
+root-centered 正面/侧面双视图、median3 + Savitzky–Golay5/poly2、
+`skeleton_motion_prompt_v2.txt`、每卡一个常驻 Qwen3-VL-8B、1024 token、
+最多两次修复。默认 `--stage all` 完成渲染和描述，自动断点续跑；
+CLIP 编码是独立的第三步，见4.2。按用户要求分阶段执行时也使用4.2的命令。
+在仓库根目录、已有的 Qwen 推理环境中分别执行：
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu60_xview.py
+```
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu120.py
+```
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_pku.py
+```
+
+模型默认 `/home/user9/public3/swr/models/Qwen3-VL-8B-Instruct`，卡号默认
+`0,1`，可用 `--model` / `--gpus` 覆盖。三个入口共用
+`dataset_caption_pipeline.py` 和已有渲染/描述模块；XView还复用
+`run_caption_ntu120.py` 的映射逻辑。上传时同步这些入口、公共模块及
+`run_caption_dual_gpu.py`（本次补上无新增结果时保持合并输出稳定的修正）。
+
+**NTU60 XView 需要补生成 10,970 个样本。**预处理将相机2的所有样本放在前，
+然后放相机3的所有样本；其训练集共37,646行，测试集为相机1的18,932行。
+与已有XSub训练集40,091行相交26,676行，新增10,970行来自XSub测试受试者的
+相机2/3，在XView中属于训练集。NTU120 XSub也不包含这些旧测试受试者，
+因此不能用NTU120 XSub的新增描述补齐。
+按完整ID（包含相机号）和实际坐标核验复用，不跨相机猜测文本。
+XView默认 `--data_path ../data/MAMP/ntu/NTU60_XView.npz`；
+复用源仍为下面同一份NTU60 XSub NPZ、完整描述及 `data/ntu/statistics`。
+输出按XView相机优先顺序重新映射行号，XSub训练/测试划分与cache均保持独立。
+
+NTU120 默认 `--benchmark XSub`，读取：
+
+- `../data/MAMP/ntu120/NTU120_XSub.npz`（`--data_path`）。
+- `../data/MAMP/ntu/NTU60_XSub.npz`（`--ntu60_data_path`）。
+- 已完成的 `vlm_pilot/ntu60_xsub_global_local_v2/captions.json` 及同名
+  `.metadata.json`（`--ntu60_captions`）。源描述必须完整，且模型、prompt SHA、revision 一致。
+- `data/ntu/statistics` 和 `data/ntu120/statistics` 中的原始骨架名、performer；
+  可通过 `--ntu60_statistics_dir` / `--ntu120_statistics_dir` 指定与实际 NPZ 匹配的统计目录。
+
+脚本复现预处理的 **subject-major 行顺序**，按完整原始骨架 ID 映射，
+逐个核对重合样本的完整坐标 SHA256，而非沿用 NTU60 行号、假设 NTU60 是
+NTU120 的连续前缀，或只根据动作编号去重。只忽略全零 padding 和完全相同的
+第二人物复制槽。当前仓库统计为 NTU120 63,026 行，其中 40,091 行复用
+NTU60，22,935 行需要渲染/推理。实际 NPZ 数量或重合坐标不匹配会报错，
+不会默默重新调用模型。两个大 NPZ 顺序加载，不同时驻留内存。
+
+NTU120 单人预处理可能把 person0 完整复制到 person1：复用时只将原 person0
+描述复制到该人物槽，不调用 VLM，映射保存在 `dataset_manifest.json`。
+原 NPZ、原 NTU60 描述均保持原样。新骨架仍按原 NPZ 的人物槽渲染。
+
+NTU120 cross-setup在项目中记为 **XSet**（即XSetup）。使用
+`run_caption_ntu120.py --benchmark XSet` 后，默认数据改为
+`../data/MAMP/ntu120/NTU120_XSet.npz`，输出改为 `vlm_pilot/ntu120_xset/`。
+其训练是偶数setup 2,4,...,32，按setup号依次拼接，测试为奇数setup。
+默认复用优先级为NTU60 XSub → NTU60 XView → NTU120 XSub，三个源都须有完整描述。
+其中XSub/XView的单人零槽与NTU120的复制槽按实际坐标适配。
+当前统计54,468个训练样本，可合计复用31,965个，只新增22,503个；
+只复用NTU60 XSub时只能复用16,087个，会额外重复生成已有划分覆盖的样本。
+因此推荐先完成XView和NTU120 XSub的描述，再处理XSet。
+额外源默认读取 `--output_root` 下的 `ntu60_xview/captions.json`、
+`ntu120_xsub/captions.json`，NPZ分别为上述NTU60 XView和NTU120 XSub默认路径；
+可用同名 `--ntu60_xview_captions` / `--ntu120_xsub_captions` 及
+`--ntu60_xview_data_path` / `--ntu120_xsub_data_path` 覆盖。
+`--reuse_splits` 可明确选择额外源；不提供此参数时XSet默认使用两者，
+显式空列表才仅使用NTU60 XSub。源缺失/不完整或同ID坐标冲突会报错，不悄悄重生成。
+
+PKU 默认分别读取 `../data/MAMP/pku_v1/PKUv1_XSub.npz` 和
+`../data/MAMP/pku_v2/PKUv2_XSub.npz`，可用 `--pkuv1_data_path` /
+`--pkuv2_data_path` 覆盖。默认依次处理 v1、v2；只处理一个版本时添加
+`--versions v1` 或 `--versions v2`。
+
+默认保存位置如下，`--output_root` 可统一更换 `vlm_pilot` 这一层：
+
+| 数据集 | 最终完整描述 | 仅新生成的描述与 GPU 分片 | GIF 与渲染元数据 |
+|---|---|---|---|
+| NTU60 XView | `vlm_pilot/ntu60_xview/captions.json` | `vlm_pilot/ntu60_xview/generated/` | `vlm_pilot/ntu60_xview/rendered/` |
+| NTU120 XSub | `vlm_pilot/ntu120_xsub/captions.json` | `vlm_pilot/ntu120_xsub/generated/` | `vlm_pilot/ntu120_xsub/rendered/` |
+| NTU120 XSet | `vlm_pilot/ntu120_xset/captions.json` | `vlm_pilot/ntu120_xset/generated/` | `vlm_pilot/ntu120_xset/rendered/` |
+| PKU v1 | `vlm_pilot/pku_v1_xsub/captions.json` | `vlm_pilot/pku_v1_xsub/generated/` | `vlm_pilot/pku_v1_xsub/rendered/` |
+| PKU v2 | `vlm_pilot/pku_v2_xsub/captions.json` | `vlm_pilot/pku_v2_xsub/generated/` | `vlm_pilot/pku_v2_xsub/rendered/` |
+
+最终描述保留各自 NPZ 的原始 `sample_index`，按行号排序；NTU120、XView最终文件
+包含“复用＋新生成”，其 `generated/captions.json` 只含新增行。
+均带 `.metadata.json`，沿用 `macdiff.caption_text.v2/global_local`，可供
+`cache_clip_motion_text.py` 读取。v1/v2 的 manifest、分片、日志和索引空间分别保存。
+
+可先添加 `--dry_run`，校验输入并查看复用/新增数量，不写文件、不加载 VLM。
+添加 `--stage render` 只做渲染，随后用同一命令的 `--stage caption` 做推理；
+caption 阶段只读取已保存的计划、GIF 和描述，不重新加载 NPZ 数组。
+`--merge_only` 只合并已有结果。正式运行中断后重跑原命令即可。
+`--start_index` / `--max_samples` 限定原 NPZ 行号范围，不会重编号；
+小范围输出的 metadata 中 `dataset_complete=false`，全量完成才为 true。
+缺失描述会保存部分结果并返回非零状态。
+
+### 4.2 按三个阶段执行：保存骨架 → 保存描述 → 保存 CLIP cache
+
+所有命令均在仓库根目录执行。NTU60 XSub的描述和v3 cache已有，不重做。
+下面的NTU60 XView、NTU120 XSub/XSet和PKU均仅处理训练集；PKU v1/v2每个阶段都分别保存。
+
+**第一步：渲染新增骨架并持久化。**不加载Qwen或CLIP。依次执行：
+
+```bash
+python tools/vlm_pilot/run_caption_ntu60_xview.py --stage render
+python tools/vlm_pilot/run_caption_ntu120.py --stage render
+python tools/vlm_pilot/run_caption_pku.py --stage render
+```
+
+每个新样本保存 `rendered/train_<原行号>/preview.gif` 和 `render_metadata.json`，
+根目录保存 `dataset_manifest.json`。XView仅渲染10,970行，NTU120 XSub仅渲染22,935行；
+重合样本的描述已存在于NTU60 XSub，不再次渲染/推理。
+原始ID与完整坐标验证在此阶段完成。续跑会核验GIF和渲染配置，再跳过完整样本。
+可以先加 `--dry_run` 核对数量，不产生文件。
+
+**第二步：只读取保存的GIF，生成并保存描述。**在Qwen推理环境依次执行：
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu60_xview.py --stage caption
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu120.py --stage caption
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_pku.py --stage caption
+```
+
+此阶段不重新加载NPZ数组，也不进行渲染。先核对请求范围的GIF是否齐全；
+解码时检查帧数。每卡一个常驻模型，分片、失败重试和日志在 `generated/` 中。
+结构检查通过的描述与复用描述合并到数据集根目录的 `captions.json`，
+其 `.metadata.json` 中 `summary.dataset_complete=true` 才表示全量完成。
+XView应为37,646行，NTU120 XSub应为63,026行；PKU按各自实际NPZ训练行数检查。
+每个人保留 `global` 和固定顺序的六个 `local` 部位句子。
+
+**XView和NTU120 XSub描述完整后，再做XSet的第一、二步。**这保证XSet能够复用
+它们的描述；仍然先保存新增骨架，再读取GIF推理。XSet最终完整文本应为54,468行。
+
+```bash
+python tools/vlm_pilot/run_caption_ntu120.py --benchmark XSet --stage render
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu120.py --benchmark XSet --stage caption
+```
+
+**第三步：对完整描述使用冻结的CLIP text encoder，保存v3句向量cache。**
+在此前可提取CLIP的环境中依次执行以下五条命令。
+每条对应的NPZ和描述必须属于同一划分；使用完整合并后的 `captions.json`，
+不要把只含新增行的 `generated/captions.json` 传给cache脚本。
+
+```bash
+OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 python -u cache_clip_motion_text.py --data-path ../data/MAMP/ntu/NTU60_XView.npz --captions vlm_pilot/ntu60_xview/captions.json --clip-model /home/user9/public3/swr/models/clip-vit-base-patch32 --output-dir vlm_pilot/ntu60_xview/clip_sentence_cache_v3 --batch-size 16 --resume
+OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 python -u cache_clip_motion_text.py --data-path ../data/MAMP/ntu120/NTU120_XSub.npz --captions vlm_pilot/ntu120_xsub/captions.json --clip-model /home/user9/public3/swr/models/clip-vit-base-patch32 --output-dir vlm_pilot/ntu120_xsub/clip_sentence_cache_v3 --batch-size 16 --resume
+OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 python -u cache_clip_motion_text.py --data-path ../data/MAMP/ntu120/NTU120_XSet.npz --captions vlm_pilot/ntu120_xset/captions.json --clip-model /home/user9/public3/swr/models/clip-vit-base-patch32 --output-dir vlm_pilot/ntu120_xset/clip_sentence_cache_v3 --batch-size 16 --resume
+OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 python -u cache_clip_motion_text.py --data-path ../data/MAMP/pku_v1/PKUv1_XSub.npz --captions vlm_pilot/pku_v1_xsub/captions.json --clip-model /home/user9/public3/swr/models/clip-vit-base-patch32 --output-dir vlm_pilot/pku_v1_xsub/clip_sentence_cache_v3 --batch-size 16 --resume
+OMP_NUM_THREADS=1 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 CUDA_VISIBLE_DEVICES=0 python -u cache_clip_motion_text.py --data-path ../data/MAMP/pku_v2/PKUv2_XSub.npz --captions vlm_pilot/pku_v2_xsub/captions.json --clip-model /home/user9/public3/swr/models/clip-vit-base-patch32 --output-dir vlm_pilot/pku_v2_xsub/clip_sentence_cache_v3 --batch-size 16 --resume
+```
+
+cache脚本在加载CLIP前检查完整训练行覆盖、重复行、七句非空以及人物槽与
+实际 `x_train` 是否一致，均不读取类别标签。CLIP处于eval/冻结状态，
+每句话独立编码、取投影后的句向量、转FP32并做unit RMS；超过77 BPE token会报错，
+不会截断。当前512维CLIP对应如下文件：
+
+| 文件 | 形状/含义 |
+|---|---|
+| `person_features.npy` | `[N,2,512]`，global句向量 |
+| `token_features.npy` | `[N,2,6,512]`，六个完整local句向量 |
+| `person_valid.npy` | `[N,2]`，原NPZ人物槽是否存在 |
+| `token_mask.npy` | `[N,2,6]`，有效部位句向量mask |
+| `samples.json` | 按原行号排列的描述副本 |
+| `manifest.json` | NPZ/描述/模型/实现SHA、进度、文件校验和；`complete=true`才可训练 |
+
+每个划分独立构建cache，因为训练行顺序、N和NPZ身份不同，不能直接共用XSub的
+旧cache。此处复用的是已有文本；第三步对目标划分的全部文本编码。
+训练配置的 `text_cache` 应指向对应的 `clip_sentence_cache_v3`。
+三个阶段均可使用原命令续跑；完整描述和metadata在无新增结果时保持原样，
+避免只刷新合并时间戳就使已有CLIP cache失效。cache实现及已有NTU60 cache未改。
+
+本地检查：真实统计划分和重叠数量、真实GIF渲染、模拟VLM与CLIP的三阶段衔接、
+完整覆盖/人物槽/七向量顺序、失败续跑和完整cache复用。尚未用服务器NPZ或真实GPU模型全量生成。
+
+### 4.3 五种协议的检查范围与服务器只读检查
+
+范围固定为NTU60 XSub/XView、NTU120 XSub/XSet、PKU XSub；PKU分v1/v2，
+因此实际是六份独立NPZ、描述和cache。下表NTU数量来自当前仓库statistics，
+不是对服务器实际文件已完成状态的声明。新增数量按已有NTU60 XSub → XView →
+NTU120 XSub → XSet的复用顺序计算。
+
+| 划分 | 训练行 | 测试行 | 可复用已有描述 | 需要新增描述 |
+|---|---:|---:|---:|---:|
+| NTU60 XSub | 40,091 | 16,487 | 已有完整描述 | 0 |
+| NTU60 XView | 37,646 | 18,932 | 26,676 | 10,970 |
+| NTU120 XSub | 63,026 | 50,919 | 40,091 | 22,935 |
+| NTU120 XSet | 54,468 | 59,477 | 31,965 | 22,503 |
+| PKU v1 XSub | 18,840（服务器回传） | 2,704 | 与NTU不混用 | 18,840 |
+| PKU v2 XSub | 5,299（服务器回传） | 1,613 | 与v1分开 | 5,299 |
+
+在含NumPy/Pillow的环境中检查全部六份数据与三个阶段产物，不加载Qwen/CLIP、不写文件：
+
+```bash
+python tools/vlm_pilot/check_text_pipeline.py
+```
+
+检查NPZ中 `x_train/x_test` 头信息与NTU统计数量、原始行号的渲染/复用完整分区、
+GIF和metadata存在/来源/参数匹配、完整global+6local描述与实际原始人物槽一致，
+以及cache的NPZ/特征文件SHA、形状、mask、unit RMS、当前描述/metadata身份。
+缺失、错误和不完整分别报告，任一项未通过返回非零；缺少文件不会当作已完成。
+尚未生成 `dataset_manifest.json` 的新划分报告 `render.status=not_planned`，
+`expected_new_renders=null`，不会再将全部训练行误标为“新增渲染/缺失渲染”。
+`estimated_new_after_prerequisites`单独给出前置描述源齐全后的预计新增数；
+NTU的实际复用行仍须在第一步核对ID/坐标，已有计划才报告确定的新增与缺失数量。
+原NTU60 XSub没有新版manifest，仍按既有全量GIF检查，标记 `plan_kind=legacy_full_train`。
+PKU的原始split文件未包含在仓库，当前不能从本地静态代码证明服务器NPZ的原始
+受试者划分正确；检查器能验证其实际行数及各阶段与该NPZ的一致性。
+
+默认cache校验需要读取NPZ/特征文件做完整hash；只看数据数量可执行
+`python tools/vlm_pilot/check_text_pipeline.py --stages data`。
+`--quick`仅将cache检查降为size/header模式，报告会明确未做全量hash；
+`--check_gifs`额外解码每个新增GIF核验帧数。可用 `--datasets`、`--stages`
+限定范围；`--data_root`、`--output_root` 可覆盖公共根目录。
+既有NTU60 XSub的旧保存位置分别用 `--ntu60_xsub_rendered`、
+`--ntu60_xsub_captions`、`--ntu60_xsub_cache` 覆盖。
+训练缓存仍按各自NPZ顺序构建，不能把一个协议的测试行文本用于该协议训练。
+
+**2026-10-17服务器检查回传：**六份NPZ头信息均读到，NTU各训练/测试数量与上表相同；
+PKU v1实际为train18,840/test2,704，v2为train5,299/test1,613。
+NTU60 XSub的40,091份渲染文件/metadata、40,091条描述（47,608个人物槽）和
+512维/7句v3 cache通过检查，NPZ与特征全量hash通过；此轮未解码GIF帧，
+不等于动作描述语义质量已重新抽检。其余五份的描述/cache在默认目录缺失，
+旧版无计划时的全量“expected_new_renders”只是检查器回退计数，不是实际新增任务量。
+已据此修正上面的未规划报告；已有NTU60 XSub无需重做。
+
+### 4.4 与原NTU60 XSub渲染的一致性及速度检查
+
+新入口仍直接调用原 `render_sample_frames`、`save_gif`、`make_metadata`：
+默认32帧/8fps、960×360、font18、正面XY/侧面ZY、逐帧person0 root居中，
+median3、Savgol5/poly2、插值gap2，GIF optimize=False/disposal2均一致。
+新增回归测试对同环境的单人、复制人物槽、双人输入，核对新旧入口GIF逐字节、
+config和render元数据一致。不同数据集的有效帧数/人物槽不同，计算量仍可能不同；
+NTU120复制槽会按原数据参与双人物渲染。
+
+本地300帧合成样本CPU对照（不是服务器速度）：两轮各3例，旧入口1.372/1.434秒，
+新入口1.437/1.412秒。分阶段样本计时中，绘制/平滑约0.078–0.106秒，
+GIF编码约0.346–0.404秒；profile主要耗时是Pillow逐帧调色板量化。
+该小规模测试不提供服务器吞吐或总任务ETA。
+
+新旧运行路径的差别：
+
+- 新NTU入口首次运行会额外读取复用源NPZ/描述、逐样本核对坐标hash，再加载目标NPZ。
+  这是首次计划构建开销，已保存且身份匹配的计划会跳过这部分。
+- 新入口目前每100个新样本打印一次，原入口每个样本打印并给ETA。
+  所以两行日志之间的等待包含100个样本；判断单样本速度可读取下述已保存计时。
+- 新渲染是CPU单进程，`--gpus 0,1`只影响后续Qwen推理；原渲染默认也单进程，
+  但原脚本支持用户手动 `--num_shards` 多进程。若旧任务实际用了多进程，不能直接对比总吞吐。
+- 两边读取NPZ的 `x_train` 都会将完整数组读入内存；旧入口的mmap_mode参数不使NPZ成员变为memmap。
+  新入口的坐标核验、顺序加载多个NPZ和共享磁盘I/O会增加启动等待。
+
+以XView为例，只读最近20个已完成样本保存的 `render_seconds`（包括绘制和平滑/GIF写入，
+不包括首次NPZ加载、去重扫描、JSON写入及后续推理）：
+
+```bash
+python -c 'import json,pathlib,statistics; fs=sorted(pathlib.Path("vlm_pilot/ntu60_xview/rendered").glob("train_*/render_metadata.json"))[-20:]; rs=[json.loads(p.read_text()) for p in fs]; print({"samples":len(rs),"mean_seconds":statistics.mean(r["render_seconds"] for r in rs) if rs else None,"median_seconds":statistics.median(r["render_seconds"] for r in rs) if rs else None})'
+```
+
+此次检查仅增加回归测试和运行说明，渲染器及生成入口的实现文件未改，现有计划身份和已生成GIF可继续沿用。
+
 ## 5. Randomly inspect accepted captions
 
 ### Single-GPU AWQ with offline vLLM over existing GIFs

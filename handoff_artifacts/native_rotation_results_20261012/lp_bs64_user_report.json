@@ -1,0 +1,29 @@
+{
+  "date_received": "2026-10-12",
+  "experiment_id": "T19",
+  "record_type": "LP-only re-evaluation; no new PT",
+  "source": "user oral report in chat",
+  "reported_lp_acc_percent": 85.89,
+  "score_metric_best_or_last": "not provided",
+  "best_epoch": null,
+  "last_lp_acc": null,
+  "last20_mean": null,
+  "last20_population_std": null,
+  "encoder": "same T18 rotated native encoder, checkpoint-499, user explicitly reports reuse",
+  "checkpoint_path": "/home/user9/public3/swr/MacDiff/output_dir/native_rotation_dec3_ep500_20261011_012631_490772/rot/pt/checkpoint-499.pth",
+  "configuration_from_requested_command": {
+    "lp_per_gpu_batch": 64,
+    "world_size": 2,
+    "accum_iter": 1,
+    "effective_batch": 128,
+    "other_config": "inherits original run configs/lp.json, including seed and LR"
+  },
+  "actual_seed_or_namespace_independently_verified": false,
+  "previous_same_encoder_lp_per_gpu_batch": 128,
+  "previous_best_lp_acc_percent": 85.78966523882603,
+  "approx_delta_to_previous_best_pp": 0.10033476117396845,
+  "approx_gap_to_user_reported_86_2_pp": 0.3100000000000023,
+  "interpretation": "different LP batch configuration, not a same-configuration random repeat; one result cannot estimate seed variance",
+  "independently_read_full_logs": false,
+  "clean_upstream_pt_lp_result_received": false
+}

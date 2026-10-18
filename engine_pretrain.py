@@ -151,12 +151,10 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
             print("Loss is {}, stopping training".format(loss_value))
             sys.exit(11)
 
-        window_start = (data_iter_step // accum_iter) * accum_iter
-        window_size = min(accum_iter, steps_this_epoch - window_start)
-        loss /= window_size
-        accumulation_boundary = (
-            (data_iter_step + 1) % accum_iter == 0
-            or data_iter_step + 1 == steps_this_epoch)
+        # Match upstream: only complete accumulation windows update weights.
+        # A trailing partial window is discarded by next epoch's zero_grad.
+        loss /= accum_iter
+        accumulation_boundary = (data_iter_step + 1) % accum_iter == 0
         scale_before = loss_scaler._scaler.get_scale() if accumulation_boundary else None
         loss_scaler(
             loss, optimizer, parameters=model.parameters(),
@@ -304,12 +302,9 @@ def train_one_epoch_ose(model: torch.nn.Module,
             print("Loss is {}, stopping training".format(loss_value))
             sys.exit(11)
 
-        window_start = (data_iter_step // accum_iter) * accum_iter
-        window_size = min(accum_iter, steps_this_epoch - window_start)
-        loss /= window_size
-        accumulation_boundary = (
-            (data_iter_step + 1) % accum_iter == 0
-            or data_iter_step + 1 == steps_this_epoch)
+        # Keep the same upstream accumulation policy as native/text Stage1.
+        loss /= accum_iter
+        accumulation_boundary = (data_iter_step + 1) % accum_iter == 0
         pending_teacher_features.append(teacher_features.detach())
         pending_source_ids.append(source_ids.detach())
         scale_before = loss_scaler._scaler.get_scale()

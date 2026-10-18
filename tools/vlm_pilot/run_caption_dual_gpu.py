@@ -196,18 +196,30 @@ def merge_results(args, renders, wanted, prompt_hash):
         sink.write("]\n")
         sink.flush()
         os.fsync(sink.fileno())
-    temporary.replace(output)
     missing = sorted(wanted - set(rows))
     summary = {"expected": len(wanted), "accepted": len(rows), "missing_count": len(missing),
                "missing_indices": missing, "complete": not missing}
-    atomic_json(sidecar_paths(output)[0], {
+    metadata_path = sidecar_paths(output)[0]
+    metadata = {
         "schema_version": OUTPUT_SCHEMA, "output_format": "json_array", "model": args.model,
         "requested_revision": args.revision,
         "caption_schema": caption_schema(args.prompt_path.read_text(encoding="utf-8")),
         "prompt": {"path": str(args.prompt_path), "sha256": prompt_hash},
         "merged_at_utc": datetime.now(timezone.utc).isoformat(),
         "rendered_root": str(args.rendered_root), "summary": summary, "sources": sources,
-    })
+    }
+    # Preserve CLIP cache provenance when resuming an already complete run.
+    unchanged = False
+    if output.is_file() and metadata_path.is_file():
+        previous = json.loads(metadata_path.read_text(encoding="utf-8"))
+        unchanged = (sha256_file(output) == sha256_file(temporary)
+                     and {key: value for key, value in previous.items() if key != "merged_at_utc"}
+                     == {key: value for key, value in metadata.items() if key != "merged_at_utc"})
+    if unchanged:
+        temporary.unlink()
+    else:
+        temporary.replace(output)
+        atomic_json(metadata_path, metadata)
     print("Merged %d/%d samples in index order: %s" % (len(rows), len(wanted), output), flush=True)
     if missing:
         print("Missing %d samples (first 20: %s). Run the same command again to retry them." %

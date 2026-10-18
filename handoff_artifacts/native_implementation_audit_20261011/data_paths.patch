@@ -1,0 +1,271 @@
+diff --git a/data/ntu/get_raw_denoised_data.py b/data/ntu/get_raw_denoised_data.py
+index 42aef1a..bfe087b 100755
+--- a/data/ntu/get_raw_denoised_data.py
++++ b/data/ntu/get_raw_denoised_data.py
+@@ -5,13 +5,14 @@ import os.path as osp
+ import numpy as np
+ import pickle
+ import logging
++from pathlib import Path
+ 
+-root_path = './'
++project_root = Path(__file__).resolve().parents[2]
++root_path = str(project_root.parent / 'data' / 'MAMP' / 'ntu')
+ raw_data_file = osp.join(root_path, 'raw_data', 'raw_skes_data.pkl')
+ save_path = osp.join(root_path, 'denoised_data')
+ 
+-if not osp.exists(save_path):
+-    os.mkdir(save_path)
++os.makedirs(save_path, exist_ok=True)
+ 
+ rgb_ske_path = osp.join(save_path, 'rgb+ske')
+ if not osp.exists(rgb_ske_path):
+diff --git a/data/ntu/get_raw_skes_data.py b/data/ntu/get_raw_skes_data.py
+index 7aa8db9..8b0ce92 100755
+--- a/data/ntu/get_raw_skes_data.py
++++ b/data/ntu/get_raw_skes_data.py
+@@ -5,6 +5,7 @@ import os
+ import numpy as np
+ import pickle
+ import logging
++from pathlib import Path
+ 
+ 
+ def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logger):
+@@ -132,12 +133,11 @@ def get_raw_skes_data():
+         pickle.dump(frames_drop_skes, fw, pickle.HIGHEST_PROTOCOL)
+ 
+ if __name__ == '__main__':
+-    save_path = './'
+-
+-    skes_path = '../nturgbd_raw/nturgb+d_skeletons/'
+-    stat_path = osp.join(save_path, 'statistics')
+-    if not osp.exists('./raw_data'):
+-        os.makedirs('./raw_data')
++    project_root = Path(__file__).resolve().parents[2]
++    save_path = str(project_root.parent / 'data' / 'MAMP' / 'ntu')
++    skes_path = str(project_root.parent / 'data' / 'nturgbd_raw' / 'nturgb+d_skeletons')
++    stat_path = str(Path(__file__).resolve().parent / 'statistics')
++    os.makedirs(osp.join(save_path, 'raw_data'), exist_ok=True)
+ 
+     skes_name_file = osp.join(stat_path, 'skes_available_name.txt')
+     save_data_pkl = osp.join(save_path, 'raw_data', 'raw_skes_data.pkl')
+diff --git a/data/ntu/seq_transformation.py b/data/ntu/seq_transformation.py
+index 56fbb9b..3fc69ab 100755
+--- a/data/ntu/seq_transformation.py
++++ b/data/ntu/seq_transformation.py
+@@ -5,10 +5,12 @@ import os.path as osp
+ import numpy as np
+ import pickle
+ import logging
++from pathlib import Path
+ from sklearn.model_selection import train_test_split
+ 
+-root_path = './'
+-stat_path = osp.join(root_path, 'statistics')
++project_root = Path(__file__).resolve().parents[2]
++root_path = str(project_root.parent / 'data' / 'MAMP' / 'ntu')
++stat_path = str(Path(__file__).resolve().parent / 'statistics')
+ setup_file = osp.join(stat_path, 'setup.txt')
+ camera_file = osp.join(stat_path, 'camera.txt')
+ performer_file = osp.join(stat_path, 'performer.txt')
+@@ -20,7 +22,7 @@ denoised_path = osp.join(root_path, 'denoised_data')
+ raw_skes_joints_pkl = osp.join(denoised_path, 'raw_denoised_joints.pkl')
+ frames_file = osp.join(denoised_path, 'frames_cnt.txt')
+ 
+-save_path = './'
++save_path = root_path
+ 
+ 
+ if not osp.exists(save_path):
+@@ -164,7 +166,7 @@ def split_dataset(skes_joints, label, performer, camera, evaluation, save_path):
+ 
+     save_name = 'NTU60_%s.npz' % evaluation
+     print('Saving %s' % save_name)
+-    np.savez(save_name, x_train=train_x, y_train=train_y, x_test=test_x, y_test=test_y)
++    np.savez(osp.join(save_path, save_name), x_train=train_x, y_train=train_y, x_test=test_x, y_test=test_y)
+     print('Done')
+ 
+ def get_indices(performer, camera, evaluation='XSub'):
+diff --git a/data/ntu120/get_raw_denoised_data.py b/data/ntu120/get_raw_denoised_data.py
+index 42aef1a..ad6e983 100755
+--- a/data/ntu120/get_raw_denoised_data.py
++++ b/data/ntu120/get_raw_denoised_data.py
+@@ -5,13 +5,14 @@ import os.path as osp
+ import numpy as np
+ import pickle
+ import logging
++from pathlib import Path
+ 
+-root_path = './'
++project_root = Path(__file__).resolve().parents[2]
++root_path = str(project_root.parent / 'data' / 'MAMP' / 'ntu120')
+ raw_data_file = osp.join(root_path, 'raw_data', 'raw_skes_data.pkl')
+ save_path = osp.join(root_path, 'denoised_data')
+ 
+-if not osp.exists(save_path):
+-    os.mkdir(save_path)
++os.makedirs(save_path, exist_ok=True)
+ 
+ rgb_ske_path = osp.join(save_path, 'rgb+ske')
+ if not osp.exists(rgb_ske_path):
+diff --git a/data/ntu120/get_raw_skes_data.py b/data/ntu120/get_raw_skes_data.py
+index 969b5b2..52d8714 100755
+--- a/data/ntu120/get_raw_skes_data.py
++++ b/data/ntu120/get_raw_skes_data.py
+@@ -5,6 +5,11 @@ import os
+ import numpy as np
+ import pickle
+ import logging
++from pathlib import Path
++
++
++PROJECT_ROOT = Path(__file__).resolve().parents[2]
++NTU120_SKES_PATH = str(PROJECT_ROOT.parent / 'data' / 'nturgbd_raw_120' / 'nturgb+d_skeletons120')
+ 
+ 
+ def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logger):
+@@ -24,7 +29,7 @@ def get_raw_bodies_data(skes_path, ske_name, frames_drop_skes, frames_drop_logge
+         - num_frames: the number of valid frames.
+     """
+     if int(ske_name[1:4]) >= 18:
+-        skes_path = '../nturgbd_raw/nturgb+d_skeletons_120/'
++        skes_path = NTU120_SKES_PATH
+     ske_file = osp.join(skes_path, ske_name + '.skeleton')
+     assert osp.exists(ske_file), 'Error: Skeleton file %s not found' % ske_file
+     # Read all data from .skeleton file into a list (in string format)
+@@ -134,12 +139,10 @@ def get_raw_skes_data():
+         pickle.dump(frames_drop_skes, fw, pickle.HIGHEST_PROTOCOL)
+ 
+ if __name__ == '__main__':
+-    save_path = './'
+-
+-    skes_path = '../nturgbd_raw/nturgb+d_skeletons/'
+-    stat_path = osp.join(save_path, 'statistics')
+-    if not osp.exists('./raw_data'):
+-        os.makedirs('./raw_data')
++    save_path = str(PROJECT_ROOT.parent / 'data' / 'MAMP' / 'ntu120')
++    skes_path = str(PROJECT_ROOT.parent / 'data' / 'nturgbd_raw' / 'nturgb+d_skeletons')
++    stat_path = str(Path(__file__).resolve().parent / 'statistics')
++    os.makedirs(osp.join(save_path, 'raw_data'), exist_ok=True)
+ 
+     skes_name_file = osp.join(stat_path, 'skes_available_name.txt')
+     save_data_pkl = osp.join(save_path, 'raw_data', 'raw_skes_data.pkl')
+diff --git a/data/ntu120/seq_transformation.py b/data/ntu120/seq_transformation.py
+index 5fd00e5..86282d4 100755
+--- a/data/ntu120/seq_transformation.py
++++ b/data/ntu120/seq_transformation.py
+@@ -6,10 +6,12 @@ import numpy as np
+ import pickle
+ import logging
+ import h5py
++from pathlib import Path
+ from sklearn.model_selection import train_test_split
+ 
+-root_path = './'
+-stat_path = osp.join(root_path, 'statistics')
++project_root = Path(__file__).resolve().parents[2]
++root_path = str(project_root.parent / 'data' / 'MAMP' / 'ntu120')
++stat_path = str(Path(__file__).resolve().parent / 'statistics')
+ setup_file = osp.join(stat_path, 'setup.txt')
+ camera_file = osp.join(stat_path, 'camera.txt')
+ performer_file = osp.join(stat_path, 'performer.txt')
+@@ -21,7 +23,7 @@ denoised_path = osp.join(root_path, 'denoised_data')
+ raw_skes_joints_pkl = osp.join(denoised_path, 'raw_denoised_joints.pkl')
+ frames_file = osp.join(denoised_path, 'frames_cnt.txt')
+ 
+-save_path = './'
++save_path = root_path
+ 
+ 
+ if not osp.exists(save_path):
+@@ -169,7 +171,7 @@ def split_dataset(skes_joints, label, performer, setup, evaluation, save_path):
+     test_y = one_hot_vector(test_labels)
+ 
+     save_name = 'NTU120_%s.npz' % evaluation
+-    np.savez(save_name, x_train=train_x, y_train=train_y, x_test=test_x, y_test=test_y)
++    np.savez(osp.join(save_path, save_name), x_train=train_x, y_train=train_y, x_test=test_x, y_test=test_y)
+ 
+     # # Save data into a .h5 file
+     # h5file = h5py.File(osp.join(save_path, 'NTU_%s.h5' % (evaluation)), 'w')
+diff --git a/data/pku_v1/pku_gendata.py b/data/pku_v1/pku_gendata.py
+index c0ab03a..c0f1853 100755
+--- a/data/pku_v1/pku_gendata.py
++++ b/data/pku_v1/pku_gendata.py
+@@ -2,6 +2,7 @@ import os
+ import argparse
+ import numpy as np
+ from tqdm import tqdm
++from pathlib import Path
+ 
+ max_body_true = 2
+ max_body_kinect = 4
+@@ -24,10 +25,10 @@ def read_data(data_path, name, max_body=4, num_joint=25):  # top 2 body
+ 
+ def gendata(data_path, benchmark='XView', part='test'):
+     # Read cross_subject_v1.txt and cross_view_v1.txt to obtain training_views training_subjects
+-    with open('{}/cross-view.txt'.format(data_path), 'r') as f:
++    with open('{}/cross_view.txt'.format(data_path), 'r') as f:
+         lines = f.readlines()
+         training_views = lines[1].strip('\n').split(', ')
+-    with open('{}/cross-subject.txt'.format(data_path), 'r') as f:
++    with open('{}/cross_subject.txt'.format(data_path), 'r') as f:
+         lines = f.readlines()
+         training_subjects = lines[1].strip('\n').split(', ')
+ 
+@@ -83,9 +84,12 @@ def one_hot_vector(labels):
+ 
+ 
+ if __name__ == '__main__':
++    project_root = Path(__file__).resolve().parents[2]
+     parser = argparse.ArgumentParser(description='PKU-MMD-v1 Data Converter.')
+-    parser.add_argument('--data_path', default='../pku_raw/v1')
++    parser.add_argument('--data_path', default=str(project_root.parent / 'data' / 'pku_raw' / 'v1'))
++    parser.add_argument('--output_dir', default=str(project_root.parent / 'data' / 'MAMP' / 'pku_v1'))
+     arg = parser.parse_args()
++    os.makedirs(arg.output_dir, exist_ok=True)
+     
+     benchmark = ['XSub','XView']
+     for b in benchmark:
+@@ -96,6 +100,6 @@ if __name__ == '__main__':
+         y_test = one_hot_vector(y_test)
+ 
+         save_name = 'PKUv1_%s.npz' % b
+-        np.savez(save_name, x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
++        np.savez(os.path.join(arg.output_dir, save_name), x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
+         
+         
+diff --git a/data/pku_v2/pku_gendata.py b/data/pku_v2/pku_gendata.py
+index 38ae199..e856400 100755
+--- a/data/pku_v2/pku_gendata.py
++++ b/data/pku_v2/pku_gendata.py
+@@ -2,6 +2,7 @@ import os
+ import argparse
+ import numpy as np
+ from tqdm import tqdm
++from pathlib import Path
+ 
+ max_body_true = 2
+ max_body_kinect = 4
+@@ -83,9 +84,12 @@ def one_hot_vector(labels):
+ 
+ 
+ if __name__ == '__main__':
++    project_root = Path(__file__).resolve().parents[2]
+     parser = argparse.ArgumentParser(description='PKU-MMD-v2 Data Converter.')
+-    parser.add_argument('--data_path', default='../pku_raw/v2')
++    parser.add_argument('--data_path', default=str(project_root.parent / 'data' / 'pku_raw' / 'v2'))
++    parser.add_argument('--output_dir', default=str(project_root.parent / 'data' / 'MAMP' / 'pku_v2'))
+     arg = parser.parse_args()
++    os.makedirs(arg.output_dir, exist_ok=True)
+     
+     benchmark = ['XSub','XView']
+     for b in benchmark:
+@@ -96,6 +100,6 @@ if __name__ == '__main__':
+         y_test = one_hot_vector(y_test)
+ 
+         save_name = 'PKUv2_%s.npz' % b
+-        np.savez(save_name, x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
++        np.savez(os.path.join(arg.output_dir, save_name), x_train=x_train, y_train=y_train, x_test=x_test, y_test=y_test)
+         
+         

@@ -90,6 +90,10 @@ class DualGpuTests(unittest.TestCase):
             self.assertNotIn('"model"', path.read_text())
             metadata = json.loads(sidecar_paths(path)[0].read_text())
             self.assertEqual(len(metadata["sources"]), 2)
+            before = (path.read_bytes(), sidecar_paths(path)[0].read_bytes())
+            launcher.merge_results(options, make_renders(), set(range(6)),
+                                   launcher.sha256_file(options.prompt_path))
+            self.assertEqual((path.read_bytes(), sidecar_paths(path)[0].read_bytes()), before)
 
     def test_resume_recovers_tail_skips_finished_gpu_and_merges(self):
         with tempfile.TemporaryDirectory() as folder:

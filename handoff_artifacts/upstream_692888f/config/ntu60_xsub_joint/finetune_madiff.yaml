@@ -1,0 +1,64 @@
+# data
+feeder: feeder.feeder_ntu.Feeder
+# feeder: feeder.feeder_ntu.Feeder_multitest
+train_feeder_args:
+  data_path: data/ntu/NTU60_XSub.npz
+  split: train
+  debug: False
+  random_choose: False
+  random_shift: False
+  random_move: False
+  window_size: 120
+  normalization: False
+  motion_noise: 0 # std
+  impulse_noise: 0 # p
+  joint_noise: [0, 0] # p, std
+  frame_noise: [0, 0] # p, std
+  random_rot: True
+  p_interval: [0.5, 1]
+  vel: False
+  bone: False
+
+val_feeder_args:
+  data_path: data/ntu/NTU60_XSub.npz
+  split: test  
+  debug: False
+  window_size: 120
+  p_interval: [0.9, 0.95] #[0.95]
+  vel: False
+  bone: False
+
+# model
+model: model.transformer_downstream.Transformer
+model_args:
+  dim_in: 3
+  num_classes: 60
+  dim_feat: 256
+  depth: 8
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: None
+  drop_rate: 0. #0.
+  attn_drop_rate: 0. #0.
+  drop_path_rate: 0.3
+  protocol: finetune
+  # new
+  #input_mean: [-0.0034, -0.1322, -0.0271]
+  #input_var: [0.088325, 0.106987, 0.065367]
+  # old
+  input_mean: [-0.0058, -0.1333, -0.0246] 
+  input_var: [0.0206, 0.0805, 0.0218] 
+
+
+# training
+epochs: 100
+warmup_epochs: 5
+batch_size: 24
+lr: 5e-4
+layer_decay: 0.8
+smoothing: 0.1

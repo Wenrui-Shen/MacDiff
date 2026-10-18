@@ -1,0 +1,13 @@
+{
+  "date": "2026-10-13",
+  "new_attachment": "C:\\Users\\97537\\.codex\\attachments\\faee1c70-3725-4a68-aec1-abb9bcc43276\\\u5df2\u7c98\u8d34\u7684\u6587\u672c.txt",
+  "experiment": "T20 LP2 re-upload confirmation, no new experiment",
+  "sha256": "f9ff33cdba3667ff1dd6fd84435fefccb021416b12b2111d610e9d1bd8032018",
+  "bytes_identical_to_both_previous_lp_attachments": true,
+  "epochs": 100,
+  "all_epoch_fields_identical": true,
+  "differing_epochs": [],
+  "best_lp_acc": 86.00194081283784,
+  "best_epoch": 95,
+  "last_lp_acc": 85.7836002144404
+}

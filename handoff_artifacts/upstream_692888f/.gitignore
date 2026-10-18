@@ -1,0 +1,15 @@
+__pycache__
+*.pyc
+*.npz
+*.zip
+*.7z
+*.pth
+*.skeleton
+*.log
+*.pkl
+*.skeleton
+
+output_dir
+logs
+backup_202402
+visualize

@@ -1,0 +1,158 @@
+{
+  "experiment_id": "T20",
+  "date_received": "2026-10-13",
+  "source": "three user attachments: one PT and two user-confirmed same-seed LP executions",
+  "pt": {
+    "epochs": 400,
+    "first_loss": 0.817952164576743,
+    "last_loss": 0.014521730446313231,
+    "last20_loss_mean": 0.01457348432352457,
+    "last20_loss_population_std": 8.287206650271168e-05,
+    "last50_endpoint_loss_decrease_percent": 0.8981313696082674,
+    "max_epoch_mean_lr": 0.0009999937323360033,
+    "last_lr": 9.999999999999862e-06,
+    "epochs_at_min_lr_1e5": [
+      380,
+      381,
+      382,
+      383,
+      384,
+      385,
+      386,
+      387,
+      388,
+      389,
+      390,
+      391,
+      392,
+      393,
+      394,
+      395,
+      396,
+      397,
+      398,
+      399
+    ]
+  },
+  "lp_runs": {
+    "lp1": {
+      "epochs": 100,
+      "best_lp_acc": 86.00194081283784,
+      "best_epoch": 95,
+      "last_lp_acc": 85.7836002144404,
+      "last20_mean": 85.8503153964306,
+      "last20_population_std": 0.07206914375114691,
+      "best_acc5": 97.64070841064157,
+      "last_test_loss": 4.485132807977776,
+      "n_parameters_unique": [
+        384060
+      ],
+      "epochs_at_lr_zero": [
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99
+      ]
+    },
+    "lp2": {
+      "epochs": 100,
+      "best_lp_acc": 86.00194081283784,
+      "best_epoch": 95,
+      "last_lp_acc": 85.7836002144404,
+      "last20_mean": 85.8503153964306,
+      "last20_population_std": 0.07206914375114691,
+      "best_acc5": 97.64070841064157,
+      "last_test_loss": 4.485132807977776,
+      "n_parameters_unique": [
+        384060
+      ],
+      "epochs_at_lr_zero": [
+        90,
+        91,
+        92,
+        93,
+        94,
+        95,
+        96,
+        97,
+        98,
+        99
+      ]
+    }
+  },
+  "repeat_comparison": {
+    "bytes_identical": true,
+    "all_fields_identical": true,
+    "differing_epochs": [],
+    "max_abs_difference_by_field": {
+      "train_lr": 0.0,
+      "train_loss": 0.0,
+      "test_loss": 0.0,
+      "test_acc1": 0.0,
+      "test_acc5": 0.0,
+      "epoch": 0,
+      "n_parameters": 0
+    }
+  },
+  "user_confirmed_lp_identity": {
+    "lp1_seed": 0,
+    "lp2_seed": 0,
+    "lp1_output_directory_name": "lp",
+    "lp2_output_directory_name": "lp1",
+    "same_algorithm_arguments": true,
+    "same_pretrained_encoder": true
+  },
+  "protocol_from_user_description_and_saved_command": {
+    "source": "isolated official 692888f plus inf import compatibility and current data paths",
+    "native": true,
+    "normalization": "A",
+    "decoder_depth": 5,
+    "pt_epochs": 400,
+    "pt_world_size": 2,
+    "pt_per_gpu_batch": 32,
+    "pt_accum_iter": 1,
+    "pt_effective_batch": 64,
+    "pt_seed_in_saved_command": 0,
+    "pt_lr": 0.001,
+    "pt_min_lr": 1e-05,
+    "pt_random_rot": false,
+    "lp_epochs": 100,
+    "lp_world_size": 2,
+    "lp_per_gpu_batch": 64,
+    "lp_accum_iter": 1,
+    "lp_effective_batch": 128,
+    "lp_seed_user_confirmed": 0,
+    "lp_lr": 0.1,
+    "lp_checkpoint_epoch_in_saved_command": 399
+  },
+  "comparison": {
+    "gap_to_user_reported_third_party_86_2_pp": 0.19805918716215842,
+    "approx_difference_from_T19_oral_85_89_pp": 0.11194081283784385
+  },
+  "log_integrity": {
+    "pt": {
+      "sha256": "1d5d40f829b06d808680d9dcef22983517c2e82c0d26d99e1efe114e3c53183f",
+      "size_bytes": 34593
+    },
+    "lp1": {
+      "sha256": "f9ff33cdba3667ff1dd6fd84435fefccb021416b12b2111d610e9d1bd8032018",
+      "size_bytes": 20024
+    },
+    "lp2": {
+      "sha256": "f9ff33cdba3667ff1dd6fd84435fefccb021416b12b2111d610e9d1bd8032018",
+      "size_bytes": 20024
+    }
+  },
+  "limitations": [
+    "Full epoch metrics are provided and verified, but logs contain no Namespace/source/data/checkpoint SHA or environment versions.",
+    "Same-seed LP execution reproduction does not estimate across-seed LP variance or PT seed variance.",
+    "Byte-identical logs do not prove byte-identical checkpoints; checkpoints were not provided.",
+    "PT decoder/source/batch identity follows user description and prepared command; LR and epoch coverage are directly observed."
+  ]
+}

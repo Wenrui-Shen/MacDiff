@@ -1,0 +1,27 @@
+{
+  "date": "2026-10-11",
+  "changed_source": [
+    "engine_pretrain.py"
+  ],
+  "policy": "loss / accum_iter; optimizer step only at complete accumulation windows; tail dropped by next epoch zero_grad",
+  "paths": [
+    "native/text Stage1",
+    "OSE Stage1"
+  ],
+  "ddp_flags_changed": false,
+  "tests_passed": 13,
+  "new_accumulation_tests": 5,
+  "existing_rotation_tests": 8,
+  "test_kind": "standard-library execution of actual engine update statements with scalar gradient stand-ins, plus runner tests",
+  "torch_autograd_or_gpu_ddp_executed": false,
+  "third_party_reference": {
+    "hardware": "two RTX 3090",
+    "reported_lp_acc_percent": 86.2,
+    "default_configuration_confirmed_by_user": true,
+    "pt_per_gpu_batch_confirmed_by_user": 32,
+    "pt_effective_batch_with_default_accum1": 64,
+    "lp_per_gpu_batch_user_estimate": 64,
+    "lp_effective_batch_estimate": 128,
+    "commands_or_logs_available": false
+  }
+}

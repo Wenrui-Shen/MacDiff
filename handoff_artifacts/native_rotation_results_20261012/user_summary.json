@@ -1,0 +1,23 @@
+{
+  "protocol": "native_ntu60_xsub_decoder3_pt500_rotation_ablation_v1",
+  "accuracy_unit": "percent",
+  "results": {
+    "no_rot": {
+      "best_lp_acc": 85.63803979946768,
+      "best_epoch": 64,
+      "last_lp_acc": 85.47428436686494,
+      "last20_mean": 85.55767833815219,
+      "last20_population_std": 0.042406355924753954,
+      "lp_log": "/home/user9/public3/swr/MacDiff/output_dir/native_rotation_dec3_ep500_20261011_012631_490772/no_rot/lp/log.txt"
+    },
+    "rot": {
+      "best_lp_acc": 85.78966523882603,
+      "best_epoch": 88,
+      "last_lp_acc": 85.61984477443409,
+      "last20_mean": 85.68413393778572,
+      "last20_population_std": 0.04483192483658093,
+      "lp_log": "/home/user9/public3/swr/MacDiff/output_dir/native_rotation_dec3_ep500_20261011_012631_490772/rot/lp/log.txt"
+    }
+  },
+  "rot_minus_no_rot_best_pp": 0.15162543935835515
+}

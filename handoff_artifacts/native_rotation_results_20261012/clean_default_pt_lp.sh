@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run from MacDiff repository root after synchronizing the isolated source folder.
+test -f handoff_artifacts/upstream_692888f/main_pretrain.py
+test -f handoff_artifacts/upstream_692888f/main_linprobe.py
+test -f ../data/MAMP/ntu/NTU60_XSub.npz
+if [ -e output_dir/native_official_dec5_ep400_bs32_seed0_20261012 ]; then
+  echo "Refusing to reuse existing official baseline output directory" >&2
+  exit 1
+fi
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10273 handoff_artifacts/upstream_692888f/main_pretrain.py --config handoff_artifacts/upstream_692888f/config/ntu60_xsub_joint/pretrain_madiff.yaml --output_dir output_dir/native_official_dec5_ep400_bs32_seed0_20261012/pt --log_dir output_dir/native_official_dec5_ep400_bs32_seed0_20261012/pt/tensorboard --batch_size 32 --accum_iter 1 --epochs 400 --lr 0.001 --min_lr 0.00001 --mask_ratio 0.9 --seed 0 && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10274 handoff_artifacts/upstream_692888f/main_linprobe.py --config handoff_artifacts/upstream_692888f/config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/native_official_dec5_ep400_bs32_seed0_20261012/pt/checkpoint-399.pth --output_dir output_dir/native_official_dec5_ep400_bs32_seed0_20261012/lp --log_dir output_dir/native_official_dec5_ep400_bs32_seed0_20261012/lp/tensorboard --batch_size 64 --accum_iter 1 --epochs 100 --lr 0.1 --min_lr 0 --seed 0 --dist_eval

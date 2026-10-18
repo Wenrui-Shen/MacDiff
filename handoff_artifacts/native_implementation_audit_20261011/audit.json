@@ -1,0 +1,1612 @@
+{
+  "baseline_commit": "692888f1e2a4227216511aac6733dff31b587213",
+  "baseline_url": "https://github.com/LehongWu/MacDiff/tree/692888f1e2a4227216511aac6733dff31b587213",
+  "current_head": "e854ff11cc60e0c02838331cfbf59586e3b6e15c",
+  "comparison": "actual working-tree files; CRLF is normalized to LF for file equality",
+  "original_file_count": 92,
+  "original_file_status_counts": {
+    "identical_lf": 55,
+    "changed": 37
+  },
+  "original_files": [
+    {
+      "path": ".gitignore",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "25513fcdc3bc42512dd918103a2c90f148b5344579ceef683493cd910bc95271",
+      "current_sha256_lf": "25513fcdc3bc42512dd918103a2c90f148b5344579ceef683493cd910bc95271"
+    },
+    {
+      "path": "README.md",
+      "status": "changed",
+      "upstream_sha256_lf": "9628e37df22e243b48d9645a955ee4263f498c9a8aa9771ac76de18a86df86c6",
+      "current_sha256_lf": "1144c85b58eec585d5947652d16bc9d33c0728419e305abf3968074e27f95566"
+    },
+    {
+      "path": "assets/overview_macdiff.png",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "28044909d7857576e906f67271d03c63c69397a7de4feda2ecd8f3cdec97104f",
+      "current_sha256_lf": "28044909d7857576e906f67271d03c63c69397a7de4feda2ecd8f3cdec97104f"
+    },
+    {
+      "path": "config/ntu120_xset_joint/finetune_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "d70a4907e525d71b332e4386c5f9a6519e6bcbdb9ec85ac621a7b583cddf4ccc",
+      "current_sha256_lf": "f1da488eaff194b162040232b481f218e149bddd8966e0d6aff18ebfd6c2fcaa"
+    },
+    {
+      "path": "config/ntu120_xset_joint/linprobe_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "7adf0f0bd212ff38c6343bc8474698b5bf64a405576f909f814cd4482d58efcd",
+      "current_sha256_lf": "3f5cebb36f7c19ed5b258fd98d1d4ee89a31a26a550175cebe15506d4ee4e20a"
+    },
+    {
+      "path": "config/ntu120_xset_joint/pretrain_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "5e46f58affa1c5f017690c6ed795aa23279d54fcbc2e2f3caf8cf8a3e03c9bd7",
+      "current_sha256_lf": "42c5e8cc919d22ccf70832135b8ec85bb642444fe641b0cb79a52c77877327ba"
+    },
+    {
+      "path": "config/ntu120_xsub_joint/finetune_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "94fafe9de7747de54e235d647d451cf14a63d13e47990a6e37fcbe1f93efc728",
+      "current_sha256_lf": "b977e683dca7ff158857c73c85c517cf03281a0f7ac23799d7ad3a9bb1df21cc"
+    },
+    {
+      "path": "config/ntu120_xsub_joint/linprobe_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "44303bbb44b863eedd5ed4a1a0ca469c7b442456a4cebcbe5cf1324645aa3f4e",
+      "current_sha256_lf": "69d49e5e38bf8776342c3c818072e0d2cc837e4c304d8dd8f6e847d0635d9aae"
+    },
+    {
+      "path": "config/ntu120_xsub_joint/pretrain_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "b5f68c683b6f69639690453a1fbfdf4e89b18b5e6af4db695908c36c3c300824",
+      "current_sha256_lf": "7db6bb962cbd7730638d7dce91712dae48a29df93591f8a93cbbcbff37a8880b"
+    },
+    {
+      "path": "config/ntu60_xsub_joint/finetune_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "fa4b1f34d264fb12b9087e7270d309c1ed2f6b28043bfb44fdf1f9fd977f330c",
+      "current_sha256_lf": "dbcd20362b2e4e7afbee3be9891a7b01ce3205bcb2c6b3239febab7623ea30f6"
+    },
+    {
+      "path": "config/ntu60_xsub_joint/linprobe_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "5fdc2b83eccf9c5e9c8ef97b99b5a7c34094d9edb2d7905b9d87ac0f2a52536b",
+      "current_sha256_lf": "974dbde71aa31374e38313f7b61eb97525934d9e5edd62579ae12a6aec691b4a"
+    },
+    {
+      "path": "config/ntu60_xsub_joint/pretrain_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "e480766c520d4421ee6957ef841739dc190a9c63b5d665bf3e23fcd4699844ee",
+      "current_sha256_lf": "777ef6d2fba47b48843763ae6eb4fcb6c93e1e54906534f44d237ccaa81302cf"
+    },
+    {
+      "path": "config/ntu60_xview_joint/finetune_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "856fe2b0f6a6ef963b2942e4bb89cf5b36258da96d4a7f7021becef9c41a33c0",
+      "current_sha256_lf": "72d2a053186ba5c6a49b1461eb5706a2e50051e247661de29cb13b3f61ce244c"
+    },
+    {
+      "path": "config/ntu60_xview_joint/linprobe_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "2d54fa7463e83031b95134502c1c5b00047c50b2677db644dcafb9690058cc12",
+      "current_sha256_lf": "2b990bdea1dba18dc6258de73aef4beb4906c93ca60255b64f8fc9f42e7ca845"
+    },
+    {
+      "path": "config/ntu60_xview_joint/pretrain_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "7ebef5143c970068efff60ad9e28b78839e8f670b8c4a82af5e77a94724311d3",
+      "current_sha256_lf": "61b8c51d8b807a97cd9ba4a366007cfb5fe3dddae25d4385d68518d73cbf983d"
+    },
+    {
+      "path": "config/pkuv1_xsub_joint/finetune_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "5ba5f78179d415736b097f52f5dfd4174a9ab0373f743456a9895ecc17142832",
+      "current_sha256_lf": "83441db81d46679c55a03663fbac9321ec6ffc239765b4891e0634ec1552ad26"
+    },
+    {
+      "path": "config/pkuv1_xsub_joint/linprobe_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "ef9b0a5961288474740ccbbbce9be0c339873d79b99ae50338ca1ddb0fdd67fa",
+      "current_sha256_lf": "9b8be4a17452a69f40be04a65e61f45c1e443d553580f58ddbb35843b1a22786"
+    },
+    {
+      "path": "config/pkuv1_xsub_joint/pretrain_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "e52d36cf63c3fde538ed4e2c34f0dd4ce260c3ece1be995bfb4d4870f7224c32",
+      "current_sha256_lf": "379740baafc2a7958d107b1f13cd5c7b874e0c9c5b303a1bd8347ceb3eb3b5d1"
+    },
+    {
+      "path": "config/pkuv2_xsub_joint/finetune_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "f94efce76a740d5fd856f47113892f1f2bd8a7d804d8598cc136c764dd3234e9",
+      "current_sha256_lf": "95e6c1d544bc789b41a9a208743ff191a1224866eb752ff321022fa88b48770d"
+    },
+    {
+      "path": "config/pkuv2_xsub_joint/linprobe_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "332928081a4bd7fdbed272640a4c3f5c834c4e4582ad2e2dd57bf6097633070c",
+      "current_sha256_lf": "14ee7564d501d00bd6c557a51f98246e9f99b5854ce700ad135e0bf375318fba"
+    },
+    {
+      "path": "config/pkuv2_xsub_joint/pretrain_madiff.yaml",
+      "status": "changed",
+      "upstream_sha256_lf": "0ccd099257d9ffdf08d36a9fd2cfa00c60e19d3849def0f660d326f0df86ffbd",
+      "current_sha256_lf": "75e42c6815d6129661436bf2784edb2e239fe642973b98310a5035756e1f155c"
+    },
+    {
+      "path": "data/ntu/get_raw_denoised_data.py",
+      "status": "changed",
+      "upstream_sha256_lf": "789bbed1a2a6bb5124f03f53f04af62df1848f3c412aac6a5a4caa74992cd9e7",
+      "current_sha256_lf": "a2d53c7624ae5bfbd07aa413f41cba702c6c751e5b4b391b9ab116c558461498"
+    },
+    {
+      "path": "data/ntu/get_raw_skes_data.py",
+      "status": "changed",
+      "upstream_sha256_lf": "e8517de24c3c94712c3a476ea81d0ccc9ec5297b808b364a4dca59bacb410c4b",
+      "current_sha256_lf": "56158db1cfec7537a818ae678233574c8a41e381420a7c8a1a0cc398306f5b5c"
+    },
+    {
+      "path": "data/ntu/seq_transformation.py",
+      "status": "changed",
+      "upstream_sha256_lf": "c33115e02c8f3a8ee15a591ee0fde5e03443ecc5adcd0b35eac1696e0f4dcb00",
+      "current_sha256_lf": "ee8867e340eae72cdeaa14d3f2fd58f7388351b378bdc219d25ed43831379c76"
+    },
+    {
+      "path": "data/ntu/statistics/camera.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "d0556d85df4c2c4d38b37ad5bc0c02e5b828c9128134460baa37bd119341c905",
+      "current_sha256_lf": "d0556d85df4c2c4d38b37ad5bc0c02e5b828c9128134460baa37bd119341c905"
+    },
+    {
+      "path": "data/ntu/statistics/label.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "647b8ccadc038528d3021a50f75ee6c724d76758625438c586dc26f2eb512dc3",
+      "current_sha256_lf": "647b8ccadc038528d3021a50f75ee6c724d76758625438c586dc26f2eb512dc3"
+    },
+    {
+      "path": "data/ntu/statistics/performer.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "7cf0329735edbd991e69e5f14c807099afee384160cfa1c9f3932bc1d9855ea6",
+      "current_sha256_lf": "7cf0329735edbd991e69e5f14c807099afee384160cfa1c9f3932bc1d9855ea6"
+    },
+    {
+      "path": "data/ntu/statistics/replication.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "1bc11936cdbeab76d8a4839481fcbef0425d37f883a4c497600776248bee5272",
+      "current_sha256_lf": "1bc11936cdbeab76d8a4839481fcbef0425d37f883a4c497600776248bee5272"
+    },
+    {
+      "path": "data/ntu/statistics/samples_with_missing_skeletons.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "4a964781573e86c3f3bb24d489d2b4768d2d03ede396d20ea9c09ddc92b6df18",
+      "current_sha256_lf": "4a964781573e86c3f3bb24d489d2b4768d2d03ede396d20ea9c09ddc92b6df18"
+    },
+    {
+      "path": "data/ntu/statistics/setup.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "98b6a7a4176e212353126ce178022fb7c6937ecf7cfb1d1d2f4ce2e2f02c0169",
+      "current_sha256_lf": "98b6a7a4176e212353126ce178022fb7c6937ecf7cfb1d1d2f4ce2e2f02c0169"
+    },
+    {
+      "path": "data/ntu/statistics/skes_available_name.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "eab6e5ace50273142a49f12fe2b98f2b4558c14aaeb283c181d600494bfc8feb",
+      "current_sha256_lf": "eab6e5ace50273142a49f12fe2b98f2b4558c14aaeb283c181d600494bfc8feb"
+    },
+    {
+      "path": "data/ntu120/get_raw_denoised_data.py",
+      "status": "changed",
+      "upstream_sha256_lf": "789bbed1a2a6bb5124f03f53f04af62df1848f3c412aac6a5a4caa74992cd9e7",
+      "current_sha256_lf": "458027336469bf065e5f9b26409ad90eb3d5703405e0fd8a50b0a749b4d724a0"
+    },
+    {
+      "path": "data/ntu120/get_raw_skes_data.py",
+      "status": "changed",
+      "upstream_sha256_lf": "55629737168510da61f0fff9b37928f5bc43b560e66db81681d668614b019d04",
+      "current_sha256_lf": "46498bf7a8657224a2976547bab074128a45ae8f47df9144ac5cfaa40da7dc8d"
+    },
+    {
+      "path": "data/ntu120/seq_transformation.py",
+      "status": "changed",
+      "upstream_sha256_lf": "9aa725a63d3eb14cbf148693f19ddded6977a9078d10729d98cffdff42c7d1e0",
+      "current_sha256_lf": "2260abea34a9d0714b278a91e77516d6402d713fc923f5b2241088f519eef90d"
+    },
+    {
+      "path": "data/ntu120/statistics/NTU_RGBD120_samples_with_missing_skeletons.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "f8abc124c4fc4b4e8f144caa34948f8307e5d7dcba17acf96132c9f311ff93cf",
+      "current_sha256_lf": "f8abc124c4fc4b4e8f144caa34948f8307e5d7dcba17acf96132c9f311ff93cf"
+    },
+    {
+      "path": "data/ntu120/statistics/camera.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "4a452b824e497479bbd0f827262d2b82b110ff9e8139153fbe96dc2ce5111574",
+      "current_sha256_lf": "4a452b824e497479bbd0f827262d2b82b110ff9e8139153fbe96dc2ce5111574"
+    },
+    {
+      "path": "data/ntu120/statistics/label.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "9512fd91725fa6dd754fcbc21dae0732ea11e6e390e71507c7ae265909c9e6f1",
+      "current_sha256_lf": "9512fd91725fa6dd754fcbc21dae0732ea11e6e390e71507c7ae265909c9e6f1"
+    },
+    {
+      "path": "data/ntu120/statistics/performer.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "e26ce01f92271f9f043f1075fa90575fc740a0352900b5e70b1441e73ebc542b",
+      "current_sha256_lf": "e26ce01f92271f9f043f1075fa90575fc740a0352900b5e70b1441e73ebc542b"
+    },
+    {
+      "path": "data/ntu120/statistics/replication.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "8d9f7b77970831126d996eb33997e74fa0b06a64cb1cb381c4bcc6a48a6bb368",
+      "current_sha256_lf": "8d9f7b77970831126d996eb33997e74fa0b06a64cb1cb381c4bcc6a48a6bb368"
+    },
+    {
+      "path": "data/ntu120/statistics/setup.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "5b914ac330947bfcab34dac1d5bb1127470060bbea60df5578c716b427d335ff",
+      "current_sha256_lf": "5b914ac330947bfcab34dac1d5bb1127470060bbea60df5578c716b427d335ff"
+    },
+    {
+      "path": "data/ntu120/statistics/skes_available_name.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "d3370d949a1377de545409a9ae001ef37857263da69e8fd9ac07cf05eea67ee0",
+      "current_sha256_lf": "d3370d949a1377de545409a9ae001ef37857263da69e8fd9ac07cf05eea67ee0"
+    },
+    {
+      "path": "data/pku_v1/pku_gendata.py",
+      "status": "changed",
+      "upstream_sha256_lf": "6298f25a7ccad13d6557201fbd9fd4debaa9f1120d799f7e7aa9f962ee4640ff",
+      "current_sha256_lf": "c30dde48691039a415c1ff6995d8b583dcf71a95f615de4ff0da60354b5d54b2"
+    },
+    {
+      "path": "data/pku_v2/pku_gendata.py",
+      "status": "changed",
+      "upstream_sha256_lf": "c2cee3e8c40bdcabdcf08dcd2cbbf2f016069cec5db57d52d50f57126dc97045",
+      "current_sha256_lf": "e2068a189245d6e47799a87c095e1ec5d68f20a1462ef909e9612bdee9cd2d42"
+    },
+    {
+      "path": "engine_finetune.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "257accdd2e64629c356be7ffab4b4e9e4cf506166e23b46bea103b0a352f2c54",
+      "current_sha256_lf": "257accdd2e64629c356be7ffab4b4e9e4cf506166e23b46bea103b0a352f2c54"
+    },
+    {
+      "path": "engine_linprobe.py",
+      "status": "changed",
+      "upstream_sha256_lf": "916fd348cd14786230917ed3cbbdb71bc9a8b28655a755ef39d599de5d06334c",
+      "current_sha256_lf": "be79cd7dd92dead53d61a80c4dbc5f45304fa87c184514de664f28d0e6dc69f6"
+    },
+    {
+      "path": "engine_pretrain.py",
+      "status": "changed",
+      "upstream_sha256_lf": "f076091e5419757cf6af26b9282997e92f0afcf563b48b579448644050e91cc2",
+      "current_sha256_lf": "af8623672b57869d0f046544745f08ed8788fbdf8c3b3c0272cb25daf4790de0"
+    },
+    {
+      "path": "feeder/__init__.py",
+      "status": "changed",
+      "upstream_sha256_lf": "1e8d6135d37366e87148479744f857c236a1f4a7b52406fc525eed850e2eaae7",
+      "current_sha256_lf": "98a544404fc452ace77e90ef45a7dee837da1598facc414b92ba409573a71171"
+    },
+    {
+      "path": "feeder/feeder_h36m_3d.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "456e8fabbebf1d55a88c7cf4762c53352ea4986ff70b0f62510cb09b38f863d5",
+      "current_sha256_lf": "456e8fabbebf1d55a88c7cf4762c53352ea4986ff70b0f62510cb09b38f863d5"
+    },
+    {
+      "path": "feeder/feeder_ntu.py",
+      "status": "changed",
+      "upstream_sha256_lf": "1a2408e1bdd1694edd76b32b12b093dcf0e79aa143b29689e5c1ae3998405638",
+      "current_sha256_lf": "521c0d8cd42850b01f6f1e2c95ddb6b29ebe7189a2d88dd7ae45330b27e29eb7"
+    },
+    {
+      "path": "feeder/feeder_ntu_semi.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "472d61979db0ecc06e7fe9de7ad8afec72f0497302b8bc7651b8e16fb05bfdd3",
+      "current_sha256_lf": "472d61979db0ecc06e7fe9de7ad8afec72f0497302b8bc7651b8e16fb05bfdd3"
+    },
+    {
+      "path": "feeder/tools.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "cadbf80a23985dcb90d42ed56db017adce5b553a8334b8a4acc2169ff1778b3b",
+      "current_sha256_lf": "cadbf80a23985dcb90d42ed56db017adce5b553a8334b8a4acc2169ff1778b3b"
+    },
+    {
+      "path": "guided_diffusion/__init__.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "current_sha256_lf": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "path": "guided_diffusion/dist_util.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "49d5dbf4cafbfb2afa3de7c2d30cfee89598e0907c9f182f523e5c98fef571f8",
+      "current_sha256_lf": "49d5dbf4cafbfb2afa3de7c2d30cfee89598e0907c9f182f523e5c98fef571f8"
+    },
+    {
+      "path": "guided_diffusion/fp16_util copy.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "31ce6b36be7a2a09606687a4935eca6b093f645c7ecd2111f43fca54aff3dc2a",
+      "current_sha256_lf": "31ce6b36be7a2a09606687a4935eca6b093f645c7ecd2111f43fca54aff3dc2a"
+    },
+    {
+      "path": "guided_diffusion/fp16_util.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "ec79a9c5a8ba5a8722c0d18d93ec15e48e3df3f17185dca65e42d92efc74b91e",
+      "current_sha256_lf": "ec79a9c5a8ba5a8722c0d18d93ec15e48e3df3f17185dca65e42d92efc74b91e"
+    },
+    {
+      "path": "guided_diffusion/gaussian_diffusion.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "57f65242e7c80e5bba1924f8b884cab69f3dcbfe479d2106535637e51acdbb07",
+      "current_sha256_lf": "57f65242e7c80e5bba1924f8b884cab69f3dcbfe479d2106535637e51acdbb07"
+    },
+    {
+      "path": "guided_diffusion/gaussian_diffusion_original.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "ece0176dc6f3a176774d4343c4887d5a44733925f8e47299c39ede3e7a9c797e",
+      "current_sha256_lf": "ece0176dc6f3a176774d4343c4887d5a44733925f8e47299c39ede3e7a9c797e"
+    },
+    {
+      "path": "guided_diffusion/image_datasets.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "220d6699f1c201989209f1bd64f5a7d3beef41e84098607aa521ab21cf6700d5",
+      "current_sha256_lf": "220d6699f1c201989209f1bd64f5a7d3beef41e84098607aa521ab21cf6700d5"
+    },
+    {
+      "path": "guided_diffusion/logger.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "615d9cb63dd2cfe017ac424bcc64340257c83eb9cb8e6b6913df4bd55831c1c0",
+      "current_sha256_lf": "615d9cb63dd2cfe017ac424bcc64340257c83eb9cb8e6b6913df4bd55831c1c0"
+    },
+    {
+      "path": "guided_diffusion/losses.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "0b0f5a5532910fbc7f16d30f2b891d8f1e20aa88881589ce4eacc2cc6ce06026",
+      "current_sha256_lf": "0b0f5a5532910fbc7f16d30f2b891d8f1e20aa88881589ce4eacc2cc6ce06026"
+    },
+    {
+      "path": "guided_diffusion/nn.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "67f89df697fd19f877c665eb67318848fd58dfcdabeb67f3fd79f92342434ac9",
+      "current_sha256_lf": "67f89df697fd19f877c665eb67318848fd58dfcdabeb67f3fd79f92342434ac9"
+    },
+    {
+      "path": "guided_diffusion/resample.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "fc92ddb567d6f2f9b3d5fa1d3077a391a09e32a406d51b360e098a1ea20623ca",
+      "current_sha256_lf": "fc92ddb567d6f2f9b3d5fa1d3077a391a09e32a406d51b360e098a1ea20623ca"
+    },
+    {
+      "path": "guided_diffusion/respace.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "b9a509b28c10a52ca3ee8cc48f40205b1d70aecfc95356b540dc88415368c2de",
+      "current_sha256_lf": "b9a509b28c10a52ca3ee8cc48f40205b1d70aecfc95356b540dc88415368c2de"
+    },
+    {
+      "path": "guided_diffusion/script_util.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "d47bb38ea450bf6e7c57c494a43947f6664f45b58a487f6315f5ec83365b80b8",
+      "current_sha256_lf": "d47bb38ea450bf6e7c57c494a43947f6664f45b58a487f6315f5ec83365b80b8"
+    },
+    {
+      "path": "guided_diffusion/train_util.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "10d1e0c70c5a254521136502d663e1c5d01296debbbf547e418ad6e6ccb2e20d",
+      "current_sha256_lf": "10d1e0c70c5a254521136502d663e1c5d01296debbbf547e418ad6e6ccb2e20d"
+    },
+    {
+      "path": "guided_diffusion/unet.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "ab3ad40d70a551069f3e2d14698f7c6712e5738d0be1365def6cad78ca15eeda",
+      "current_sha256_lf": "ab3ad40d70a551069f3e2d14698f7c6712e5738d0be1365def6cad78ca15eeda"
+    },
+    {
+      "path": "main_finetune.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "351ffaf8f208795f356b9d157e54c61237b3c7433ffcf6566bce5d92f51b8613",
+      "current_sha256_lf": "351ffaf8f208795f356b9d157e54c61237b3c7433ffcf6566bce5d92f51b8613"
+    },
+    {
+      "path": "main_linprobe.py",
+      "status": "changed",
+      "upstream_sha256_lf": "cbca4c5592930276686341cab9484fec5c23386fb2044c94c473165d52f8228f",
+      "current_sha256_lf": "99e00dfcd4ce5afc36dc1ffd6ed8542e0ba58444f8fd248413b1b52a9bc197f6"
+    },
+    {
+      "path": "main_pretrain.py",
+      "status": "changed",
+      "upstream_sha256_lf": "343daec07290e130039d7e9f27929137971310a69c9783f0374a8fc996f580c0",
+      "current_sha256_lf": "36f02cc24ba00e2f3aae0a4bb60f44a20289ec9ac38c4324c7f17797eff636a7"
+    },
+    {
+      "path": "model/__init__.py",
+      "status": "changed",
+      "upstream_sha256_lf": "733ce0c7a6e9829e1e4c8eacdaa6738f4cd9ac2fc02b83d76ff4b99c9c0a6da4",
+      "current_sha256_lf": "70c367857c697e87d784d67cf62551ee87798ec131edd5dc08b4f48cccea4c4a"
+    },
+    {
+      "path": "model/drop.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "44b1af7912ae46c62c5b74712dae31697afc697e788c8dd9c5050602a2397173",
+      "current_sha256_lf": "44b1af7912ae46c62c5b74712dae31697afc697e788c8dd9c5050602a2397173"
+    },
+    {
+      "path": "model/transformer_downstream.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "f8b77e1afdaf7cf5d7cdfdd759e06e36c9ecbd6b6eddf38f7846040b72fef1d0",
+      "current_sha256_lf": "f8b77e1afdaf7cf5d7cdfdd759e06e36c9ecbd6b6eddf38f7846040b72fef1d0"
+    },
+    {
+      "path": "model/transformer_macdiff.py",
+      "status": "changed",
+      "upstream_sha256_lf": "03eec1f7187cd1c8970929cea53cb2161215b0a34c0919636ff6d4fe328a9714",
+      "current_sha256_lf": "5e9cf0f1af94194f06010ff149e10f238f1ac749e4e065d31f3c0b5b72a3d7b5"
+    },
+    {
+      "path": "model/util.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "26be392b237918bb6c2b4930f68fe3a84ad008faf02ffa7aa9eef838b26b3905",
+      "current_sha256_lf": "26be392b237918bb6c2b4930f68fe3a84ad008faf02ffa7aa9eef838b26b3905"
+    },
+    {
+      "path": "requirements.txt",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "8b7e51e91cea3f69b1c0e551be62356179e255287ecc3d71eaeccb5a31709c53",
+      "current_sha256_lf": "8b7e51e91cea3f69b1c0e551be62356179e255287ecc3d71eaeccb5a31709c53"
+    },
+    {
+      "path": "script_finetune_madiff.sh",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "7e9d7758c5729713bb503a94e219847b7621627dc77c8356405efb9ab72581a9",
+      "current_sha256_lf": "7e9d7758c5729713bb503a94e219847b7621627dc77c8356405efb9ab72581a9"
+    },
+    {
+      "path": "script_linprobe_madiff.sh",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "b79d4090b1ba05fb8da92900bdf50451baf1bfb219763332f957aab6ddcbf1ec",
+      "current_sha256_lf": "b79d4090b1ba05fb8da92900bdf50451baf1bfb219763332f957aab6ddcbf1ec"
+    },
+    {
+      "path": "script_pretrain_madiff.sh",
+      "status": "changed",
+      "upstream_sha256_lf": "3eda467884593a7b390c83743cf3bfa3d74f9974b047c21d69d34f53058ca8d2",
+      "current_sha256_lf": "5384719c48dd49f65a4ec1ef51809f5b790afc20a44d0c27a9967f194bf578ef"
+    },
+    {
+      "path": "util/class_acc.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "533fe2ef7b2860e17f7477444f6ff2d2dd8e9f8fa1fcd50e5aeb242aee694090",
+      "current_sha256_lf": "533fe2ef7b2860e17f7477444f6ff2d2dd8e9f8fa1fcd50e5aeb242aee694090"
+    },
+    {
+      "path": "util/crop.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "fc3594cea39ba3caa8b252f8b0b899aa3f82a3f7d6e1063bf20b3c7a75daf044",
+      "current_sha256_lf": "fc3594cea39ba3caa8b252f8b0b899aa3f82a3f7d6e1063bf20b3c7a75daf044"
+    },
+    {
+      "path": "util/datasets.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "67e4082f439e4f30c42ce3153ee25bf99926d6e1ab3596d686268ed103a95178",
+      "current_sha256_lf": "67e4082f439e4f30c42ce3153ee25bf99926d6e1ab3596d686268ed103a95178"
+    },
+    {
+      "path": "util/dct.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "74aa7a689498dced018a9cbb02a20dc1ba5ee2590cf3433644ef3909975d24a4",
+      "current_sha256_lf": "74aa7a689498dced018a9cbb02a20dc1ba5ee2590cf3433644ef3909975d24a4"
+    },
+    {
+      "path": "util/fid.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "48359c48c8166157589f60ea14c97da783741b63922a125e22636849a09ef713",
+      "current_sha256_lf": "48359c48c8166157589f60ea14c97da783741b63922a125e22636849a09ef713"
+    },
+    {
+      "path": "util/kid.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "e871177e5e0af1da04fe3fb7d6ee9edc223e735b6201ad552cf3e463053bcbef",
+      "current_sha256_lf": "e871177e5e0af1da04fe3fb7d6ee9edc223e735b6201ad552cf3e463053bcbef"
+    },
+    {
+      "path": "util/lars.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "1bb75085eecf93b8d7ed7972c507495586e71a8f483bcdcd4f37c354f88a0fc0",
+      "current_sha256_lf": "1bb75085eecf93b8d7ed7972c507495586e71a8f483bcdcd4f37c354f88a0fc0"
+    },
+    {
+      "path": "util/loss_2dto3d.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "44f5b055179ccba41392740b5397cac8332e3159a7661095f3e83c670211938d",
+      "current_sha256_lf": "44f5b055179ccba41392740b5397cac8332e3159a7661095f3e83c670211938d"
+    },
+    {
+      "path": "util/lr_decay.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "ec9c359b5230856b38ef77ee9123076838aa6fd087bb399bd5ef0564929b5989",
+      "current_sha256_lf": "ec9c359b5230856b38ef77ee9123076838aa6fd087bb399bd5ef0564929b5989"
+    },
+    {
+      "path": "util/lr_sched.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "47d20e873afa6618134ecc5403661dbaec9084d8c6fdf257c1e07180a9cc31e3",
+      "current_sha256_lf": "47d20e873afa6618134ecc5403661dbaec9084d8c6fdf257c1e07180a9cc31e3"
+    },
+    {
+      "path": "util/misc.py",
+      "status": "changed",
+      "upstream_sha256_lf": "f337e930b35e2b7f717ba88498af52c48dce42eb95d86bf95429a1ad713f3856",
+      "current_sha256_lf": "b030d92d78992db022dc8fbe3d783d3479c70f468d9787142546e5d72a1d206e"
+    },
+    {
+      "path": "util/pos_embed.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "469eeda1c52c979598788f2cedf14f88955c56f6cdd99e3d75247b5678af74ae",
+      "current_sha256_lf": "469eeda1c52c979598788f2cedf14f88955c56f6cdd99e3d75247b5678af74ae"
+    },
+    {
+      "path": "util/tsne.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "4105fc7d53936a0374c9880d8bfc9338ae2045853c3559346c96c00ad96c14a3",
+      "current_sha256_lf": "4105fc7d53936a0374c9880d8bfc9338ae2045853c3559346c96c00ad96c14a3"
+    },
+    {
+      "path": "visualize.py",
+      "status": "identical_lf",
+      "upstream_sha256_lf": "7583774cefdd9d8ab0957c24bcf1a45d4c548e55922e6b9d49dd008b6fc6fcb3",
+      "current_sha256_lf": "7583774cefdd9d8ab0957c24bcf1a45d4c548e55922e6b9d49dd008b6fc6fcb3"
+    }
+  ],
+  "static_checks": [
+    {
+      "name": "MLP",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Attention",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Block",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "FeatureModulation",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "DecoderBlock",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "SkeleEmbed",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Transformer._init_weights",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Transformer.random_masking",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Transformer.motion_aware_random_masking",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Transformer.patchify",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Transformer.forward_loss",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Transformer.update_diffusion_sampler",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality; comments and source locations are ignored."
+    },
+    {
+      "name": "Transformer.__init__ excluding inactive OSE None fields",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Removed only assignments to None: ose_memory, ose_momentum_encoder, ose_momentum, ose_start_epoch, ose_exemplar_checkpoint, lambda_ose, self_prob_start, self_prob_end, peer_prob_start, peer_prob_end"
+    },
+    {
+      "name": "Transformer.forward_encoder with checkpoint_blocks=False",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Select default non-checkpoint branch and discard unused enumerate index."
+    },
+    {
+      "name": "Transformer.forward_decoder after moving condition assembly",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Condition cat/gather moved into build_global_local_condition; remaining decoder AST is exact."
+    },
+    {
+      "name": "Feeder.__init__",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality."
+    },
+    {
+      "name": "Feeder.load_data",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality."
+    },
+    {
+      "name": "Feeder.__len__",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality."
+    },
+    {
+      "name": "Feeder.__iter__",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality."
+    },
+    {
+      "name": "Feeder.add_source_aug",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Exact AST equality."
+    },
+    {
+      "name": "Feeder.__getitem__ after inlining _load_processed",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Inline crop/flip/rotation helper, leaving synthetic noise and return order intact."
+    },
+    {
+      "name": "Transformer native forward after refactor normalization",
+      "passed": true,
+      "kind": "AST comparison after stated normalization",
+      "note": "Rename local variables; express moved condition call; ignore diagnostic print bodies and invalid-target error body. Diagnostic RNG conditions are retained. The removed **kwargs is unused upstream."
+    }
+  ],
+  "all_static_checks_passed": true,
+  "parser_defaults": {
+    "main_pretrain.py": {
+      "official": {
+        "--config": {
+          "default": "'./config/ntu60_xsub_joint_pretrain_debug.yaml'",
+          "help": "'path to the configuration file'"
+        },
+        "--batch_size": {
+          "default": "64",
+          "type": "int",
+          "help": "'Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus'"
+        },
+        "--epochs": {
+          "default": "400",
+          "type": "int"
+        },
+        "--start_epoch": {
+          "default": "0",
+          "type": "int",
+          "metavar": "'N'",
+          "help": "'start epoch'"
+        },
+        "--accum_iter": {
+          "default": "1",
+          "type": "int",
+          "help": "'Accumulate gradient iterations (for increasing the effective batch size under memory constraints)'"
+        },
+        "--task": {
+          "default": "'recognition'",
+          "type": "str",
+          "help": "'recognition / 2dto3d'"
+        },
+        "--args_2dto3d": {
+          "default": "dict()",
+          "help": "'the arguments of evaluation for 2dto3d task'"
+        },
+        "--model": {
+          "default": "'mae_vit_large_patch16'",
+          "type": "str",
+          "metavar": "'MODEL'",
+          "help": "'Name of model to train'"
+        },
+        "--model_args": {
+          "default": "dict()",
+          "help": "'the arguments of model'"
+        },
+        "--mask_ratio": {
+          "default": "0.9",
+          "type": "float",
+          "nargs": "'+'",
+          "help": "'Masking ratio (percentage of removed patches).'"
+        },
+        "--motion_stride": {
+          "default": "1",
+          "type": "int",
+          "help": "'stride of motion to be predicted.'"
+        },
+        "--motion_aware_tau": {
+          "default": "0.75",
+          "type": "float",
+          "help": "'temperature of motion aware masking.'"
+        },
+        "--mask_ratio_inter": {
+          "default": "0.75",
+          "type": "float",
+          "help": "'Masking ratio inter (percentage of removed patches).'"
+        },
+        "--mask_ratio_intra": {
+          "default": "0.8",
+          "type": "float",
+          "help": "'Masking ratio intra (percentage of removed patches).'"
+        },
+        "--enable_amp": {
+          "action": "'store_true'",
+          "default": "True",
+          "help": "'Enabling automatic mixed precision'"
+        },
+        "--weight_decay": {
+          "type": "float",
+          "default": "0.05",
+          "help": "'weight decay (default: 0.05)'"
+        },
+        "--lr": {
+          "type": "float",
+          "default": "None",
+          "metavar": "'LR'",
+          "help": "'learning rate (absolute lr)'"
+        },
+        "--blr": {
+          "type": "float",
+          "default": "0.001",
+          "metavar": "'LR'",
+          "help": "'base learning rate: absolute_lr = base_lr * total_batch_size / 256'"
+        },
+        "--min_lr": {
+          "type": "float",
+          "default": "0.0",
+          "metavar": "'LR'",
+          "help": "'lower lr bound for cyclic schedulers that hit 0'"
+        },
+        "--min_lr_epochs": {
+          "type": "int",
+          "default": "20",
+          "metavar": "'N'",
+          "help": "'epochs to keep min LR at the end of training'"
+        },
+        "--warmup_epochs": {
+          "type": "int",
+          "default": "40",
+          "metavar": "'N'",
+          "help": "'epochs to warmup LR'"
+        },
+        "--feeder": {
+          "default": "'feeder.feeder'",
+          "help": "'data loader will be used'"
+        },
+        "--train_feeder_args": {
+          "default": "dict()",
+          "help": "'the arguments of data loader for training'"
+        },
+        "--output_dir": {
+          "default": "'./output_dir'",
+          "help": "'path where to save, empty for no saving'"
+        },
+        "--log_dir": {
+          "default": "'./output_dir'",
+          "help": "'path where to tensorboard log'"
+        },
+        "--device": {
+          "default": "'cuda'",
+          "help": "'device to use for training / testing'"
+        },
+        "--seed": {
+          "default": "0",
+          "type": "int"
+        },
+        "--resume": {
+          "default": "''",
+          "help": "'resume from checkpoint'"
+        },
+        "--num_workers": {
+          "default": "10",
+          "type": "int"
+        },
+        "--pin_mem": {
+          "action": "'store_true'",
+          "help": "'Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.'"
+        },
+        "--no_pin_mem": {
+          "action": "'store_false'",
+          "dest": "'pin_mem'"
+        },
+        "--world_size": {
+          "default": "1",
+          "type": "int",
+          "help": "'number of distributed processes'"
+        },
+        "--local_rank": {
+          "default": "-1",
+          "type": "int"
+        },
+        "--dist_on_itp": {
+          "action": "'store_true'"
+        },
+        "--dist_url": {
+          "default": "'env://'",
+          "help": "'url used to set up distributed training'"
+        }
+      },
+      "current": {
+        "--config": {
+          "default": "'./config/ntu60_xsub_joint_pretrain_debug.yaml'",
+          "help": "'path to the configuration file'"
+        },
+        "--batch_size": {
+          "default": "64",
+          "type": "int",
+          "help": "'Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus'"
+        },
+        "--epochs": {
+          "default": "400",
+          "type": "int"
+        },
+        "--start_epoch": {
+          "default": "0",
+          "type": "int",
+          "metavar": "'N'",
+          "help": "'start epoch'"
+        },
+        "--accum_iter": {
+          "default": "1",
+          "type": "int",
+          "help": "'Accumulate gradient iterations (for increasing the effective batch size under memory constraints)'"
+        },
+        "--max_train_steps": {
+          "default": "0",
+          "type": "int",
+          "help": "'Limit iterations per epoch for diagnostics; 0 runs the full epoch'"
+        },
+        "--task": {
+          "default": "'recognition'",
+          "type": "str",
+          "help": "'recognition / 2dto3d'"
+        },
+        "--args_2dto3d": {
+          "default": "dict()",
+          "help": "'the arguments of evaluation for 2dto3d task'"
+        },
+        "--model": {
+          "default": "'mae_vit_large_patch16'",
+          "type": "str",
+          "metavar": "'MODEL'",
+          "help": "'Name of model to train'"
+        },
+        "--model_args": {
+          "default": "dict()",
+          "help": "'the arguments of model'"
+        },
+        "--mask_ratio": {
+          "default": "0.9",
+          "type": "float",
+          "nargs": "'+'",
+          "help": "'Masking ratio (percentage of removed patches).'"
+        },
+        "--motion_stride": {
+          "default": "1",
+          "type": "int",
+          "help": "'stride of motion to be predicted.'"
+        },
+        "--motion_aware_tau": {
+          "default": "0.75",
+          "type": "float",
+          "help": "'temperature of motion aware masking.'"
+        },
+        "--mask_ratio_inter": {
+          "default": "0.75",
+          "type": "float",
+          "help": "'Masking ratio inter (percentage of removed patches).'"
+        },
+        "--mask_ratio_intra": {
+          "default": "0.8",
+          "type": "float",
+          "help": "'Masking ratio intra (percentage of removed patches).'"
+        },
+        "--enable_amp": {
+          "action": "'store_true'",
+          "default": "True",
+          "help": "'Enabling automatic mixed precision'"
+        },
+        "--weight_decay": {
+          "type": "float",
+          "default": "0.05",
+          "help": "'weight decay (default: 0.05)'"
+        },
+        "--lr": {
+          "type": "float",
+          "default": "None",
+          "metavar": "'LR'",
+          "help": "'learning rate (absolute lr)'"
+        },
+        "--blr": {
+          "type": "float",
+          "default": "0.001",
+          "metavar": "'LR'",
+          "help": "'base learning rate: absolute_lr = base_lr * total_batch_size / 256'"
+        },
+        "--min_lr": {
+          "type": "float",
+          "default": "0.0",
+          "metavar": "'LR'",
+          "help": "'lower lr bound for cyclic schedulers that hit 0'"
+        },
+        "--min_lr_epochs": {
+          "type": "int",
+          "default": "20",
+          "metavar": "'N'",
+          "help": "'epochs to keep min LR at the end of training'"
+        },
+        "--warmup_epochs": {
+          "type": "int",
+          "default": "40",
+          "metavar": "'N'",
+          "help": "'epochs to warmup LR'"
+        },
+        "--feeder": {
+          "default": "'feeder.feeder'",
+          "help": "'data loader will be used'"
+        },
+        "--train_feeder_args": {
+          "default": "dict()",
+          "help": "'the arguments of data loader for training'"
+        },
+        "--text_cache": {
+          "default": "''",
+          "help": "'Complete cache_clip_text.py output directory'"
+        },
+        "--skip_text_cache_validation": {
+          "action": "'store_true'",
+          "default": "False",
+          "help": "'Reuse a trusted text cache with only file-size/header checks; skip hashes and row scans'"
+        },
+        "--text_target_bank_backend": {
+          "default": "'shared_memory'",
+          "choices": "('shared_memory', 'sqlite')",
+          "help": "'Per-sample targets: host-shared RAM (default) or per-step SQLite I/O'"
+        },
+        "--lambda_text_to_skeleton": {
+          "type": "float",
+          "default": "None",
+          "help": "'Override the fixed text-to-skeleton loss weight'"
+        },
+        "--lambda_skeleton_to_text": {
+          "type": "float",
+          "default": "None",
+          "help": "'Override the fixed skeleton-to-text loss weight'"
+        },
+        "--enable_ose": {
+          "action": "'store_true'",
+          "default": "False",
+          "help": "'Enable OSE prototypes and cross-instance reconstruction'"
+        },
+        "--ose_exemplar_indices": {
+          "default": "''",
+          "type": "str"
+        },
+        "--ose_momentum": {
+          "default": "0.999",
+          "type": "float"
+        },
+        "--ose_queue_size": {
+          "default": "32768",
+          "type": "int"
+        },
+        "--ose_start_epoch": {
+          "default": "100",
+          "type": "int",
+          "help": "'First epoch that enables OSE loss and peer reconstruction'"
+        },
+        "--ose_exemplar_checkpoint": {
+          "action": "'store_true'",
+          "default": "False",
+          "help": "'Checkpoint online exemplar encoder blocks to trade compute for memory'"
+        },
+        "--ose_refresh_interval": {
+          "default": "1",
+          "type": "int"
+        },
+        "--ose_topk": {
+          "default": "4",
+          "type": "int"
+        },
+        "--ose_alpha": {
+          "default": "0.75",
+          "type": "float"
+        },
+        "--ose_tau_s": {
+          "default": "0.1",
+          "type": "float"
+        },
+        "--ose_tau_t": {
+          "default": "0.04",
+          "type": "float"
+        },
+        "--ose_assignment_confidence": {
+          "default": "0.8",
+          "type": "float"
+        },
+        "--lambda_ose": {
+          "default": "1.0",
+          "type": "float"
+        },
+        "--self_prob_start": {
+          "default": "0.9",
+          "type": "float"
+        },
+        "--self_prob_end": {
+          "default": "0.1",
+          "type": "float"
+        },
+        "--peer_prob_start": {
+          "default": "0.1",
+          "type": "float"
+        },
+        "--peer_prob_end": {
+          "default": "0.9",
+          "type": "float"
+        },
+        "--output_dir": {
+          "default": "'./output_dir'",
+          "help": "'path where to save, empty for no saving'"
+        },
+        "--log_dir": {
+          "default": "'./output_dir'",
+          "help": "'path where to tensorboard log'"
+        },
+        "--device": {
+          "default": "'cuda'",
+          "help": "'device to use for training / testing'"
+        },
+        "--seed": {
+          "default": "0",
+          "type": "int"
+        },
+        "--resume": {
+          "default": "''",
+          "help": "'resume from checkpoint'"
+        },
+        "--num_workers": {
+          "default": "10",
+          "type": "int"
+        },
+        "--pin_mem": {
+          "action": "'store_true'",
+          "help": "'Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.'"
+        },
+        "--no_pin_mem": {
+          "action": "'store_false'",
+          "dest": "'pin_mem'"
+        },
+        "--world_size": {
+          "default": "1",
+          "type": "int",
+          "help": "'number of distributed processes'"
+        },
+        "--local_rank": {
+          "default": "-1",
+          "type": "int"
+        },
+        "--dist_on_itp": {
+          "action": "'store_true'"
+        },
+        "--dist_url": {
+          "default": "'env://'",
+          "help": "'url used to set up distributed training'"
+        }
+      },
+      "changed_common_options": {},
+      "added_options": [
+        "--enable_ose",
+        "--lambda_ose",
+        "--lambda_skeleton_to_text",
+        "--lambda_text_to_skeleton",
+        "--max_train_steps",
+        "--ose_alpha",
+        "--ose_assignment_confidence",
+        "--ose_exemplar_checkpoint",
+        "--ose_exemplar_indices",
+        "--ose_momentum",
+        "--ose_queue_size",
+        "--ose_refresh_interval",
+        "--ose_start_epoch",
+        "--ose_tau_s",
+        "--ose_tau_t",
+        "--ose_topk",
+        "--peer_prob_end",
+        "--peer_prob_start",
+        "--self_prob_end",
+        "--self_prob_start",
+        "--skip_text_cache_validation",
+        "--text_cache",
+        "--text_target_bank_backend"
+      ]
+    },
+    "main_linprobe.py": {
+      "official": {
+        "--config": {
+          "default": "'./config/ntu60_xsub_joint_linear_debug.yaml'",
+          "help": "'path to the configuration file'"
+        },
+        "--batch_size": {
+          "default": "512",
+          "type": "int",
+          "help": "'Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus'"
+        },
+        "--epochs": {
+          "default": "90",
+          "type": "int"
+        },
+        "--accum_iter": {
+          "default": "1",
+          "type": "int",
+          "help": "'Accumulate gradient iterations (for increasing the effective batch size under memory constraints)'"
+        },
+        "--model": {
+          "default": "'vit_large_patch16'",
+          "type": "str",
+          "metavar": "'MODEL'",
+          "help": "'Name of model to train'"
+        },
+        "--model_args": {
+          "default": "dict()",
+          "help": "'the arguments of model'"
+        },
+        "--motion_aware_tau": {
+          "default": "-1",
+          "type": "float",
+          "help": "'temperature of motion aware pooling.'"
+        },
+        "--smoothing": {
+          "type": "float",
+          "default": "0.0",
+          "help": "'Label smoothing (default: 0.1)'"
+        },
+        "--enable_amp": {
+          "action": "'store_true'",
+          "default": "False",
+          "help": "'Enabling automatic mixed precision'"
+        },
+        "--weight_decay": {
+          "type": "float",
+          "default": "0",
+          "help": "'weight decay (default: 0 for linear probe following MoCo v1)'"
+        },
+        "--lr": {
+          "type": "float",
+          "default": "None",
+          "metavar": "'LR'",
+          "help": "'learning rate (absolute lr)'"
+        },
+        "--blr": {
+          "type": "float",
+          "default": "0.1",
+          "metavar": "'LR'",
+          "help": "'base learning rate: absolute_lr = base_lr * total_batch_size / 256'"
+        },
+        "--min_lr": {
+          "type": "float",
+          "default": "0.0",
+          "metavar": "'LR'",
+          "help": "'lower lr bound for cyclic schedulers that hit 0'"
+        },
+        "--min_lr_epochs": {
+          "type": "int",
+          "default": "10",
+          "metavar": "'N'",
+          "help": "'epochs to keep min LR at the end of training'"
+        },
+        "--warmup_epochs": {
+          "type": "int",
+          "default": "10",
+          "metavar": "'N'",
+          "help": "'epochs to warmup LR'"
+        },
+        "--finetune": {
+          "default": "''",
+          "help": "'finetune from checkpoint'"
+        },
+        "--feeder": {
+          "default": "'feeder.feeder'",
+          "help": "'data loader will be used'"
+        },
+        "--train_feeder_args": {
+          "default": "dict()",
+          "help": "'the arguments of data loader for training'"
+        },
+        "--val_feeder_args": {
+          "default": "dict()",
+          "help": "'the arguments of data loader for validation'"
+        },
+        "--output_dir": {
+          "default": "'./linear_output_dir'",
+          "help": "'path where to save, empty for no saving'"
+        },
+        "--log_dir": {
+          "default": "'./linear_output_dir'",
+          "help": "'path where to tensorboard log'"
+        },
+        "--device": {
+          "default": "'cuda'",
+          "help": "'device to use for training / testing'"
+        },
+        "--seed": {
+          "default": "0",
+          "type": "int"
+        },
+        "--resume": {
+          "default": "''",
+          "help": "'resume from checkpoint'"
+        },
+        "--start_epoch": {
+          "default": "0",
+          "type": "int",
+          "metavar": "'N'",
+          "help": "'start epoch'"
+        },
+        "--eval": {
+          "action": "'store_true'",
+          "help": "'Perform evaluation only'"
+        },
+        "--eval_epoch": {
+          "default": "1",
+          "type": "int"
+        },
+        "--dist_eval": {
+          "action": "'store_true'",
+          "default": "False",
+          "help": "'Enabling distributed evaluation (recommended during training for faster monitor'"
+        },
+        "--num_workers": {
+          "default": "10",
+          "type": "int"
+        },
+        "--pin_mem": {
+          "action": "'store_true'",
+          "help": "'Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.'"
+        },
+        "--no_pin_mem": {
+          "action": "'store_false'",
+          "dest": "'pin_mem'"
+        },
+        "--world_size": {
+          "default": "1",
+          "type": "int",
+          "help": "'number of distributed processes'"
+        },
+        "--local_rank": {
+          "default": "-1",
+          "type": "int"
+        },
+        "--dist_on_itp": {
+          "action": "'store_true'"
+        },
+        "--dist_url": {
+          "default": "'env://'",
+          "help": "'url used to set up distributed training'"
+        }
+      },
+      "current": {
+        "--config": {
+          "default": "'./config/ntu60_xsub_joint_linear_debug.yaml'",
+          "help": "'path to the configuration file'"
+        },
+        "--batch_size": {
+          "default": "512",
+          "type": "int",
+          "help": "'Batch size per GPU (effective batch size is batch_size * accum_iter * # gpus'"
+        },
+        "--epochs": {
+          "default": "90",
+          "type": "int"
+        },
+        "--accum_iter": {
+          "default": "1",
+          "type": "int",
+          "help": "'Accumulate gradient iterations (for increasing the effective batch size under memory constraints)'"
+        },
+        "--model": {
+          "default": "'vit_large_patch16'",
+          "type": "str",
+          "metavar": "'MODEL'",
+          "help": "'Name of model to train'"
+        },
+        "--model_args": {
+          "default": "dict()",
+          "help": "'the arguments of model'"
+        },
+        "--motion_aware_tau": {
+          "default": "-1",
+          "type": "float",
+          "help": "'temperature of motion aware pooling.'"
+        },
+        "--smoothing": {
+          "type": "float",
+          "default": "0.0",
+          "help": "'Label smoothing (default: 0.1)'"
+        },
+        "--enable_amp": {
+          "action": "'store_true'",
+          "default": "False",
+          "help": "'Enabling automatic mixed precision'"
+        },
+        "--weight_decay": {
+          "type": "float",
+          "default": "0",
+          "help": "'weight decay (default: 0 for linear probe following MoCo v1)'"
+        },
+        "--lr": {
+          "type": "float",
+          "default": "None",
+          "metavar": "'LR'",
+          "help": "'learning rate (absolute lr)'"
+        },
+        "--blr": {
+          "type": "float",
+          "default": "0.1",
+          "metavar": "'LR'",
+          "help": "'base learning rate: absolute_lr = base_lr * total_batch_size / 256'"
+        },
+        "--min_lr": {
+          "type": "float",
+          "default": "0.0",
+          "metavar": "'LR'",
+          "help": "'lower lr bound for cyclic schedulers that hit 0'"
+        },
+        "--min_lr_epochs": {
+          "type": "int",
+          "default": "10",
+          "metavar": "'N'",
+          "help": "'epochs to keep min LR at the end of training'"
+        },
+        "--warmup_epochs": {
+          "type": "int",
+          "default": "10",
+          "metavar": "'N'",
+          "help": "'epochs to warmup LR'"
+        },
+        "--finetune": {
+          "default": "''",
+          "help": "'finetune from checkpoint'"
+        },
+        "--feeder": {
+          "default": "'feeder.feeder'",
+          "help": "'data loader will be used'"
+        },
+        "--train_feeder_args": {
+          "default": "dict()",
+          "help": "'the arguments of data loader for training'"
+        },
+        "--val_feeder_args": {
+          "default": "dict()",
+          "help": "'the arguments of data loader for validation'"
+        },
+        "--output_dir": {
+          "default": "'./linear_output_dir'",
+          "help": "'path where to save, empty for no saving'"
+        },
+        "--log_dir": {
+          "default": "'./linear_output_dir'",
+          "help": "'path where to tensorboard log'"
+        },
+        "--device": {
+          "default": "'cuda'",
+          "help": "'device to use for training / testing'"
+        },
+        "--seed": {
+          "default": "0",
+          "type": "int"
+        },
+        "--resume": {
+          "default": "''",
+          "help": "'resume from checkpoint'"
+        },
+        "--start_epoch": {
+          "default": "0",
+          "type": "int",
+          "metavar": "'N'",
+          "help": "'start epoch'"
+        },
+        "--eval": {
+          "action": "'store_true'",
+          "help": "'Perform evaluation only'"
+        },
+        "--eval_epoch": {
+          "default": "1",
+          "type": "int"
+        },
+        "--dist_eval": {
+          "action": "'store_true'",
+          "default": "False",
+          "help": "'Enabling distributed evaluation (recommended during training for faster monitor'"
+        },
+        "--num_workers": {
+          "default": "10",
+          "type": "int"
+        },
+        "--pin_mem": {
+          "action": "'store_true'",
+          "help": "'Pin CPU memory in DataLoader for more efficient (sometimes) transfer to GPU.'"
+        },
+        "--no_pin_mem": {
+          "action": "'store_false'",
+          "dest": "'pin_mem'"
+        },
+        "--world_size": {
+          "default": "1",
+          "type": "int",
+          "help": "'number of distributed processes'"
+        },
+        "--local_rank": {
+          "default": "-1",
+          "type": "int"
+        },
+        "--dist_on_itp": {
+          "action": "'store_true'"
+        },
+        "--dist_url": {
+          "default": "'env://'",
+          "help": "'url used to set up distributed training'"
+        }
+      },
+      "changed_common_options": {},
+      "added_options": []
+    }
+  },
+  "expected_ntu60_xsub_tail_windows": {
+    "sample_count_assumed": 40091,
+    "profiles": [
+      {
+        "gpus": 4,
+        "per_gpu_batch": 32,
+        "accum_iter": 1,
+        "loader_steps": 313,
+        "incomplete_window_steps": 0
+      },
+      {
+        "gpus": 2,
+        "per_gpu_batch": 32,
+        "accum_iter": 1,
+        "loader_steps": 626,
+        "incomplete_window_steps": 0
+      },
+      {
+        "gpus": 2,
+        "per_gpu_batch": 32,
+        "accum_iter": 2,
+        "loader_steps": 626,
+        "incomplete_window_steps": 0
+      },
+      {
+        "gpus": 2,
+        "per_gpu_batch": 64,
+        "accum_iter": 1,
+        "loader_steps": 313,
+        "incomplete_window_steps": 0
+      }
+    ]
+  },
+  "preprocessing_function_comparison": [
+    {
+      "path": "data/ntu/get_raw_denoised_data.py",
+      "function_count": 10,
+      "changed_functions": []
+    },
+    {
+      "path": "data/ntu/get_raw_skes_data.py",
+      "function_count": 2,
+      "changed_functions": []
+    },
+    {
+      "path": "data/ntu/seq_transformation.py",
+      "function_count": 8,
+      "changed_functions": [
+        "split_dataset"
+      ]
+    },
+    {
+      "path": "data/ntu120/get_raw_denoised_data.py",
+      "function_count": 10,
+      "changed_functions": []
+    },
+    {
+      "path": "data/ntu120/get_raw_skes_data.py",
+      "function_count": 2,
+      "changed_functions": [
+        "get_raw_bodies_data"
+      ]
+    },
+    {
+      "path": "data/ntu120/seq_transformation.py",
+      "function_count": 8,
+      "changed_functions": [
+        "split_dataset"
+      ]
+    },
+    {
+      "path": "data/pku_v1/pku_gendata.py",
+      "function_count": 3,
+      "changed_functions": [
+        "gendata"
+      ]
+    },
+    {
+      "path": "data/pku_v2/pku_gendata.py",
+      "function_count": 3,
+      "changed_functions": []
+    }
+  ],
+  "extension_import_time_calls": {
+    "model/transformer_stage2.py": [
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()"
+    ],
+    "model/transformer_macdiff_text.py": [
+      "torch.no_grad()"
+    ],
+    "model/ose_memory.py": [
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()",
+      "torch.no_grad()"
+    ],
+    "feeder/feeder_stage2.py": []
+  },
+  "local_runtime_modules_available": {
+    "torch": false,
+    "numpy": false,
+    "yaml": false
+  },
+  "numerical_or_training_parity_executed": false,
+  "limitations": [
+    "No Torch runtime, GPU/DDP, data archive, or server checkout/checkpoint was available for this audit.",
+    "AST normalization is evidence about selected source paths, not proof of floating-point/gradient equivalence.",
+    "Condition gather uses expand instead of repeat for the integer index; tensor values and shapes match mathematically, runtime parity remains untested."
+  ]
+}

@@ -1,5 +1,8 @@
-# T12 control: native/T->S depth 5 -> 3; S->T depth remains 5.
-# Training defaults match the actual T12 CLI (1/0.1, batch32/accum2).
+# 2026-10-14 pair: native/T->S/S->T decoders all depth 3.
+# Dual-GPU PT32/accum1, seed0, min_lr=5e-4; weights T->S=1/S->T=0.1.
+# Text decoder hidden is 512, remap hidden is 2048; cached text/input/output stay 512.
+# Text uniformity is disabled; native skeleton uniformity remains 0.02.
+# Earlier T15/T16 results retain their historical run settings in the result tables.
 feeder: feeder.feeder_ntu.Feeder
 train_feeder_args:
   data_path: ../data/MAMP/ntu/NTU60_XSub.npz
@@ -43,15 +46,15 @@ model_args:
   input_var: [0.0206, 0.0805, 0.0218]
   one_person: True
   text_input_dim: 512
-  text_hidden_dim: 512
+  text_hidden_dim: 2048
   text_context_length: 7
   text_target_mode: sample_target_blend
   text_target_norm: rms
   text_target_update_ratio: 0.1
-  lambda_text_uniformity: 0.02
+  lambda_text_uniformity: 0.0
   text_decoder_hidden_dim: 512
   text_decoder_output_norm: 'none'  # full-width noise output; internal norms are retained
-  text_decoder_depth: 5
+  text_decoder_depth: 3
   share_skeleton_decoder: False  # ablation: T->S owns a separate skeleton decoder
 
 text_cache: vlm_pilot/ntu60_xsub_clip_sentence_cache_v3
@@ -61,11 +64,12 @@ lambda_skeleton_to_text: 0.1
 epochs: 400
 warmup_epochs: 20
 batch_size: 32
-accum_iter: 2
+accum_iter: 1
 lr: 1.e-3
-min_lr: 1.e-5
+min_lr: 5.e-4
 weight_decay: 0.05
 mask_ratio: 0.9
 motion_aware_tau: -1
-output_dir: output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_noshare_st512_t2s1_s2t01_dec3_pt400
-log_dir: output_dir/ntu60_xsub_macdiff_sentence_sampletarget01_noshare_st512_t2s1_s2t01_dec3_pt400/tensorboard
+seed: 0
+output_dir: output_dir/ntu60_xsub_noshare_all_dec3_h512_remap2048_textuni0_ep400_minlr5e4_pt32_lp64_seed0_20261014/pt
+log_dir: output_dir/ntu60_xsub_noshare_all_dec3_h512_remap2048_textuni0_ep400_minlr5e4_pt32_lp64_seed0_20261014/pt/tensorboard

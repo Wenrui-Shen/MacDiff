@@ -398,6 +398,8 @@ class StructuredTrainingTests(unittest.TestCase):
         losses = []
         original = model.skeleton_to_text_loss
         def capture(*args, **kwargs):
+            self.assertEqual(args[0].shape, (2, 7, 8))
+            self.assertEqual(args[2].sum(dim=1).tolist(), [7, 7])
             loss = original(*args, **kwargs)
             losses.append(loss)
             return loss
@@ -406,7 +408,6 @@ class StructuredTrainingTests(unittest.TestCase):
                 text_tokens=local_values, text_token_mask=torch.ones(2, 6, dtype=torch.bool),
                 text_person_ids=torch.zeros(2, 6, dtype=torch.long),
                 text_positions=torch.arange(1, 7).expand(2, -1))
-        self.assertEqual(result[3]['text_valid_tokens'].item(), 6)
         losses[0].backward()
         self.assertTrue(any(parameter.grad is not None and parameter.grad.abs().sum().item() > 0
                             for parameter in model.blocks.parameters()))

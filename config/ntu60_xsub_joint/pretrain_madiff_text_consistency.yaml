@@ -1,0 +1,69 @@
+# Independent new method: native + T->S, no S->T text diffusion decoder.
+# Each skeleton decoder independently draws t/noise over all 1000 steps.
+# Raw bidirectional normalized-x0 MSE on masked positions, no detach/SNR weights.
+# Default native/T->S/consistency weights: 1/1/1; skeleton uniformity stays 0.02.
+feeder: feeder.feeder_ntu.Feeder
+train_feeder_args:
+  data_path: ../data/MAMP/ntu/NTU60_XSub.npz
+  split: train
+  window_size: 120
+  p_interval: [0.5, 1]
+  normalization: False
+  flip: False
+  motion_noise: 0
+  impulse_noise: 0
+  joint_noise: [1, 0.005]
+  frame_noise: [0, 0]
+  vel: False
+  bone: False
+
+model: model.transformer_macdiff_text_consistency.Transformer
+model_args:
+  dim_in: 3
+  dim_feat: 256
+  dim_t_embed: 64
+  depth: 8
+  decoder_depth: 3
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: null
+  drop_rate: 0.
+  attn_drop_rate: 0.
+  drop_path_rate: 0.
+  diff_prediction: noise
+  diff_steps: 1000
+  diff_noise_schedule: [inverse_cosine, 1]
+  lambda_loss_uni: 0.02
+  layer_mask_ratio: 0.
+  uncond_ratio: 0.1
+  input_mean: [-0.0058, -0.1333, -0.0246]
+  input_var: [0.0206, 0.0805, 0.0218]
+  one_person: True
+  text_input_dim: 512
+  text_hidden_dim: 2048
+  text_context_length: 7
+  text_target_mode: reconstruction_consistency
+  text_target_norm: rms
+  share_skeleton_decoder: False
+
+text_cache: vlm_pilot/ntu60_xsub_clip_sentence_cache_v3
+lambda_text_to_skeleton: 1.0
+lambda_consistency: 1.0
+epochs: 400
+warmup_epochs: 20
+min_lr_epochs: 20
+batch_size: 32
+accum_iter: 1
+lr: 1.e-3
+min_lr: 5.e-4
+weight_decay: 0.05
+mask_ratio: 0.9
+motion_aware_tau: -1
+seed: 0
+output_dir: output_dir/ntu60_xsub_text_consistency_dec3_remap2048_ep400_seed0_20261018/pt
+log_dir: output_dir/ntu60_xsub_text_consistency_dec3_remap2048_ep400_seed0_20261018/pt/tensorboard

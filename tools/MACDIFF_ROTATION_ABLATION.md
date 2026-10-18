@@ -61,4 +61,8 @@ python tools/run_macdiff_rotation_ablation.py --summarize-only --output-dir outp
 
 当前双卡协议的总PT128/LP256与官方四卡总batch相同，但LP局部BN batch128不同于官方四卡的64，不能声称逐位等价；两组之间固定相同。dist_eval对16487条测试数据补1个样本，两组同口径。单seed结果只描述这次运行的差距，不代表多seed稳定收益。
 
-本地验证：Bash语法、Python3.8语法兼容、参数/构造器AST检查、dry-run以及8项CPU测试（准确率精度与最早并列best、异常日志拒绝、JSON/CSV输出、单因素约束、子进程错误传播、四阶段完整流程、失败停止、旧目录保护）通过。本地无Torch/训练数据/CUDA，尚未执行真实PT/LP；目前没有这两组的新best acc。
+本地验证：Bash语法、Python3.8语法兼容、参数/构造器AST检查、dry-run以及8项CPU测试（准确率精度与最早并列best、异常日志拒绝、JSON/CSV输出、单因素约束、子进程错误传播、四阶段完整流程、失败停止、旧目录保护）通过。本地无Torch/训练数据/CUDA，未在本地执行真实PT/LP；服务器结果于2026-10-12由用户回传，见下文。
+
+2026-10-11更新：PT engine已恢复官方累积策略，仅完整窗口step，尾部梯度丢弃；本runner的accum1不受影响。用户确认第三方双卡3090/86.2使用默认配置、每卡PT32→有效64；LP每卡64→有效128仍为用户估计。本runner当前有效PT128/LP256，与该第三方参考不同，batch未调整。
+
+2026-10-12服务器结果已回传：no_rot best85.638039799%@64；rot best85.789665239%@88，差+0.151625439pp。末20均值分别85.557678338/85.684133938。已登记T17/T18，原summary和分析见[结果归档](D:/program/MacDiff/handoff_artifacts/native_rotation_results_20261012/README.md)。仅收到summary，未独立重读完整服务器日志/manifest或核验actual args。两组不再待结果。

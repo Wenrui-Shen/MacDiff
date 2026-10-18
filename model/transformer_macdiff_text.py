@@ -403,7 +403,8 @@ class Transformer(MacDiff):
             r = self.text_remap(fixed_global)
             remapped_local = self.text_remap(fixed_local).masked_fill(
                 ~text_token_mask[..., None], 0)
-            text_uniformity = masked_text_uniformity_loss(remapped_local, text_token_mask)
+            if self.lambda_text_uniformity > 0:
+                text_uniformity = masked_text_uniformity_loss(remapped_local, text_token_mask)
             person_ids = text_person_ids.masked_fill(~text_token_mask, 0)
             positions = text_positions.masked_fill(~text_token_mask, 0)
             token_condition = (remapped_local + self.text_person_embedding(person_ids)
@@ -422,9 +423,8 @@ class Transformer(MacDiff):
             # Keep legacy normalization in FP32 under AMP.
             r = self.text_remap[:-1](text_features)
             r = self.text_remap[-1](r.float())
-            token_condition, remapped_local = self.remap_tokens(
-                text_tokens, text_token_mask, text_person_ids, text_positions,
-                return_content=True)
+            token_condition = self.remap_tokens(
+                text_tokens, text_token_mask, text_person_ids, text_positions)
             memory = torch.cat([r[:, None], token_condition], dim=1)
         memory_mask = torch.cat([torch.ones_like(text_token_mask[:, :1]), text_token_mask], dim=1)
         h = torch.cat([pooled[active_rows], latent[active_rows]], dim=1)
@@ -442,10 +442,5 @@ class Transformer(MacDiff):
                 + self.lambda_text_to_skeleton * t2s + self.lambda_skeleton_to_text * s2t)
         metrics = {'loss_diff': native.detach(), 'loss_uniformity': uniformity.detach(),
                    'loss_text_uniformity': text_uniformity.detach(),
-                   'loss_text_to_skeleton': t2s.detach(), 'loss_skeleton_to_text': s2t.detach(),
-                   'text_energy': memory[:, 0].detach().square().mean(),
-                   'text_batch_variance': text_content_batch_variance(
-                       r, remapped_local, text_token_mask)}
-        if self.lambda_text_to_skeleton or self.lambda_skeleton_to_text:
-            metrics['text_valid_tokens'] = text_token_mask.sum(dim=1).float().mean()
+                   'loss_text_to_skeleton': t2s.detach(), 'loss_skeleton_to_text': s2t.detach()}
         return loss, prediction, mask, metrics

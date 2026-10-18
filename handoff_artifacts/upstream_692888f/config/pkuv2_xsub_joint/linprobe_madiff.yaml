@@ -1,0 +1,61 @@
+# data
+feeder: feeder.feeder_ntu.Feeder
+train_feeder_args:
+  data_path: data/pku_v2/PKUv2_XSub.npz
+  split: train
+  debug: False
+  random_choose: False
+  random_shift: False
+  random_move: False
+  window_size: 120
+  normalization: False
+  random_rot: True
+  p_interval: [0.5, 1]
+  vel: False
+  bone: False
+
+val_feeder_args:
+  data_path: data/pku_v2/PKUv2_XSub.npz
+  split: test  
+  debug: False
+  window_size: 120
+  random_rot: False
+  p_interval: [0.95] #[0.95]
+  vel: False
+  bone: False
+
+# model
+model: model.transformer_downstream.Transformer
+model_args:
+  dim_in: 3
+  num_classes: 51
+  dim_feat: 256
+  depth: 8
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: None
+  drop_rate: 0.
+  attn_drop_rate: 0.
+  drop_path_rate: 0.
+  protocol: linprobe2
+  act_layer: nn.GELU
+  # ntu60 xsub 2man
+  input_mean: [-0.0058, -0.1333, -0.0246]
+  input_var: [0.0206, 0.0805, 0.0218]
+  # pkuv1 2man
+  #input_mean: [-0.0686, -0.0241, 1.5130]
+  #input_var: [0.2834, 0.2447, 2.0166]
+  # pkuv2 2man
+  #input_mean: [-0.0459, -0.0680, 1.3642]
+  #input_var: [0.2356, 0.2351, 1.9492]
+
+# training
+epochs: 100
+warmup_epochs: 0
+batch_size: 64
+lr: 0.1
