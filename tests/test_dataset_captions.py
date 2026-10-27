@@ -13,6 +13,7 @@ PILOT = Path(__file__).resolve().parents[1] / "tools" / "vlm_pilot"
 sys.path.insert(0, str(PILOT))
 import dataset_caption_pipeline as pipeline
 import run_caption_ntu120 as ntu120
+import run_caption_ntu120_xset as render_first_xset
 import run_caption_ntu60_xview as xview
 import run_caption_pku as pku
 import check_text_pipeline as audit
@@ -186,6 +187,28 @@ class DatasetPipelineTests(unittest.TestCase):
         np.savez(target_path, x_train=target)
         with patch("sys.stdout", new_callable=io.StringIO), self.assertRaisesRegex(ValueError, "different coordinates"):
             ntu120.main(argv + ["--dry_run"])
+
+    def test_new_ntu120_clone_is_captioned_once_and_expanded_for_raw_clip_slots(self):
+        argv = self.ntu_fixture()
+        target = Path(argv[1])
+        data = pipeline.load_train(target)
+        data[0, :, 75:] = data[0, :, :75]
+        np.savez(target, x_train=data, y_train=np.array([{"forbidden": True}], dtype=object))
+        import run_caption_dual_gpu as launcher
+        with patch.object(launcher.subprocess, "Popen", side_effect=self.worker), \
+                patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(ntu120.main(argv), 0)
+        directory = self.output / "ntu120_xsub"
+        generated = json.loads((directory / "generated/captions.json").read_text())
+        self.assertEqual(len(generated[0]["persons"]), 1)
+        rows = json.loads((directory / "captions.json").read_text())
+        self.assertEqual(len(rows[0]["persons"]), 2)
+        self.assertEqual(rows[0]["persons"][0]["global"], rows[0]["persons"][1]["global"])
+        self.assertEqual(rows[0]["persons"][0]["local"], rows[0]["persons"][1]["local"])
+        self.assertEqual(rows[0]["persons"][1]["person_index"], 1)
+        import cache_clip_motion_text as cache
+        _, valid, _, _ = cache.build_plan(target, [directory / "captions.json"])
+        self.assertTrue(valid.all())
 
     def test_incomplete_source_captions_rejected_before_rendering(self):
         argv = self.ntu_fixture()
@@ -430,6 +453,109 @@ class DatasetPipelineTests(unittest.TestCase):
             new = json.loads((after / "render_metadata.json").read_text())
             self.assertEqual(old["config"], new["config"])
             self.assertEqual(old["render"], new["render"])
+
+    def xset_render_first_fixture(self):
+        old, base, view, extension, new = ("S001C001P001R001A001", "S002C001P001R001A001",
+                                          "S002C002P003R001A001", "S018C001P045R001A061",
+                                          "S020C001P003R001A062")
+        stat60 = self.save_statistics("stat60", [old, base, view])
+        stat120 = self.save_statistics("stat120", [new, extension, old, base, view])
+        def clone(value):
+            result = self.sample(value)
+            result[:, 75:] = result[:, :75]
+            return result
+        data60 = self.save_npz("sub60.npz", np.stack([self.sample(1), self.sample(2)]))
+        data_view = self.save_npz("view60.npz", np.stack([self.sample(3)]))
+        data_sub = self.save_npz("sub120.npz", np.stack([clone(1), clone(2), clone(4)]))
+        target = self.save_npz("set120.npz", np.stack([clone(2), clone(3), clone(4), clone(5)]))
+        banks = [(self.root / "captions60.json", ["The arms lower.", "The right hand rises."], 1),
+                 (self.root / "captions_view.json", ["The head turns."], 1),
+                 (self.root / "captions120.json", ["The arms lower.", "The right hand rises.", "The legs bend."], 2)]
+        argv = ["--data_path", str(target), "--ntu60_data_path", str(data60),
+                "--ntu60_xview_data_path", str(data_view), "--ntu120_xsub_data_path", str(data_sub),
+                "--ntu60_captions", str(banks[0][0]), "--ntu60_xview_captions", str(banks[1][0]),
+                "--ntu120_xsub_captions", str(banks[2][0]), "--ntu60_statistics_dir", str(stat60),
+                "--ntu120_statistics_dir", str(stat120), "--model", "test-model", "--output_root", str(self.output)]
+        return argv, banks, target
+
+    def write_render_first_source_captions(self, banks):
+        for path, texts, count in banks:
+            path.write_text(json.dumps([{"sample_index": i, "persons": persons(count, text=text)}
+                                             for i, text in enumerate(texts)]))
+            sidecar_paths(path)[0].write_text(json.dumps({
+                "schema_version": OUTPUT_SCHEMA, "model": "test-model", "requested_revision": None,
+                "caption_schema": "global_local", "prompt": {"sha256": pipeline.sha256_file(self.prompt)}}))
+
+    def test_xset_can_render_and_resume_before_source_captions_exist(self):
+        argv, banks, _ = self.xset_render_first_fixture()
+        with patch.object(render_first_xset, "load_captions", side_effect=AssertionError("render must not read captions")), \
+                patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(render_first_xset.main(argv + ["--dry_run"]), 0)
+            self.assertFalse(self.output.exists())
+            self.assertEqual(render_first_xset.main(argv + ["--stage", "render"]), 0)
+        directory = self.output / "ntu120_xset"
+        plan = json.loads((directory / "dataset_manifest.json").read_text())
+        self.assertEqual(plan["generate_indices"], [3])
+        self.assertEqual([item["source_dataset"] for item in plan["reuse"]],
+                         ["ntu60_xsub", "ntu60_xview", "ntu120_xsub"])
+        gif = directory / "rendered/train_000003/preview.gif"
+        original = (gif.read_bytes(), gif.stat().st_mtime_ns)
+        with patch.object(render_first_xset, "load_captions", side_effect=AssertionError("render must not read captions")), \
+                patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(render_first_xset.main(argv + ["--stage", "render"]), 0)
+        self.assertEqual((gif.read_bytes(), gif.stat().st_mtime_ns), original)
+        self.assertTrue(all(not path.exists() for path, _, _ in banks))
+        self.assertFalse((directory / "reuse_caption_sources.json").exists())
+        self.assertFalse((directory / "captions.json").exists())
+
+    def test_xset_deferred_text_binding_and_caption_resume_without_npz_loading(self):
+        argv, banks, target = self.xset_render_first_fixture()
+        import run_caption_dual_gpu as launcher
+        with patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(render_first_xset.main(argv + ["--stage", "render"]), 0)
+        directory = self.output / "ntu120_xset"
+        with patch.object(launcher.subprocess, "Popen", side_effect=AssertionError("captions are not ready")), \
+                self.assertRaisesRegex(ValueError, "before --stage caption"):
+            render_first_xset.main(argv + ["--stage", "caption"])
+        self.assertFalse((directory / "reuse_caption_sources.json").exists())
+        self.write_render_first_source_captions(banks)
+        with patch.object(render_first_xset, "load_train", side_effect=AssertionError("caption reopened NPZ")), \
+                patch.object(pipeline, "load_train", side_effect=AssertionError("caption reopened NPZ")), \
+                patch.object(launcher.subprocess, "Popen", side_effect=self.worker), \
+                patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(render_first_xset.main(argv + ["--stage", "caption"]), 0)
+        self.assertEqual([item[1] for item in self.spawned], [3])
+        rows = json.loads((directory / "captions.json").read_text())
+        self.assertEqual([row["persons"][0]["global"] for row in rows[:3]],
+                         ["The right hand rises.", "The head turns.", "The legs bend."])
+        metadata_path = sidecar_paths(directory / "captions.json")[0]
+        snapshot = json.loads((directory / "reuse_caption_sources.json").read_text())
+        self.assertEqual(json.loads(metadata_path.read_text())["reuse_caption_sources"], snapshot)
+        before = ((directory / "captions.json").read_bytes(), metadata_path.read_bytes())
+        with patch.object(launcher.subprocess, "Popen", side_effect=AssertionError("no pending samples")), \
+                patch("sys.stdout", new_callable=io.StringIO):
+            self.assertEqual(render_first_xset.main(argv + ["--stage", "caption"]), 0)
+        self.assertEqual(((directory / "captions.json").read_bytes(), metadata_path.read_bytes()), before)
+        import cache_clip_motion_text as cache
+        _, valid, _, _ = cache.build_plan(target, [directory / "captions.json"])
+        self.assertTrue(valid.all())
+        source = banks[1][0]
+        changed = json.loads(source.read_text())
+        changed[0]["persons"][0]["global"] = "The head tilts."
+        source.write_text(json.dumps(changed))
+        with self.assertRaisesRegex(ValueError, "changed since XSet captioning began"):
+            render_first_xset.main(argv + ["--stage", "caption"])
+
+    def test_render_first_xset_rejects_coordinate_conflicts_without_reading_text(self):
+        argv, _, target = self.xset_render_first_fixture()
+        data = pipeline.load_train(target)
+        data[1, 0, 0] += 1
+        np.savez(target, x_train=data)
+        with patch.object(render_first_xset, "load_captions", side_effect=AssertionError("no text needed")), \
+                patch("sys.stdout", new_callable=io.StringIO), \
+                self.assertRaisesRegex(ValueError, "different coordinates"):
+            render_first_xset.main(argv + ["--stage", "render"])
+        self.assertFalse((self.output / "ntu120_xset/dataset_manifest.json").exists())
 
 
 if __name__ == "__main__":

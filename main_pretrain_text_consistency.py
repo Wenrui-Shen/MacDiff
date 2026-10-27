@@ -12,7 +12,7 @@ def get_args_parser():
     parser = native_parser()
     parser.set_defaults(config=DEFAULT_CONFIG, model=MODEL_NAME)
     parser.add_argument('--lambda_consistency', default=None, type=float,
-                        help='Override bidirectional x0 MSE weight (default: 1)')
+                        help='Override noise-scale-normalized bidirectional x0 MSE weight (default: 1)')
     return parser
 
 
@@ -50,12 +50,15 @@ def prepare_args(args):
     if options.get('lambda_consistency') is None:
         options['lambda_consistency'] = 1.
     module = importlib.import_module('model.transformer_macdiff_text_consistency')
+    # Saved in model_args: raw-MSE checkpoints must not silently resume under
+    # a different objective, including when the user omits the YAML field.
+    options.setdefault('consistency_normalization', module.CONSISTENCY_NORMALIZATION)
     module.validate_consistency_definition(
         options['lambda_consistency'], options.get('lambda_text_to_skeleton', 1.),
         options.get('one_person', True), options.get('share_skeleton_decoder', False),
         options.get('text_target_mode', 'reconstruction_consistency'),
         options.get('text_target_norm', 'rms'), options.get('lambda_skeleton_to_text', 0.),
-        options.get('lambda_text_uniformity', 0.))
+        options.get('lambda_text_uniformity', 0.), options['consistency_normalization'])
     if args.resume:
         import torch
         if args.resume.startswith(('https://', 'http://')):

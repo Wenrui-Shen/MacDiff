@@ -251,8 +251,8 @@ def init_distributed_mode(args):
 class NativeScalerWithGradNormCount:
     state_dict_key = "amp_scaler"
 
-    def __init__(self):
-        self._scaler = torch.cuda.amp.GradScaler()
+    def __init__(self, enabled=True):
+        self._scaler = torch.cuda.amp.GradScaler(enabled=enabled)
 
     def __call__(self, loss, optimizer, clip_grad=None, parameters=None, create_graph=False, update_grad=True):
         self._scaler.scale(loss).backward(create_graph=create_graph)
@@ -264,6 +264,9 @@ class NativeScalerWithGradNormCount:
             else:
                 self._scaler.unscale_(optimizer)
                 norm = get_grad_norm_(parameters)
+            if not self._scaler.is_enabled() and not torch.isfinite(norm).item():
+                raise FloatingPointError(
+                    'Non-finite gradient norm with AMP disabled; optimizer step aborted')
             self._scaler.step(optimizer)
             self._scaler.update()
         else:
@@ -337,6 +340,8 @@ def load_model(args, model_without_ddp, optimizer, loss_scaler):
                 raise ValueError('Text Stage1 resume mismatch: text_person_alignment')
             if getattr(saved_args, 'text_share_skeleton_decoder', False) != getattr(args, 'text_share_skeleton_decoder', False):
                 raise ValueError('Text Stage1 resume mismatch: share_skeleton_decoder')
+            if getattr(saved_args, 'text_conditioning_mode', 'concat_memory') != getattr(args, 'text_conditioning_mode', 'concat_memory'):
+                raise ValueError('Text Stage1 resume mismatch: text_conditioning_mode')
             for name in ('text_cache_identity', 'text_training_weights'):
                 if getattr(saved_args, name, None) != getattr(args, name):
                     raise ValueError('Text Stage1 resume mismatch: ' + name)

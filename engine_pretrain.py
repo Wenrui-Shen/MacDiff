@@ -80,6 +80,11 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
     optimizer.zero_grad()
     pending_target_indices = []
     pending_target_batches = []
+    uses_skeleton_teacher = getattr(model_without_ddp, 'supports_skeleton_teacher', False)
+    uses_pretrain_metrics = getattr(model_without_ddp, 'supports_pretrain_metrics', False)
+    uses_relation_memory = getattr(model_without_ddp, 'supports_relation_memory', False)
+    pending_skeleton_teacher_batches = []
+    pending_relation_batches = []
     target_read_seconds = target_update_seconds = 0.
     if device.type == 'cuda':
         torch.cuda.reset_peak_memory_stats(device)
@@ -114,6 +119,8 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
 
         samples = samples.float().to(device, non_blocking=True)
         samples_aug = samples_aug.float().to(device, non_blocking=True)
+        if uses_skeleton_teacher or uses_relation_memory:
+            text_kwargs['sample_indices'] = sample_indices.to(device, non_blocking=True)
         if text_features is not None and text_target_bank is not None:
             if not model_without_ddp.one_person:
                 raise ValueError('Persistent sample targets currently require one_person=True')
@@ -144,7 +151,12 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
                 **text_kwargs,
             )
             loss = result[0]
-            auxiliary_metrics = result[3] if text_features is not None else {}
+            auxiliary_metrics = result[3] if (
+                text_features is not None or uses_skeleton_teacher or uses_pretrain_metrics) else {}
+            if uses_skeleton_teacher:
+                pending_skeleton_teacher_batches.append(result[4])
+            if uses_relation_memory:
+                pending_relation_batches.append(result[4])
 
         loss_value = loss.item()
         if not math.isfinite(loss_value):
@@ -160,6 +172,16 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
             loss, optimizer, parameters=model.parameters(),
             update_grad=accumulation_boundary)
         if accumulation_boundary:
+            if getattr(model_without_ddp, 'supports_relation_memory', False):
+                model_without_ddp.complete_relation_step(
+                    pending_relation_batches,
+                    successful=loss_scaler._scaler.get_scale() >= scale_before)
+                pending_relation_batches.clear()
+            if getattr(model_without_ddp, 'supports_skeleton_teacher', False):
+                model_without_ddp.complete_pretraining_step(
+                    pending_skeleton_teacher_batches,
+                    successful=loss_scaler._scaler.get_scale() >= scale_before)
+                pending_skeleton_teacher_batches.clear()
             if (text_features is not None
                     and loss_scaler._scaler.get_scale() >= scale_before):
                 if text_target_bank is None:
@@ -209,10 +231,14 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
                                'epoch_seconds'), timings.tolist())))
         print('Sample targets: read={:.2f}s, update={:.2f}s, epoch={:.2f}s'.format(
             *timings.tolist()))
-    if log_writer is not None and text_features is not None:
+    if log_writer is not None and (
+            text_features is not None or uses_skeleton_teacher or uses_pretrain_metrics):
         for name, value in stats.items():
             if name not in ('loss', 'lr'):
-                log_writer.add_scalar('text_stage1/' + name, value, epoch)
+                prefix = 'skeleton_teacher/' if uses_skeleton_teacher else 'text_stage1/'
+                if uses_pretrain_metrics and not uses_skeleton_teacher and text_features is None:
+                    prefix = model_without_ddp.pretrain_metric_prefix
+                log_writer.add_scalar(prefix + name, value, epoch)
     return stats
 
 

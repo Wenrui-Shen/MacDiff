@@ -80,6 +80,8 @@ def get_args_parser():
     # Optimizer parameters
     parser.add_argument('--enable_amp', action='store_true', default=True, # False
                         help='Enabling automatic mixed precision')
+    parser.add_argument('--disable_amp', dest='enable_amp', action='store_false',
+                        help='Disable autocast and gradient scaling for pretraining')
     parser.add_argument('--weight_decay', type=float, default=0.05,
                         help='weight decay (default: 0.05)')
 
@@ -376,6 +378,7 @@ def main(args):
     if supports_text:
         args.text_training_weights = (model.lambda_text_to_skeleton, model.lambda_skeleton_to_text)
         args.text_share_skeleton_decoder = model.share_skeleton_decoder
+        args.text_conditioning_mode = getattr(model, 'text_conditioning_mode', 'concat_memory')
         args.text_person_alignment = ('per_person_v1', model.one_person)
         args.text_target_mode = model.text_target_mode
         args.text_target_norm = model.text_target_norm
@@ -430,12 +433,14 @@ def main(args):
         model_without_ddp = model.module
     if args.enable_ose:
         model_without_ddp.reset_momentum_encoder()
+    if hasattr(model_without_ddp, 'initialize_pretraining_state'):
+        model_without_ddp.initialize_pretraining_state()
     
     # following timm: set wd as 0 for bias and norm layers
     param_groups = optim_factory.add_weight_decay(model_without_ddp, args.weight_decay)
     optimizer = torch.optim.AdamW(param_groups, lr=args.lr, betas=(0.9, 0.95))
     print(optimizer)
-    loss_scaler = NativeScaler()
+    loss_scaler = NativeScaler(enabled=args.enable_amp)
 
     misc.load_model(args=args, model_without_ddp=model_without_ddp, optimizer=optimizer, loss_scaler=loss_scaler)
 

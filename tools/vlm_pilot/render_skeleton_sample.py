@@ -36,6 +36,7 @@ PERSON_COLORS = (
 )
 BONE_WIDTH = 4
 JOINT_RADIUS = 4
+ACTOR_LAYOUT_VERSION = "distinct_full_sequence_v2"
 
 
 def parse_args():
@@ -156,6 +157,30 @@ def uniformly_sample(sequence, num_frames):
 
 def active_joint_mask(sequence):
     return np.any(np.abs(sequence) > 1e-8, axis=-1)
+
+
+def actor_layout(sequence):
+    """Count distinct raw tracks before smoothing or temporal subsampling.
+
+    NTU120 duplicates single-person tracks into both raw person slots. Only
+    exact equality over the full sequence establishes a duplicate; similar
+    poses, matching sampled frames, or a shared root do not.
+    """
+    if not np.isfinite(sequence).all():
+        raise ValueError("Non-finite skeleton coordinates")
+    raw_people = np.flatnonzero(active_joint_mask(sequence).any(axis=(0, 2))).tolist()
+    if not raw_people:
+        raise ValueError("Selected sample contains no active skeleton person")
+    duplicate = (raw_people == [0, 1]
+                 and np.array_equal(sequence[:, 0], sequence[:, 1]))
+    rendered_people = [0] if duplicate else raw_people
+    return {
+        "actor_layout_version": ACTOR_LAYOUT_VERSION,
+        "raw_active_person_indices": raw_people,
+        "rendered_person_indices": rendered_people,
+        "duplicate_person1": bool(duplicate),
+        "visible_actor_count": len(rendered_people),
+    }
 
 
 def _validate_odd_window(name, value):
@@ -411,11 +436,14 @@ def draw_grid(draw, panel):
         draw.line((left, y, right, y), fill=GRID, width=1)
 
 
-def render_frame(sequence, roots, frame_index, panels, width, height, font, actor_count):
+def render_frame(sequence, roots, frame_index, panels, width, height, font, actor_count,
+                 person_indices=None):
     image = Image.new("RGB", (width, height), BACKGROUND)
     draw = ImageDraw.Draw(image)
     local_pose = sequence[frame_index] - roots[frame_index][None, None, :]
     active = active_joint_mask(sequence)[frame_index]
+    if person_indices is None:
+        person_indices = list(range(sequence.shape[1]))
 
     for panel in panels:
         draw_grid(draw, panel)
@@ -423,7 +451,7 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font, acto
         draw.text((left + 10, top + 9), panel.title, font=font, fill=TEXT)
         pose = local_pose
 
-        for person in range(pose.shape[0]):
+        for person in person_indices:
             color = PERSON_COLORS[min(person, len(PERSON_COLORS) - 1)]
             for a, b in NTU_EDGES:
                 if not active[person, a] or not active[person, b]:
@@ -441,7 +469,8 @@ def render_frame(sequence, roots, frame_index, panels, width, height, font, acto
                 )
 
     if actor_count == 1:
-        footer = "ONE PERSON: the red skeleton is repeated in both views."
+        color = "blue" if person_indices == [1] else "red"
+        footer = "ONE PERSON: the %s skeleton is repeated in both views." % color
     else:
         footer = "TWO PEOPLE: red is person 1 and blue is person 2; views repeat them."
     draw.text((12, height - 22), footer, font=font, fill=MUTED_TEXT)
@@ -467,6 +496,7 @@ def render_sample_frames(
         raise ValueError("width must be divisible by 2")
 
     source = normalize_sample(source)
+    layout = actor_layout(source)
     smoothed, smoothing_info = temporal_smooth_sequence(
         source,
         method=temporal_smooth,
@@ -479,9 +509,9 @@ def render_sample_frames(
     sampled_active = active_joint_mask(sampled)
     person_active_frames = sampled_active.any(axis=2).sum(axis=0)
     blue_skeleton_visible = bool(
-        len(person_active_frames) > 1 and person_active_frames[1] > 0
+        1 in layout["rendered_person_indices"] and person_active_frames[1] > 0
     )
-    visible_actor_count = 2 if blue_skeleton_visible else 1
+    visible_actor_count = layout["visible_actor_count"]
     roots = primary_root(sampled)
     local = sampled - roots[:, None, None, :]
     # Keep missing all-zero joints missing after centering; otherwise subtracting
@@ -493,11 +523,12 @@ def render_sample_frames(
     frames = [
         render_frame(
             sampled, roots, index, panels, width, height, font,
-            visible_actor_count,
+            visible_actor_count, layout["rendered_person_indices"],
         )
         for index in range(num_frames)
     ]
     render_info = {
+        **layout,
         "num_valid_frames": int(len(source)),
         "num_rendered_frames": int(num_frames),
         "source_frame_indices": frame_indices.tolist(),
@@ -562,7 +593,10 @@ def main():
         "temporal_smoothing": render_info["temporal_smoothing"],
         "global_translation_available": False,
         "person_colors": {"person_1": "red", "person_2": "blue"},
-        "actor_count_rule": "one if no blue skeleton is rendered; two if a blue skeleton is rendered",
+        "actor_count_rule": "distinct nonempty raw tracks; exact full-sequence clones count once",
+        **{key: render_info[key] for key in (
+            "actor_layout_version", "raw_active_person_indices",
+            "rendered_person_indices", "duplicate_person1")},
         "visible_actor_count": visible_actor_count,
         "blue_skeleton_visible": render_info["blue_skeleton_visible"],
         "active_rendered_frames_per_person": render_info["active_rendered_frames_per_person"],

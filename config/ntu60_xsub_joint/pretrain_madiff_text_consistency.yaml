@@ -1,6 +1,6 @@
 # Independent new method: native + T->S, no S->T text diffusion decoder.
 # Each skeleton decoder independently draws t/noise over all 1000 steps.
-# Raw bidirectional normalized-x0 MSE on masked positions, no detach/SNR weights.
+# Bidirectional normalized-x0 MSE / (k_native^2 + k_text^2 + 1e-6), no detach.
 # Default native/T->S/consistency weights: 1/1/1; skeleton uniformity stays 0.02.
 feeder: feeder.feeder_ntu.Feeder
 train_feeder_args:
@@ -48,6 +48,7 @@ model_args:
   text_hidden_dim: 2048
   text_context_length: 7
   text_target_mode: reconstruction_consistency
+  consistency_normalization: noise_scale_v1
   text_target_norm: rms
   share_skeleton_decoder: False
 
@@ -65,5 +66,5 @@ weight_decay: 0.05
 mask_ratio: 0.9
 motion_aware_tau: -1
 seed: 0
-output_dir: output_dir/ntu60_xsub_text_consistency_dec3_remap2048_ep400_seed0_20261018/pt
-log_dir: output_dir/ntu60_xsub_text_consistency_dec3_remap2048_ep400_seed0_20261018/pt/tensorboard
+output_dir: output_dir/ntu60_xsub_text_consistency_nscale_dec3_remap2048_ep400_seed0_20261018/pt
+log_dir: output_dir/ntu60_xsub_text_consistency_nscale_dec3_remap2048_ep400_seed0_20261018/pt/tensorboard

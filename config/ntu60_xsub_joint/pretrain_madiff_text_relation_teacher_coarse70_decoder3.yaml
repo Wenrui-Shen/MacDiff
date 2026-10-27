@@ -1,0 +1,86 @@
+# Optional coarse-key ablation: mean 3 adjacent time embeddings, then random teacher mask 70%.
+feeder: feeder.feeder_ntu.Feeder
+train_feeder_args:
+  data_path: ../data/MAMP/ntu/NTU60_XSub.npz
+  split: train
+  window_size: 120
+  p_interval: [0.5, 1]
+  normalization: False
+  random_rot: False
+  flip: False
+  motion_noise: 0
+  impulse_noise: 0
+  joint_noise: [1, 0.005]
+  frame_noise: [0, 0]
+  vel: False
+  bone: False
+
+model: model.transformer_macdiff_text_relation_teacher.Transformer
+model_args:
+  dim_in: 3
+  dim_feat: 256
+  dim_t_embed: 64
+  depth: 8
+  decoder_depth: 3
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: null
+  drop_rate: 0.
+  attn_drop_rate: 0.
+  drop_path_rate: 0.
+  diff_prediction: noise
+  diff_steps: 1000
+  diff_noise_schedule: [inverse_cosine, 1]
+  lambda_loss_uni: 0.02
+  layer_mask_ratio: 0.
+  uncond_ratio: 0.1
+  input_mean: [-0.0058, -0.1333, -0.0246]
+  input_var: [0.0206, 0.0805, 0.0218]
+  one_person: True
+  self_shift: False
+  text_input_dim: 512
+  text_hidden_dim: 2048
+  text_context_length: 7
+  text_target_mode: sample_target_blend
+  text_target_norm: rms
+  text_target_update_ratio: 0.1
+  lambda_text_uniformity: 0.
+  share_skeleton_decoder: False
+  text_conditioning_mode: concat_memory
+  relation_version: paired_global_fifo_text_to_skeleton_kl_v1
+  relation_teacher_version: coarse3_mean_random70_ema_gap_shared_queue_kl_v3
+  teacher_view: coarse_mask
+  teacher_temporal_group: 3
+  teacher_mask_ratio: 0.7
+  relation_feature_mode: gap
+  relation_bank_size: 65536
+  relation_temperature_text: 0.1
+  relation_temperature_skeleton: 0.1
+  lambda_relation: 0.1
+  ema_momentum: 0.999
+  lambda_contrastive: 0.0001
+  contrast_temperature: 0.07
+
+text_cache: vlm_pilot/ntu60_xsub_clip_sentence_cache_v3
+text_target_bank_backend: shared_memory
+lambda_text_to_skeleton: 1.0
+lambda_skeleton_to_text: 0.0
+enable_amp: False
+epochs: 400
+warmup_epochs: 20
+min_lr_epochs: 20
+batch_size: 32
+accum_iter: 1
+lr: 1.e-3
+min_lr: 5.e-4
+weight_decay: 0.05
+mask_ratio: 0.9
+motion_aware_tau: -1
+seed: 0
+output_dir: output_dir/ntu60_xsub_textrel_coarse3mean_m70_q65536_cl1e4_kl01_gap256_dec3_noamp_seed0_20261027/pt
+log_dir: output_dir/ntu60_xsub_textrel_coarse3mean_m70_q65536_cl1e4_kl01_gap256_dec3_noamp_seed0_20261027/pt/tensorboard

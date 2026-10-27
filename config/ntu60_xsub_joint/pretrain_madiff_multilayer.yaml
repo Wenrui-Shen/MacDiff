@@ -1,0 +1,63 @@
+# Encoder8: share the native final norm AND decoder3 for layers6/7/8; LP reads layer8.
+# L = L8 + .1 * (L6 + L7)/2 + .02 * uniformity8.
+feeder: feeder.feeder_ntu.Feeder
+train_feeder_args:
+  data_path: ../data/MAMP/ntu/NTU60_XSub.npz
+  split: train
+  window_size: 120
+  p_interval: [0.5, 1]
+  normalization: False
+  random_rot: False
+  flip: False
+  motion_noise: 0
+  impulse_noise: 0
+  joint_noise: [1, 0.005]
+  frame_noise: [0, 0]
+  vel: False
+  bone: False
+
+model: model.transformer_macdiff_multilayer.Transformer
+model_args:
+  dim_in: 3
+  dim_feat: 256
+  dim_t_embed: 64
+  depth: 8
+  decoder_depth: 3
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: null
+  drop_rate: 0.
+  attn_drop_rate: 0.
+  drop_path_rate: 0.
+  diff_prediction: noise
+  diff_steps: 1000
+  diff_noise_schedule: [inverse_cosine, 1]
+  lambda_loss_uni: 0.02
+  layer_mask_ratio: 0.
+  uncond_ratio: 0.1
+  input_mean: [-0.0058, -0.1333, -0.0246]
+  input_var: [0.0206, 0.0805, 0.0218]
+  one_person: True
+  self_shift: False
+  lambda_aux_diffusion: 0.1
+  multilayer_version: last3_shared_norm_decoder_final_layer_lp_v3
+
+enable_amp: False
+epochs: 400
+warmup_epochs: 20
+min_lr_epochs: 20
+batch_size: 32
+accum_iter: 1
+lr: 1.e-3
+min_lr: 5.e-4
+weight_decay: 0.05
+mask_ratio: 0.9
+motion_aware_tau: -1
+seed: 0
+output_dir: output_dir/ntu60_xsub_multilayer678_sharednormdec3_aux01_lp8_noamp_seed0_20261027/pt
+log_dir: output_dir/ntu60_xsub_multilayer678_sharednormdec3_aux01_lp8_noamp_seed0_20261027/pt/tensorboard

@@ -24,10 +24,11 @@ relative position remains visible. Person 1 is uniformly red and person 2 is
 uniformly blue. Joint circles are deliberately larger than the thinner bone
 lines so that the VLM can distinguish joints from connections. Joints have no
 outline, and the root joint uses the same marker size as every other joint.
-The renderer records one actor when no blue skeleton is visible and two actors
-when a blue skeleton is visible. The captioner reads this label-free structural
-fact from `render_metadata.json` rather than asking the VLM to count repeated
-views. If metadata is unavailable, it falls back to detecting blue pixels.
+The renderer counts nonempty tracks over the full sequence before smoothing or
+sampling. Exact copies in both NTU120 person slots count as one actor and only
+the red copy is drawn. Two distinct tracks count as two actors. The captioner
+reads this structural information from `render_metadata.json`. Blue pixels
+alone cannot establish two people; ambiguous blue-only images require metadata.
 
 The rendering code can be checked without a dataset:
 
@@ -240,7 +241,8 @@ Only JSONL shards can be concatenated directly; merge JSON arrays as JSON.
 以下入口仅读取各自划分的 **x_train**，沿用上面的渲染/描述设置：32 帧、8 fps、
 root-centered 正面/侧面双视图、median3 + Savitzky–Golay5/poly2、
 `skeleton_motion_prompt_v2.txt`、每卡一个常驻 Qwen3-VL-8B、1024 token、
-最多两次修复。默认 `--stage all` 完成渲染和描述，自动断点续跑；
+最多两次修复。原三个入口默认 `--stage all` 完成渲染和描述，自动断点续跑；
+独立XSet入口默认只做render，便于先完成全部骨架渲染。
 CLIP 编码是独立的第三步，见4.2。按用户要求分阶段执行时也使用4.2的命令。
 在仓库根目录、已有的 Qwen 推理环境中分别执行：
 
@@ -257,7 +259,7 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_pku.p
 ```
 
 模型默认 `/home/user9/public3/swr/models/Qwen3-VL-8B-Instruct`，卡号默认
-`0,1`，可用 `--model` / `--gpus` 覆盖。三个入口共用
+`0,1`，可用 `--model` / `--gpus` 覆盖。这些入口共用
 `dataset_caption_pipeline.py` 和已有渲染/描述模块；XView还复用
 `run_caption_ntu120.py` 的映射逻辑。上传时同步这些入口、公共模块及
 `run_caption_dual_gpu.py`（本次补上无新增结果时保持合并输出稳定的修正）。
@@ -290,23 +292,30 @@ NTU60，22,935 行需要渲染/推理。实际 NPZ 数量或重合坐标不匹�
 
 NTU120 单人预处理可能把 person0 完整复制到 person1：复用时只将原 person0
 描述复制到该人物槽，不调用 VLM，映射保存在 `dataset_manifest.json`。
-原 NPZ、原 NTU60 描述均保持原样。新骨架仍按原 NPZ 的人物槽渲染。
+原 NPZ、原 NTU60 描述均保持原样。新生成的复制槽样本只画person0红色骨架、
+只推理一份描述；数据集入口最终合并时复制回person0/person1两个原始槽，
+使CLIP cache仍与原NPZ对齐。真实双人仍分别渲染、描述。
 
-NTU120 cross-setup在项目中记为 **XSet**（即XSetup）。使用
-`run_caption_ntu120.py --benchmark XSet` 后，默认数据改为
+NTU120 cross-setup在项目中记为 **XSet**（即XSetup）。按“全部先渲染，再生成描述”
+流程使用独立入口 `run_caption_ntu120_xset.py`，默认数据为
 `../data/MAMP/ntu120/NTU120_XSet.npz`，输出改为 `vlm_pilot/ntu120_xset/`。
 其训练是偶数setup 2,4,...,32，按setup号依次拼接，测试为奇数setup。
-默认复用优先级为NTU60 XSub → NTU60 XView → NTU120 XSub，三个源都须有完整描述。
+复用优先级为NTU60 XSub → NTU60 XView → NTU120 XSub。
+**渲染阶段只读取骨架，不需要XView或NTU120 XSub的描述已经存在**；
+按ID与坐标核验去重，并在 `dataset_manifest.json` 保存来源/目标行映射及原始人物槽数量。
+描述阶段才要求三份完整源文本，检查模型/prompt/revision、覆盖和人物槽，
+将文本及metadata的哈希绑定到 `reuse_caption_sources.json` 并写入最终描述metadata。
+开始描述生成后，源文本变化会被拒绝，防止续跑混用不同描述。
 其中XSub/XView的单人零槽与NTU120的复制槽按实际坐标适配。
 当前统计54,468个训练样本，可合计复用31,965个，只新增22,503个；
-只复用NTU60 XSub时只能复用16,087个，会额外重复生成已有划分覆盖的样本。
-因此推荐先完成XView和NTU120 XSub的描述，再处理XSet。
 额外源默认读取 `--output_root` 下的 `ntu60_xview/captions.json`、
 `ntu120_xsub/captions.json`，NPZ分别为上述NTU60 XView和NTU120 XSub默认路径；
 可用同名 `--ntu60_xview_captions` / `--ntu120_xsub_captions` 及
 `--ntu60_xview_data_path` / `--ntu120_xsub_data_path` 覆盖。
-`--reuse_splits` 可明确选择额外源；不提供此参数时XSet默认使用两者，
-显式空列表才仅使用NTU60 XSub。源缺失/不完整或同ID坐标冲突会报错，不悄悄重生成。
+新入口默认stage=render；其渲染与描述都使用同一独立入口。
+旧 `run_caption_ntu120.py --benchmark XSet` 仍保留给此前已经创建的旧计划，
+该旧入口的渲染前置仍包含完整源描述；不要混用两种入口的XSet计划。
+已渲染但尚未生成描述的旧计划，先按4.5执行人数修复，再继续原来的描述命令。
 
 PKU 默认分别读取 `../data/MAMP/pku_v1/PKUv1_XSub.npz` 和
 `../data/MAMP/pku_v2/PKUv2_XSub.npz`，可用 `--pkuv1_data_path` /
@@ -347,10 +356,12 @@ caption 阶段只读取已保存的计划、GIF 和描述，不重新加载 NPZ 
 python tools/vlm_pilot/run_caption_ntu60_xview.py --stage render
 python tools/vlm_pilot/run_caption_ntu120.py --stage render
 python tools/vlm_pilot/run_caption_pku.py --stage render
+python tools/vlm_pilot/run_caption_ntu120_xset.py --stage render
 ```
 
 每个新样本保存 `rendered/train_<原行号>/preview.gif` 和 `render_metadata.json`，
-根目录保存 `dataset_manifest.json`。XView仅渲染10,970行，NTU120 XSub仅渲染22,935行；
+根目录保存 `dataset_manifest.json`。XView仅渲染10,970行，NTU120 XSub仅渲染22,935行，
+XSet仅渲染22,503行。XSet此时不要求其他新划分已有文本；
 重合样本的描述已存在于NTU60 XSub，不再次渲染/推理。
 原始ID与完整坐标验证在此阶段完成。续跑会核验GIF和渲染配置，再跳过完整样本。
 可以先加 `--dry_run` 核对数量，不产生文件。
@@ -360,6 +371,7 @@ python tools/vlm_pilot/run_caption_pku.py --stage render
 ```bash
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu60_xview.py --stage caption
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu120.py --stage caption
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu120_xset.py --stage caption
 HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_pku.py --stage caption
 ```
 
@@ -367,16 +379,11 @@ HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_pku.p
 解码时检查帧数。每卡一个常驻模型，分片、失败重试和日志在 `generated/` 中。
 结构检查通过的描述与复用描述合并到数据集根目录的 `captions.json`，
 其 `.metadata.json` 中 `summary.dataset_complete=true` 才表示全量完成。
-XView应为37,646行，NTU120 XSub应为63,026行；PKU按各自实际NPZ训练行数检查。
+XView应为37,646行，NTU120 XSub应为63,026行，XSet应为54,468行；PKU按各自实际NPZ训练行数检查。
 每个人保留 `global` 和固定顺序的六个 `local` 部位句子。
 
-**XView和NTU120 XSub描述完整后，再做XSet的第一、二步。**这保证XSet能够复用
-它们的描述；仍然先保存新增骨架，再读取GIF推理。XSet最终完整文本应为54,468行。
-
-```bash
-python tools/vlm_pilot/run_caption_ntu120.py --benchmark XSet --stage render
-HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 python tools/vlm_pilot/run_caption_ntu120.py --benchmark XSet --stage caption
-```
+描述阶段先完成XView和NTU120 XSub，再运行XSet的 `--stage caption`，以复用完整文本。
+XSet的GIF在第一步已经保存，不需要重新渲染；此阶段会校验源文本并绑定其身份。
 
 **第三步：对完整描述使用冻结的CLIP text encoder，保存v3句向量cache。**
 在此前可提取CLIP的环境中依次执行以下五条命令。
@@ -471,8 +478,8 @@ NTU60 XSub的40,091份渲染文件/metadata、40,091条描述（47,608个人物�
 默认32帧/8fps、960×360、font18、正面XY/侧面ZY、逐帧person0 root居中，
 median3、Savgol5/poly2、插值gap2，GIF optimize=False/disposal2均一致。
 新增回归测试对同环境的单人、复制人物槽、双人输入，核对新旧入口GIF逐字节、
-config和render元数据一致。不同数据集的有效帧数/人物槽不同，计算量仍可能不同；
-NTU120复制槽会按原数据参与双人物渲染。
+config和render元数据一致。不同数据集的有效帧数/人物槽不同，计算量仍可能不同。
+该一致性测试比较的是两个入口调用当前同一渲染器；4.5的人数修复已使复制槽只画一次。
 
 本地300帧合成样本CPU对照（不是服务器速度）：两轮各3例，旧入口1.372/1.434秒，
 新入口1.437/1.412秒。分阶段样本计时中，绘制/平滑约0.078–0.106秒，
@@ -497,7 +504,54 @@ GIF编码约0.346–0.404秒；profile主要耗时是Pillow逐帧调色板量化
 python -c 'import json,pathlib,statistics; fs=sorted(pathlib.Path("vlm_pilot/ntu60_xview/rendered").glob("train_*/render_metadata.json"))[-20:]; rs=[json.loads(p.read_text()) for p in fs]; print({"samples":len(rs),"mean_seconds":statistics.mean(r["render_seconds"] for r in rs) if rs else None,"median_seconds":statistics.median(r["render_seconds"] for r in rs) if rs else None})'
 ```
 
-此次检查仅增加回归测试和运行说明，渲染器及生成入口的实现文件未改，现有计划身份和已生成GIF可继续沿用。
+以上速度数值来自人数修复前的检查。更新至4.5后，旧计划先修复再续跑。
+
+### 4.5 修复NTU120复制人物槽被误判为双人
+
+人数现在按完整有效序列的非空人物槽判断；只有person0和person1的**全部坐标完全相同**
+才合并为一个可见人物。在平滑和32帧采样前比较，避免把姿势接近、只在采样帧重合、
+或有部分缺失帧的真实双人误合并。复制槽只画红色person0，metadata记录
+`actor_layout_version=distinct_full_sequence_v2`、`duplicate_person1=true`、
+`raw_active_person_indices=[0,1]`、`rendered_person_indices=[0]`，人数为1。
+`active_rendered_frames_per_person`仍记录采样后两个原始槽的有效帧数，不是可见独立人数。
+
+VLM对该样本只输出一条人物描述。**请使用数据集根目录的最终 `captions.json` 编码CLIP**：
+数据集入口会把该描述复制回原NPZ的两个槽位；`generated/captions.json`只保存VLM直接输出，
+复制槽在该中间文件中只有一条描述，不能直接用来为原双槽NPZ建cache。
+已完成的NTU60 XSub描述和cache不需要重做，模型的`one_person`和训练输入没有修改。
+
+服务器同步本次修改的`tools/vlm_pilot`文件后，对“只有GIF、没有描述/cache”的旧输出先执行：
+
+```bash
+python tools/vlm_pilot/repair_render_actor_counts.py --dry_run
+python tools/vlm_pilot/repair_render_actor_counts.py
+```
+
+默认处理`vlm_pilot`下已有计划的NTU60 XView、NTU120 XSub/XSet、PKU v1/v2；
+尚未建立计划的划分跳过。也可指定单个目录：
+
+```bash
+python tools/vlm_pilot/repair_render_actor_counts.py vlm_pilot/ntu120_xsub
+```
+
+修复仅加载目标NPZ的`x_train`，不要求其他划分已经有描述，不加载Qwen/CLIP。
+先核对旧生产代码的已知SHA、原NPZ身份和全部已保存metadata，再只重渲染复制槽等人数变化样本；
+其他GIF/metadata不改。日志分别给出`rerender`、缺失渲染数和真正只有person1的样本数。
+会备份原计划为`dataset_manifest.before_actor_layout_v2.json`，保存`actor_layout_upgrade.json`，
+全部修复成功后才更新计划的实现SHA。中断后可重复同一命令，已修复样本跳过。
+若有缺失GIF，修复后用原数据集入口的`--stage render`补齐，再按4.2顺序生成描述。
+有已有描述/cache、未知旧代码SHA或NPZ变化的目录会拒绝迁移，需另设输出目录。
+
+真正“person0全空、仅person1非空”的样本人数会正确记为1，保留原person1索引和蓝色；
+现有文本/cache协议要求person0，因此描述阶段会明确报错，不偷偷把person1重编号为person0。
+这类情况与两个槽完全重复不同，需要根据实际NPZ排查来源。
+
+本地检查覆盖重复槽的颜色/人数、真实双人、采样外坐标差异、仅person1、旧GIF修复与中断续跑、
+新描述复制回原槽及CLIP计划校验：
+
+```bash
+python -m unittest tests.test_render_actor_counts tests.test_dataset_captions tests.test_caption_output tests.test_caption_dual_gpu tests.test_rendered_gif_recovery tests.test_structured_text_cache
+```
 
 ## 5. Randomly inspect accepted captions
 

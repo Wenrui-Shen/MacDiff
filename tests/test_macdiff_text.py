@@ -1,4 +1,5 @@
 """Real CPU/autograd checks; skip only when PyTorch is unavailable."""
+import ast
 import contextlib
 import importlib.util
 import io
@@ -10,6 +11,125 @@ import unittest
 import numpy as np
 
 HAS_TORCH = importlib.util.find_spec('torch') is not None
+
+
+class GlobalLocalNumpyTests(unittest.TestCase):
+    """Execute the actual forward methods with NumPy attention primitives.
+
+    These check routing/padding without Torch; they do not replace autograd tests.
+    """
+    @staticmethod
+    def method(class_name, method_name, namespace=None):
+        path = Path(__file__).resolve().parents[1] / 'model/transformer_macdiff_text.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        cls = next(node for node in tree.body if isinstance(node, ast.ClassDef)
+                   and node.name == class_name)
+        method = next(node for node in cls.body if isinstance(node, ast.FunctionDef)
+                      and node.name == method_name)
+        method.decorator_list = []
+        scope = {} if namespace is None else dict(namespace)
+        exec(compile(ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[])),
+                     str(path), 'exec'), scope)
+        return scope[method_name]
+
+    def fixture(self):
+        class Tensor(np.ndarray):
+            def transpose(self, first, second):
+                return self.swapaxes(first, second)
+
+            def chunk(self, count, dim=-1):
+                return np.split(self, count, axis=dim)
+
+            def masked_fill(self, mask, value):
+                return np.where(mask, value, self).view(Tensor)
+
+            def any(self, dim=None):
+                return np.asarray(self).any(axis=dim)
+
+        tensor = lambda values: np.asarray(values).view(Tensor)
+        rng = np.random.RandomState(281)
+        linear = lambda rows, columns: (lambda values, weights=tensor(
+            rng.normal(scale=.2, size=(rows, columns))): values @ weights)
+        def norm(values):
+            centered = values - values.mean(axis=-1, keepdims=True)
+            return centered / np.sqrt((centered ** 2).mean(axis=-1, keepdims=True) + 1.e-5)
+
+        memories = []
+        def attention(query, key, value, key_padding_mask, need_weights):
+            memories.append(key.copy())
+            q, k, v = [item.transpose(0, 1) for item in (query, key, value)]
+            scores = (q @ k.transpose(1, 2)) / np.sqrt(q.shape[-1])
+            scores = scores.masked_fill(key_padding_mask[:, None, :], -np.inf)
+            weights = np.exp(scores - scores.max(axis=-1, keepdims=True))
+            weights /= weights.sum(axis=-1, keepdims=True)
+            return (weights @ v).transpose(0, 1), None
+
+        block_forward = self.method('GlobalLocalTextBlock', 'forward')
+        blocks = []
+        for _ in range(2):
+            block = types.SimpleNamespace(
+                modulation=linear(8, 72), norms=[norm] * 3, local_reader=attention,
+                modulate=self.method('GlobalLocalTextBlock', 'modulate'),
+                attn=linear(8, 8), mlp=linear(8, 8), drop_path=lambda values: values)
+            blocks.append(lambda *args, block=block, **kwargs: block_forward(block, *args, **kwargs))
+        embed = linear(3, 8)
+        decoder = types.SimpleNamespace(
+            conditioning_mode='global_mod_local_attention_v1',
+            decoder_embed=lambda values: embed(values[:, ::4]),
+            pos_embed=tensor(rng.normal(size=(1, 1, 25, 8))),
+            temp_embed=tensor(rng.normal(size=(1, 2, 1, 8))), dim_t_embed=64,
+            global_input=linear(8, 8), local_input=linear(8, 8), time_input=linear(64, 8),
+            text_blocks=blocks, decoder_norm=norm, decoder_pred=linear(8, 12))
+        forward = self.method('TextConditionedSkeletonDecoder', 'forward', {
+            'timestep_embedding': lambda t, dim: tensor(
+                np.sin(np.asarray(t)[:, None] + np.arange(dim)[None, :]))})
+        x = tensor(rng.normal(size=(2, 8, 25, 3)))
+        t = tensor([2, 6])
+        g = tensor(rng.normal(size=(2, 8)))
+        local = tensor(rng.normal(size=(2, 6, 8)))
+        mask = tensor([[True, True, False, False, False, False], [True] * 6])
+        return lambda g, local, mask: forward(decoder, x, t, g, local, mask), g, local, mask, memories
+
+    def test_global_changes_prediction_without_entering_local_keys(self):
+        predict, g, local, mask, memories = self.fixture()
+        reference = predict(g, local, mask)
+        changed = predict(g + .7, local, mask)
+        self.assertEqual(reference.shape, (2, 50, 12))
+        self.assertGreater(np.max(np.abs(reference - changed)), 1.e-6)
+        for first, second in zip(memories[:2], memories[2:4]):
+            self.assertEqual(first.shape, (6, 2, 8))
+            np.testing.assert_array_equal(first, second)
+
+    def test_valid_local_matters_but_nan_padding_does_not(self):
+        predict, g, local, mask, _ = self.fixture()
+        reference = predict(g, local, mask)
+        padded = local.masked_fill(~mask[..., None], float('nan'))
+        np.testing.assert_array_equal(predict(g, padded, mask), reference)
+        changed = local.copy()
+        changed[:, 0] += .7
+        self.assertGreater(np.max(np.abs(predict(g, changed, mask) - reference)), 1.e-6)
+        with self.assertRaisesRegex(ValueError, 'valid local sentence'):
+            predict(g, local, mask & False)
+
+    def test_resume_mode_guard_runs_before_state_loading(self):
+        path = Path(__file__).resolve().parents[1] / 'util/misc.py'
+        tree = ast.parse(path.read_text(encoding='utf-8'))
+        function = next(node for node in tree.body if isinstance(node, ast.FunctionDef)
+                        and node.name == 'load_model')
+        for saved_mode, current_mode in ((None, 'global_mod_local_attention_v1'),
+                                         ('global_mod_local_attention_v1', 'concat_memory')):
+            saved = types.SimpleNamespace(text_cache_identity={}, text_training_weights=(1., .1))
+            if saved_mode is not None:
+                saved.text_conditioning_mode = saved_mode
+            checkpoint = {'model': {}, 'args': saved}
+            namespace = {'torch': types.SimpleNamespace(load=lambda *args, **kwargs: checkpoint)}
+            exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
+                         str(path), 'exec'), namespace)
+            args = types.SimpleNamespace(resume='checkpoint.pth', text_cache='cache',
+                text_cache_identity={}, text_training_weights=(1., .1),
+                text_conditioning_mode=current_mode)
+            with self.assertRaisesRegex(ValueError, 'text_conditioning_mode'):
+                namespace['load_model'](args, None, None, None)
 
 
 @unittest.skipUnless(HAS_TORCH, 'PyTorch is required for diffusion/gradient checks')
@@ -38,6 +158,114 @@ class TextStage1Tests(unittest.TestCase):
         options.update(overrides)
         with contextlib.redirect_stdout(io.StringIO()):
             return Transformer(**options)
+
+    def test_global_modulation_keeps_global_out_of_every_local_memory(self):
+        import torch
+        model = self.model(text_conditioning_mode='global_mod_local_attention_v1',
+                           decoder_depth=2, text_context_length=7).eval()
+        decoder = model.text_skeleton_decoder
+        x, t = torch.randn(2, 8, 25, 3), torch.tensor([2, 6])
+        global_text = torch.randn(2, 8)
+        local = torch.randn(2, 6, 8)
+        mask = torch.ones(2, 6, dtype=torch.bool)
+        memories = []
+        handles = [block.local_reader.register_forward_pre_hook(
+            lambda module, inputs: memories.append(inputs[1].detach().clone()))
+            for block in decoder.text_blocks]
+        with torch.no_grad():
+            reference = decoder(x, t, global_text, local, mask)
+            changed_global = decoder(x, t, global_text + torch.randn_like(global_text), local, mask)
+            changed_local = decoder(x, t, global_text, local + torch.randn_like(local), mask)
+        for handle in handles:
+            handle.remove()
+        self.assertEqual(tuple(reference.shape), (2, 50, 12))
+        self.assertFalse(torch.allclose(reference, changed_global, atol=1.e-7, rtol=1.e-7))
+        self.assertFalse(torch.allclose(reference, changed_local, atol=1.e-7, rtol=1.e-7))
+        self.assertEqual(len(memories), 6)
+        for first, second in zip(memories[:2], memories[2:4]):
+            self.assertEqual(tuple(first.shape), (6, 2, 8))
+            torch.testing.assert_close(first, second, rtol=0, atol=0)
+
+    def test_global_local_attention_padding_and_missing_local(self):
+        import torch
+        model = self.model(text_conditioning_mode='global_mod_local_attention_v1').eval()
+        decoder = model.text_skeleton_decoder
+        x, t, g = torch.randn(2, 8, 25, 3), torch.tensor([2, 6]), torch.randn(2, 8)
+        local = torch.randn(2, 6, 8)
+        mask = torch.tensor([[True, True, False, False, False, False], [True] * 6])
+        with torch.no_grad():
+            reference = decoder(x, t, g, local, mask)
+            changed = decoder(x, t, g, local.masked_fill(~mask[..., None], float('nan')), mask)
+            torch.testing.assert_close(changed, reference, rtol=0, atol=0)
+        with self.assertRaisesRegex(ValueError, 'valid local sentence'):
+            decoder(x, t, g, local, torch.zeros_like(mask))
+
+    def test_global_local_t2s_gradients_and_shared_body_have_no_unused_parameters(self):
+        import torch
+        for shared in (False, True):
+            model = self.model(text_conditioning_mode='global_mod_local_attention_v1',
+                               share_skeleton_decoder=shared,
+                               text_target_mode='ema_remap', text_target_norm='rms')
+            data = self.tokens(2)
+            g = model.text_remap(model.fixed_clip_target(torch.randn(2, 6)))
+            local = model.remap_tokens(data['text_tokens'], data['text_token_mask'],
+                                       data['text_person_ids'], data['text_positions'])
+            x = torch.randn(2, 8, 25, 3)
+            loss = model.text_to_skeleton_loss(
+                x, torch.randn_like(x), torch.tensor([2, 6]), torch.ones(2, 50), g,
+                torch.ones(2, dtype=torch.bool), 1, local, data['text_token_mask'])
+            loss.backward()
+            self.assertTrue(all(p.grad is None for p in model.blocks.parameters()))
+            self.assertEqual(model.decoder_pred.weight.grad is not None, shared)
+            for name, parameter in model.text_skeleton_decoder.named_parameters():
+                self.assertIsNotNone(parameter.grad, name)
+                self.assertTrue(torch.isfinite(parameter.grad).all(), name)
+            self.assertGreater(model.text_remap.body[-1].weight.grad.abs().sum().item(), 0)
+            if shared:
+                self.assertIsNotNone(model.decoder_blocks[0].attn.qkv.weight.grad)
+                self.assertFalse(any(key.startswith('text_skeleton_decoder.text_blocks.0.attn.')
+                                     for key in model.state_dict()))
+            restored = self.model(text_conditioning_mode='global_mod_local_attention_v1',
+                                  share_skeleton_decoder=shared,
+                                  text_target_mode='ema_remap', text_target_norm='rms')
+            restored.load_state_dict(model.state_dict(), strict=True)
+
+    def test_global_local_keeps_losses_and_reverse_target_detached(self):
+        import torch
+        model = self.model(text_conditioning_mode='global_mod_local_attention_v1',
+                           text_target_mode='sample_target_blend', text_target_norm='rms',
+                           lambda_text_to_skeleton=1., lambda_skeleton_to_text=.1)
+        source = torch.randn(2, 3, 8, 25, 2)
+        data = self.tokens(2)
+        target_g = torch.randn(2, 6, requires_grad=True)
+        target_l = torch.randn(2, 6, 6, requires_grad=True)
+        loss, _, _, metrics = model(
+            source, source.clone(), text_features=torch.randn(2, 6), mask_ratio=.5,
+            text_target_global=target_g, text_target_tokens=target_l, **data)
+        torch.testing.assert_close(loss.detach(), metrics['loss_diff']
+            + .02 * metrics['loss_uniformity'] + metrics['loss_text_to_skeleton']
+            + .1 * metrics['loss_skeleton_to_text'])
+        loss.backward()
+        self.assertIsNone(target_g.grad)
+        self.assertIsNone(target_l.grad)
+        for name, parameter in model.named_parameters():
+            if parameter.requires_grad:
+                self.assertIsNotNone(parameter.grad, name)
+                self.assertTrue(torch.isfinite(parameter.grad).all(), name)
+
+    def test_resume_rejects_global_local_mode_change_before_loading_weights(self):
+        import torch
+        from util.misc import load_model
+        model = self.model(text_conditioning_mode='global_mod_local_attention_v1')
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'checkpoint.pth'
+            saved = types.SimpleNamespace(text_cache_identity={}, text_training_weights=(1., 1.))
+            torch.save({'model': {}, 'args': saved}, path)
+            args = types.SimpleNamespace(resume=str(path), text_cache='cache',
+                text_cache_identity={}, text_training_weights=(1., 1.),
+                text_conditioning_mode='global_mod_local_attention_v1')
+            with self.assertRaisesRegex(ValueError, 'text_conditioning_mode'):
+                load_model(args, model, None, None)
 
     def test_fixed_clip_target_is_exact_and_stays_fixed_after_optimizer_step(self):
         import torch

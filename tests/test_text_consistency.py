@@ -17,13 +17,21 @@ SOURCE = ROOT / 'model/transformer_macdiff_text_consistency.py'
 HAS_TORCH = importlib.util.find_spec('torch') is not None
 
 
-def definition_validator():
+def definition_functions():
     tree = ast.parse(SOURCE.read_text(encoding='utf-8'))
-    body = [node for node in tree.body if isinstance(node, ast.FunctionDef)
-            and node.name == 'validate_consistency_definition']
-    scope = {'math': math, 'TARGET_MODE': 'reconstruction_consistency'}
+    constants = {'TARGET_MODE', 'CONSISTENCY_NORMALIZATION', 'CONSISTENCY_EPS'}
+    functions = {'validate_consistency_definition', 'consistency_noise_scale'}
+    body = [node for node in tree.body
+            if (isinstance(node, ast.FunctionDef) and node.name in functions)
+            or (isinstance(node, ast.Assign) and any(
+                isinstance(target, ast.Name) and target.id in constants for target in node.targets))]
+    scope = {'math': math}
     exec(compile(ast.Module(body=body, type_ignores=[]), str(SOURCE), 'exec'), scope)
-    return scope['validate_consistency_definition']
+    return scope
+
+
+def definition_validator():
+    return definition_functions()['validate_consistency_definition']
 
 
 class DefinitionTests(unittest.TestCase):
@@ -52,18 +60,22 @@ class DefinitionTests(unittest.TestCase):
     def test_old_text_target_modes_and_removed_losses_are_rejected(self):
         for options in [dict(text_target_mode='sample_target_blend'),
                         dict(text_target_norm='none'), dict(lambda_skeleton_to_text=.1),
-                        dict(lambda_text_uniformity=.02)]:
+                        dict(lambda_text_uniformity=.02), dict(consistency_normalization='raw'),
+                        dict(consistency_normalization=None)]:
             with self.subTest(options=options), self.assertRaises(ValueError):
                 self.validate(**options)
 
     def test_resume_rejects_other_methods_and_changed_weights_or_depths(self):
         import main_pretrain_text_consistency as entry
         options = dict(decoder_depth=3, lambda_consistency=.003,
-                       diff_noise_schedule=['inverse_cosine', 1])
+                       diff_noise_schedule=['inverse_cosine', 1],
+                       consistency_normalization='noise_scale_v1')
         saved = argparse.Namespace(model=entry.MODEL_NAME, model_args=options)
         entry._validate_resume_definition(saved, dict(options))
         for changed in [dict(options, decoder_depth=5),
-                        dict(options, lambda_consistency=.004)]:
+                        dict(options, lambda_consistency=.004),
+                        {key: value for key, value in options.items()
+                         if key != 'consistency_normalization'}]:
             with self.assertRaisesRegex(ValueError, 'model_args'):
                 entry._validate_resume_definition(saved, changed)
         with self.assertRaisesRegex(ValueError, 'old S->T/native'):
@@ -77,10 +89,32 @@ class DefinitionTests(unittest.TestCase):
                                   lambda_consistency=None, lambda_text_to_skeleton=None,
                                   lambda_skeleton_to_text=None)
         args.resume = ''
-        module = types.SimpleNamespace(validate_consistency_definition=definition_validator())
+        module = types.SimpleNamespace(validate_consistency_definition=definition_validator(),
+                                       CONSISTENCY_NORMALIZATION='noise_scale_v1')
         with mock.patch.object(entry.importlib, 'import_module', return_value=module):
             result = entry.prepare_args(args)
         self.assertEqual(result.model_args['lambda_consistency'], 1.)
+        self.assertEqual(result.model_args['consistency_normalization'], 'noise_scale_v1')
+
+    def test_entry_rejects_raw_resume_and_accepts_normalized_resume(self):
+        import main_pretrain_text_consistency as entry
+        args = argparse.Namespace(model=entry.MODEL_NAME, enable_ose=False,
+                                  text_cache='cache', model_args={'decoder_depth': 3},
+                                  lambda_consistency=None, lambda_text_to_skeleton=None,
+                                  lambda_skeleton_to_text=None, resume='checkpoint.pth')
+        raw = dict(decoder_depth=3, lambda_consistency=1.)
+        checkpoint = dict(model={}, optimizer={}, scaler={}, epoch=0,
+                          args=dict(model=entry.MODEL_NAME, model_args=raw))
+        module = types.SimpleNamespace(validate_consistency_definition=definition_validator(),
+                                       CONSISTENCY_NORMALIZATION='noise_scale_v1')
+        fake_torch = types.SimpleNamespace(load=mock.Mock(return_value=checkpoint))
+        with mock.patch.object(entry.importlib, 'import_module', return_value=module), \
+                mock.patch.dict(sys.modules, {'torch': fake_torch}):
+            with self.assertRaisesRegex(ValueError, 'model_args'):
+                entry.prepare_args(args)
+            checkpoint['args']['model_args'] = dict(raw, consistency_normalization='noise_scale_v1')
+            result = entry.prepare_args(args)
+        self.assertEqual(result.model_args['consistency_normalization'], 'noise_scale_v1')
 
     def test_entry_extends_the_actual_native_parser(self):
         import main_pretrain_text_consistency as entry
@@ -103,11 +137,39 @@ class DefinitionTests(unittest.TestCase):
                                   text_cache='cache', model_args={}, resume='',
                                   lambda_consistency=.004, lambda_text_to_skeleton=1.,
                                   lambda_skeleton_to_text=None)
-        module = types.SimpleNamespace(validate_consistency_definition=definition_validator())
+        module = types.SimpleNamespace(validate_consistency_definition=definition_validator(),
+                                       CONSISTENCY_NORMALIZATION='noise_scale_v1')
         with mock.patch.object(entry.importlib, 'import_module', return_value=module):
             result = entry.prepare_args(args)
         self.assertEqual(result.model_args['lambda_consistency'], .004)
         self.assertEqual(result.model_args['lambda_text_to_skeleton'], 1.)
+
+    def test_noise_scale_removes_endpoint_amplification_for_actual_schedule(self):
+        source = ROOT / 'guided_diffusion/gaussian_diffusion.py'
+        tree = ast.parse(source.read_text(encoding='utf-8'))
+        body = [node for node in tree.body if isinstance(node, ast.FunctionDef)
+                and node.name in ('get_named_beta_schedule', 'betas_for_alpha_bar')]
+        scope = {'math': math, 'np': types.SimpleNamespace(array=lambda values: values)}
+        exec(compile(ast.Module(body=body, type_ignores=[]), str(source), 'exec'), scope)
+        alpha, k = 1., []
+        for beta in scope['get_named_beta_schedule'](['inverse_cosine', 1], 1000):
+            alpha *= 1. - beta
+            k.append(math.sqrt((1. - alpha) / alpha))
+        scale = definition_functions()['consistency_noise_scale']
+        self.assertAlmostEqual(scale(3., 4.) ** 2, 25.000001)
+        raw = (k[999] * .1 + k[500] * .1) ** 2
+        normalized = raw / scale(k[999], k[500]) ** 2
+        self.assertGreater(raw, 5000.)
+        self.assertLess(normalized, .0101)
+        # Cauchy-Schwarz: normalized residual^2 <= r_native^2 + r_text^2;
+        # both epsilon derivative coefficients stay <= 1 at every endpoint pair.
+        for ta in (0, 300, 500, 700, 998, 999):
+            for tb in (0, 300, 500, 700, 998, 999):
+                denominator = scale(k[ta], k[tb])
+                self.assertLessEqual(k[ta] / denominator, 1.)
+                self.assertLessEqual(k[tb] / denominator, 1.)
+                value = ((k[ta] * .2 + k[tb] * .4) / denominator) ** 2
+                self.assertLessEqual(value, .2 + 1e-12)
 
     def test_existing_sentence_cache_training_guard_accepts_this_mode(self):
         source = ROOT / 'util/structured_text_cache.py'
@@ -253,12 +315,12 @@ class ConsistencyTorchTests(unittest.TestCase):
         self.assertEqual(a.grad.abs().sum().item(), 0.)
         self.assertEqual(b.grad.abs().sum().item(), 0.)
 
-    def test_raw_x0_mse_matches_the_independent_error_formula_without_clipping(self):
+    def test_normalized_x0_mse_is_samplewise_and_matches_the_independent_error_formula(self):
         import torch
         from model.transformer_macdiff_text_consistency import masked_reconstruction_consistency
-        model = self.model()
+        model = self.model(diff_steps=1000)
         clean = torch.randn(2, 8, 5, 3)
-        ta, tb = torch.tensor([0, 9]), torch.tensor([9, 0])
+        ta, tb = torch.tensor([0, 999]), torch.tensor([500, 999])
         ea, eb = torch.randn_like(clean), torch.randn_like(clean)
         xa = model.patchify(model.diffusion.q_sample(clean, ta, noise=ea))
         xb = model.patchify(model.diffusion.q_sample(clean, tb, noise=eb))
@@ -268,9 +330,38 @@ class ConsistencyTorchTests(unittest.TestCase):
         loss, _ = masked_reconstruction_consistency(
             model.diffusion, xa, pa, ta, xb, pb, tb, mask, torch.ones(2, dtype=torch.bool))
         k = torch.tensor(model.diffusion.sqrt_recipm1_alphas_cumprod, dtype=torch.float32)
-        expected = (k[ta, None, None] * .2 + k[tb, None, None] * .4).square().mean()
+        raw = (k[ta] * .2 + k[tb] * .4).square()
+        expected = (raw / (k[ta].square() + k[tb].square() + 1e-6)).mean()
         self.assert_close(loss, expected, rtol=2e-5, atol=1e-5)
-        self.assertGreater(loss.item(), 1.)
+        self.assertLessEqual(loss.item(), .2)
+        self.assertGreater(raw.mean().item(), 10000.)
+        loss.backward()
+        for prediction in (pa, pb):
+            self.assertTrue(torch.isfinite(prediction.grad).all())
+            self.assertGreater(prediction.grad.abs().sum().item(), 0.)
+            self.assertLessEqual(prediction.grad.abs().sum().item(), 1.)
+
+    def test_nonfinite_diagnostic_identifies_rank_losses_timesteps_and_predictions(self):
+        import torch
+        from model.transformer_macdiff_text_consistency import check_consistency_finite
+        losses = dict(total=torch.tensor(float('inf')), native=torch.tensor(1.),
+                      consistency=torch.tensor(float('inf')))
+        with mock.patch.object(torch.distributed, 'is_available', return_value=True), \
+                mock.patch.object(torch.distributed, 'is_initialized', return_value=True), \
+                mock.patch.object(torch.distributed, 'get_rank', return_value=1):
+            with self.assertRaises(FloatingPointError) as raised:
+                check_consistency_finite(
+                    losses, torch.tensor([0, 999]), torch.tensor([700, 500]),
+                    torch.tensor([True, False]),
+                    dict(text_prediction=torch.tensor([float('nan'), 1.])))
+        message = str(raised.exception)
+        for expected in ('rank=1', 'noise_scale_v1', "'consistency': inf",
+                         't_native=[0, 999]', 't_text=[700, 500]',
+                         'condition_kept=[True, False]', "'text_prediction': 1"):
+            self.assertIn(expected, message)
+        # Finite batches should not materialize tensor diagnostics or distributed metadata.
+        with mock.patch.object(torch.distributed, 'get_rank', side_effect=AssertionError):
+            check_consistency_finite(dict(total=torch.tensor(1.)), None, None, None, None)
 
     def test_native_decoder_matches_native_forward_and_only_person0_is_used(self):
         import torch

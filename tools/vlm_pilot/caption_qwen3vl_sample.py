@@ -13,6 +13,7 @@ from caption_output import (LOCAL_PARTS, caption_persons, caption_schema,
 
 
 PERSON2_BLUE = np.asarray((66, 145, 255), dtype=np.uint8)
+PERSON1_RED = np.asarray((239, 76, 76), dtype=np.uint8)
 MAIN_PARTS = {"head", "torso", "left_arm", "right_arm", "left_leg", "right_leg"}
 PERSON_KEYS = {
     "person_index", "color", "main_part", "motion", "beginning", "middle",
@@ -54,19 +55,26 @@ def extract_json(text):
 
 
 def determine_actor_count(frames_dir, frame_paths):
-    """Use renderer metadata, or visible blue pixels as a fallback."""
+    """Use renderer metadata; blue pixels alone cannot establish two people."""
     metadata_path = frames_dir.parent / "render_metadata.json"
     if metadata_path.is_file():
         metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+        if metadata.get("raw_active_person_indices") == [1]:
+            raise ValueError("Only raw person1 is active; this caption protocol requires person0")
         actor_count = metadata.get("visible_actor_count")
         if actor_count in (1, 2):
             return actor_count, "render_metadata"
 
+    red, blue = False, False
     for frame_path in frame_paths:
-        pixels = np.asarray(Image.open(frame_path).convert("RGB"))
-        if np.any(np.all(pixels == PERSON2_BLUE, axis=-1)):
-            return 2, "blue_pixel_fallback"
-    return 1, "blue_pixel_fallback"
+        with Image.open(frame_path) as frame:
+            pixels = np.asarray(frame.convert("RGB"))
+        red = red or bool(np.any(np.all(pixels == PERSON1_RED, axis=-1)))
+        blue = blue or bool(np.any(np.all(pixels == PERSON2_BLUE, axis=-1)))
+    if blue and not red:
+        raise ValueError("Blue-only images may contain overlapping duplicate tracks or only person1; "
+                         "correct render_metadata.json is required")
+    return (2 if red and blue else 1), "color_pixel_fallback"
 
 
 def render_prompt(prompt_template, actor_count):

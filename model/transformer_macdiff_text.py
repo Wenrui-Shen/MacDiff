@@ -15,19 +15,79 @@ from .transformer_macdiff import Transformer as MacDiff, MLP, FeatureModulation
 from .util import timestep_embedding, token_uniformity_loss
 
 
-class TextConditionedSkeletonDecoder(nn.Module):
-    """Read token memory at each noisy skeleton position, then apply native modulation."""
-    def __init__(self, source, shared=False, text_dim=None):
+TEXT_CONDITIONING_MODES = ('concat_memory', 'global_mod_local_attention_v1')
+
+
+class GlobalLocalTextBlock(nn.Module):
+    """Global/time modulation with local-only cross-attention, then native SA/FFN."""
+    def __init__(self, source_block, shared=False):
         super().__init__()
+        dim = source_block.norm1.dim
+        self.dim = dim
+        if not shared:
+            # Copy only the used body: native FeatureModulation parameters would
+            # otherwise be unused trainable parameters under DDP.
+            self.attn = copy.deepcopy(source_block.attn)
+            self.mlp = copy.deepcopy(source_block.mlp)
+            self.drop_path = copy.deepcopy(source_block.drop_path)
+        self.norms = nn.ModuleList([
+            nn.LayerNorm(dim, elementwise_affine=False) for _ in range(3)])
+        self.local_reader = nn.MultiheadAttention(
+            dim, source_block.attn.num_heads, dropout=0.)
+        self.modulation = nn.Sequential(nn.SiLU(), nn.Linear(dim, 9 * dim))
+        # Small, nonzero modulation makes both text routes learn from step one.
+        nn.init.normal_(self.modulation[-1].weight, std=1.e-3)
+        nn.init.zeros_(self.modulation[-1].bias)
+        with torch.no_grad():
+            self.modulation[-1].bias.reshape(9, dim)[2::3].fill_(0.1)
+
+    @staticmethod
+    def modulate(x, shift, scale):
+        return x * (1 + scale[:, None, :]) + shift[:, None, :]
+
+    def forward(self, x, condition, local_memory, local_mask, source_block=None):
+        body = self if source_block is None else source_block
+        parameters = self.modulation(condition).chunk(9, dim=-1)
+        shift_l, scale_l, gate_l, shift_s, scale_s, gate_s, shift_f, scale_f, gate_f = parameters
+        query = self.modulate(self.norms[0](x), shift_l, scale_l)
+        local, _ = self.local_reader(
+            query.transpose(0, 1), local_memory, local_memory,
+            key_padding_mask=~local_mask, need_weights=False)
+        x = x + body.drop_path(gate_l[:, None, :] * local.transpose(0, 1))
+        query = self.modulate(self.norms[1](x), shift_s, scale_s)
+        x = x + body.drop_path(gate_s[:, None, :] * body.attn(query))
+        query = self.modulate(self.norms[2](x), shift_f, scale_f)
+        return x + body.drop_path(gate_f[:, None, :] * body.mlp(query))
+
+
+class TextConditionedSkeletonDecoder(nn.Module):
+    """Legacy joint memory, or separate global modulation/local text attention."""
+    def __init__(self, source, shared=False, text_dim=None, conditioning_mode='concat_memory'):
+        super().__init__()
+        if conditioning_mode not in TEXT_CONDITIONING_MODES:
+            raise ValueError('Unknown text_conditioning_mode: ' + str(conditioning_mode))
+        self.conditioning_mode = conditioning_mode
         # Shared modules remain registered only under the native model names.
         # Pass their owner at forward time, avoiding duplicate checkpoint keys.
         if not shared:
-            for name in ('decoder_embed', 'decoder_blocks', 'decoder_norm', 'decoder_pred'):
+            names = ['decoder_embed', 'decoder_norm', 'decoder_pred']
+            if conditioning_mode == 'concat_memory':
+                names.insert(1, 'decoder_blocks')
+            for name in names:
                 setattr(self, name, copy.deepcopy(getattr(source, name)))
             self.pos_embed = nn.Parameter(source.decoder_pos_embed.detach().clone())
             self.temp_embed = nn.Parameter(source.decoder_temp_embed.detach().clone())
         self.dim_t_embed = source.dim_t_embed
         dim = source.dim_feat
+        if conditioning_mode == 'global_mod_local_attention_v1':
+            input_dim = dim if text_dim is None else text_dim
+            self.global_input = nn.Linear(input_dim, dim)
+            self.local_input = nn.Linear(input_dim, dim)
+            self.time_input = nn.Sequential(
+                nn.Linear(self.dim_t_embed, dim), nn.SiLU(), nn.Linear(dim, dim))
+            self.text_blocks = nn.ModuleList([
+                GlobalLocalTextBlock(block, shared=shared) for block in source.decoder_blocks])
+            return
         self.text_input = (nn.Identity() if text_dim is None or text_dim == dim
                            else nn.Linear(text_dim, dim))
         self.text_readers = nn.ModuleList([
@@ -44,6 +104,18 @@ class TextConditionedSkeletonDecoder(nn.Module):
         n, tp, vp, dim = x.shape
         x = (x + pos[:, :, :vp] + temp[:, :tp]).reshape(n, tp * vp, dim)
         time = timestep_embedding(t, self.dim_t_embed)
+        if self.conditioning_mode == 'global_mod_local_attention_v1':
+            if not token_mask.any(dim=1).all():
+                raise ValueError('Local text attention requires a valid local sentence per person')
+            # Global content never enters K/V. Padding is cleared before the
+            # projection so even NaN padding cannot contaminate attention.
+            global_condition = self.global_input(condition) + self.time_input(time)
+            memory = self.local_input(token_condition.masked_fill(~token_mask[..., None], 0))
+            memory = memory.masked_fill(~token_mask[..., None], 0).transpose(0, 1)
+            for index, block in enumerate(self.text_blocks):
+                source_block = None if source is None else source.decoder_blocks[index]
+                x = block(x, global_condition, memory, token_mask, source_block=source_block)
+            return body.decoder_pred(body.decoder_norm(x))
         memory = self.text_input(
             torch.cat([condition[:, None, :], token_condition], dim=1)).transpose(0, 1)
         token_mask = torch.cat([torch.ones_like(token_mask[:, :1]), token_mask], dim=1)
@@ -159,6 +231,7 @@ class Transformer(MacDiff):
                  text_context_length=77,
                  text_decoder_hidden_dim=256, text_decoder_depth=5,
                  share_skeleton_decoder=False,
+                 text_conditioning_mode='concat_memory',
                  text_target_mode='remap',
                  text_target_norm='none',
                  text_target_momentum=0.999, text_target_update_ratio=0.1,
@@ -169,6 +242,11 @@ class Transformer(MacDiff):
         if not isinstance(share_skeleton_decoder, bool):
             raise ValueError('share_skeleton_decoder must be a boolean')
         self.share_skeleton_decoder = share_skeleton_decoder
+        if text_conditioning_mode not in TEXT_CONDITIONING_MODES:
+            raise ValueError('Unknown text_conditioning_mode: ' + str(text_conditioning_mode))
+        self.text_conditioning_mode = text_conditioning_mode
+        if text_conditioning_mode != 'concat_memory' and text_target_mode == 'fixed_clip':
+            raise ValueError('global_mod_local_attention_v1 requires a T->S text target mode')
         if self.diff_prediction != 'noise':
             raise ValueError('Text Stage1 requires diff_prediction=noise')
         if self.dim_t_embed != 64:
@@ -215,7 +293,8 @@ class Transformer(MacDiff):
             self.text_position_embedding = nn.Embedding(text_context_length, self.dim_feat)
             nn.init.normal_(self.text_person_embedding.weight, std=.02)
             nn.init.normal_(self.text_position_embedding.weight, std=.02)
-            self.text_skeleton_decoder = TextConditionedSkeletonDecoder(self, share_skeleton_decoder)
+            self.text_skeleton_decoder = TextConditionedSkeletonDecoder(
+                self, share_skeleton_decoder, conditioning_mode=text_conditioning_mode)
         elif text_target_mode in ('ema_remap', 'sample_target_blend'):
             self.text_remap = ResidualTextRemap(text_input_dim, text_hidden_dim)
             self.text_remap.apply(self._init_weights)
@@ -229,7 +308,8 @@ class Transformer(MacDiff):
             nn.init.normal_(self.text_person_embedding.weight, std=.02)
             nn.init.normal_(self.text_position_embedding.weight, std=.02)
             self.text_skeleton_decoder = TextConditionedSkeletonDecoder(
-                self, share_skeleton_decoder, text_dim=text_input_dim)
+                self, share_skeleton_decoder, text_dim=text_input_dim,
+                conditioning_mode=text_conditioning_mode)
         target_dim = text_input_dim if text_target_mode != 'remap' else self.dim_feat
         self.text_noise_decoder = TextNoiseDecoder(
             target_dim, self.dim_t_embed, text_decoder_hidden_dim, text_decoder_depth,

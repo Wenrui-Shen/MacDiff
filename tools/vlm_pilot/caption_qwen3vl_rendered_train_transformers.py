@@ -218,6 +218,11 @@ def load_gif_frames(
 def render_settings(record: Dict[str, Any]) -> Tuple[int, float]:
     config = record.get("config") or {}
     render = record.get("render") or {}
+    if render.get("raw_active_person_indices") == [1]:
+        raise ValueError(
+            f"Sample {record['sample_index']} has an empty raw person0 and only person1. "
+            "The caption/cache protocol requires person0; do not silently renumber person1."
+        )
     actor_count = int(render["visible_actor_count"])
     sample_fps = float(config["sample_fps"])
     if actor_count not in (1, 2):

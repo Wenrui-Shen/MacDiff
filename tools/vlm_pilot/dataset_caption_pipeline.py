@@ -215,7 +215,23 @@ def merge_dataset(args, root, plan, wanted):
         allowed = set(plan["generate_indices"])
         if set(generated) - allowed:
             raise ValueError("Generated captions contain indices outside this dataset's generation plan")
-        rows.update({index: row for index, row in generated.items() if index in wanted})
+        for index, row in generated.items():
+            if index not in wanted:
+                continue
+            metadata_path = root / "rendered" / ("train_%06d" % index) / "render_metadata.json"
+            render = json.loads(metadata_path.read_text(encoding="utf-8"))["render"]
+            if render.get("raw_active_person_indices") == [1]:
+                raise ValueError("Raw person0 is empty at row %d; the current caption/cache protocol "
+                                 "requires person0 and must not renumber person1" % index)
+            expected = render["visible_actor_count"]
+            if len(row["persons"]) != expected:
+                raise ValueError("Generated caption/person count differs from render at row %d" % index)
+            row = deepcopy(row)
+            if render.get("duplicate_person1"):
+                if expected != 1 or render.get("raw_active_person_indices") != [0, 1]:
+                    raise ValueError("Invalid duplicate-person render metadata at row %d" % index)
+                row["persons"].append(dict(deepcopy(row["persons"][0]), person_index=1))
+            rows[index] = row
     missing = sorted(wanted - set(rows))
     output = root / "captions.json"
     temporary = output.with_suffix(".json.tmp")
@@ -276,7 +292,9 @@ def _run_dataset(args, root, manifest_path, data_path, identity, build_plan):
     if manifest_path.exists():
         plan = json.loads(manifest_path.read_text(encoding="utf-8"))
         if plan.get("schema_version") != PLAN_SCHEMA or plan.get("identity") != identity:
-            raise ValueError("Dataset, source captions, model, prompt or render settings changed; use a new --output_root")
+            raise ValueError("Dataset, source captions, model, prompt or render settings changed; use a new --output_root. "
+                             "For the actor-count fix on render-only outputs, run "
+                             "tools/vlm_pilot/repair_render_actor_counts.py %s" % root)
     elif args.stage == "caption":
         raise ValueError("Run --stage render first; dataset_manifest.json is missing")
     else:

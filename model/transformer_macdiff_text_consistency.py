@@ -15,12 +15,17 @@ from .util import timestep_embedding, token_uniformity_loss
 
 
 TARGET_MODE = 'reconstruction_consistency'
+CONSISTENCY_NORMALIZATION = 'noise_scale_v1'
+CONSISTENCY_EPS = 1.e-6
 
 
 def validate_consistency_definition(lambda_consistency, lambda_text_to_skeleton,
                                     one_person, share_skeleton_decoder,
                                     text_target_mode, text_target_norm,
-                                    lambda_skeleton_to_text, lambda_text_uniformity):
+                                    lambda_skeleton_to_text, lambda_text_uniformity,
+                                    consistency_normalization=CONSISTENCY_NORMALIZATION):
+    if consistency_normalization != CONSISTENCY_NORMALIZATION:
+        raise ValueError('consistency_normalization must be ' + CONSISTENCY_NORMALIZATION)
     if lambda_consistency is None:
         raise ValueError('lambda_consistency must be finite and non-negative')
     for name, value in (('lambda_consistency', lambda_consistency),
@@ -37,14 +42,38 @@ def validate_consistency_definition(lambda_consistency, lambda_text_to_skeleton,
         raise ValueError('S->T denoising and text uniformity are not part of this method')
 
 
+def consistency_noise_scale(k_native, k_text):
+    """Per-sample scale; each epsilon-residual coefficient is at most one."""
+    return (k_native ** 2 + k_text ** 2 + CONSISTENCY_EPS) ** .5
+
+
+def check_consistency_finite(losses, t_native, t_text, condition_kept, tensors):
+    """Raise on every rank so non-master print suppression cannot hide failure."""
+    if torch.isfinite(losses['total']).item():
+        return
+    rank = (torch.distributed.get_rank() if torch.distributed.is_available()
+            and torch.distributed.is_initialized() else 0)
+    values = {name: value.detach().item() if torch.is_tensor(value) else float(value)
+              for name, value in losses.items()}
+    nonfinite = {name: (~torch.isfinite(value.detach())).sum().item()
+                 for name, value in tensors.items()}
+    raise FloatingPointError(
+        'Text consistency non-finite loss: rank=%d, normalization=%s, losses=%r, '
+        't_native=%r, t_text=%r, condition_kept=%r, nonfinite_elements=%r'
+        % (rank, CONSISTENCY_NORMALIZATION, values, t_native.detach().cpu().tolist(),
+           t_text.detach().cpu().tolist(), condition_kept.detach().cpu().tolist(), nonfinite))
+
+
 def masked_reconstruction_consistency(diffusion, noisy_native, prediction_native,
                                       t_native, noisy_text, prediction_text,
                                       t_text, mask, condition_kept):
-    """One undetached MSE trains both branches; every diffusion t is eligible.
+    """Noise-scale-normalized MSE trains both branches at every diffusion t.
 
     Arguments use native patch layout [N,L,patch_coordinates]. Only retained
-    native conditions and encoder-masked positions contribute. No clipping,
-    SNR weighting, timestep gating, or coordinate de-normalization is applied.
+    native conditions and encoder-masked positions contribute. Each sample's
+    x0 difference is divided by sqrt(k_native^2 + k_text^2 + eps) before
+    squaring, where k^2 = (1-alpha_bar)/alpha_bar. No output clipping,
+    timestep gating, or coordinate de-normalization is applied.
     """
     fraction = condition_kept.float().mean()
     if not condition_kept.any():
@@ -57,7 +86,11 @@ def masked_reconstruction_consistency(diffusion, noisy_native, prediction_native
             noisy_native[keep].float(), t_native[keep], prediction_native[keep].float())
         text_x0 = diffusion._predict_xstart_from_eps(
             noisy_text[keep].float(), t_text[keep], prediction_text[keep].float())
-        squared_error = (native_x0 - text_x0).square().mean(dim=-1)
+        k = torch.as_tensor(diffusion.sqrt_recipm1_alphas_cumprod,
+                            dtype=torch.float32, device=native_x0.device)
+        scale = consistency_noise_scale(k[t_native[keep]], k[t_text[keep]])
+        normalized_error = (native_x0 - text_x0) / scale[:, None, None]
+        squared_error = normalized_error.square().mean(dim=-1)
         weights = mask[keep].float()
         loss = ((squared_error * weights).sum(dim=-1) / weights.sum(dim=-1)).mean()
     return loss, fraction
@@ -74,12 +107,13 @@ class Transformer(MacDiff):
                  text_context_length=7, text_target_mode=TARGET_MODE,
                  text_target_norm='rms', share_skeleton_decoder=False,
                  lambda_text_to_skeleton=1., lambda_consistency=1.,
-                 lambda_skeleton_to_text=0., lambda_text_uniformity=0., **kwargs):
+                 lambda_skeleton_to_text=0., lambda_text_uniformity=0.,
+                 consistency_normalization=CONSISTENCY_NORMALIZATION, **kwargs):
         validate_consistency_definition(
             lambda_consistency, lambda_text_to_skeleton,
             kwargs.get('one_person', True), share_skeleton_decoder,
             text_target_mode, text_target_norm,
-            lambda_skeleton_to_text, lambda_text_uniformity)
+            lambda_skeleton_to_text, lambda_text_uniformity, consistency_normalization)
         if min(text_input_dim, text_hidden_dim) < 1 or text_context_length < 2:
             raise ValueError('Text dimensions must be positive; context includes global and local')
         super().__init__(**kwargs)
@@ -94,6 +128,7 @@ class Transformer(MacDiff):
         self.share_skeleton_decoder = False
         self.lambda_text_to_skeleton = float(lambda_text_to_skeleton)
         self.lambda_consistency = float(lambda_consistency)
+        self.consistency_normalization = consistency_normalization
         # Required by the existing cache/resume metadata contract, not losses
         # or modules left behind from the removed S->T method.
         self.lambda_skeleton_to_text = 0.
@@ -197,6 +232,13 @@ class Transformer(MacDiff):
         loss = (native + self.lambda_loss_uni * uniformity
                 + self.lambda_text_to_skeleton * t2s
                 + self.lambda_consistency * consistency)
+        if not torch.isfinite(loss).item():
+            check_consistency_finite(
+                dict(total=loss, native=native, skeleton_uniformity=uniformity,
+                     text_to_skeleton=t2s, consistency=consistency),
+                t_native[active], t_text[active], kept[active],
+                dict(native_prediction=prediction_native[active], text_prediction=prediction_text,
+                     encoder_latent=latent[active], remap_global=r, remap_local=local))
         metrics = {'loss_diff': native.detach(), 'loss_uniformity': uniformity.detach(),
                    'loss_text_to_skeleton': t2s.detach(),
                    'loss_consistency': consistency.detach(),
