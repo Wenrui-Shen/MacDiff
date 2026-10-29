@@ -1,8 +1,196 @@
-# MacDiff 会话交接（更新2026-10-27）
+# MacDiff 会话交接（更新2026-10-29）
 
-写给没有聊天上下文的新会话。**先读第0节顶部2026-10-27可选粗patch/随机70%一级消融（默认仍完整key v2）、完整EMA key共享队列v2、此前文本关系KL v1、OTFM采样对照、T32结果和后三层监督实现，再读0.00本日交接并按需读后续细节；后面的历史附录仅供追溯，其中“当前/最新/下一步”、旧端口、旧AMP规则和实验数量均不能覆盖顶部。**用户在Linux服务器执行训练，助手在本地审查实现、分析日志、维护记录并给命令。本地成果尚未提交，不能只看Git HEAD。助手未启动任何本次训练，不推断服务器进度。
+**本文件开头的10月29日“接手更新”优先，其后的10月28日“接手摘要”保留方法定义；后面的“历史逐轮记录”仅供追溯。历史中的“当前/默认/最新/下一步”、成绩数量、端口和未完成状态可能已经过时，不能覆盖最新更新。固定CLIP版本仍未收到启动或训练结果；新SNR采样OTFM已回传T34。**
 
-## 0. 当前任务、完成情况、卡点与下一步
+## 2026-10-29接手更新：三层最佳no-share＋新读取命令；新OTFM结果T34
+
+**最新已授权并完成：全量文本类内/类间审查。**用户随后提供桌面 `C:/Users/97537/Desktop/ntu60_xsub_captions_by_class.txt`（31855815 bytes），明确要求检查类内和类间错误，已在本地实际解析，不再停留在“只汇总/真实文本缺失”。原始索引0–40090、40091样本、60类及每类计数一致，47608个人物条目均有七句。主要统计按person0：8662条不同global，2521个跨类精确同文组涉及32948样本（82.18%）；七句整套有2522个跨类精确相同组涉及10345样本（25.80%）。这些是文本重复/信息冲突比例，不是经GIF确认的错误率。人工核对发现A030键盘同类有下蹲/跳舞/行走，A009站起写降低身体，A036摇头写head全视频不动，A055拥抱双方写镜像舞蹈等；关键词统计只作线索，不冒充错误计数。完整60类表和具体ID/原文见[审查报告](/D:/program/MacDiff/tools/vlm_pilot/NTU60_XSUB_CAPTION_AUDIT.md)；证据统计、类表CSV、5043组global/七句跨类同文及全部ID在 `handoff_artifacts/caption_text_audit_20261029/`。一套七句行走描述366样本跨20类，包含train_623(A024)、1523(A026)、3908(A027)；一句泛泛dynamic movement原文905样本跨53类。文本质量问题已不是只看两对的猜测，但真实NPZ/GIF仍未提供，不能定位为VLM、渲染、索引错位中的唯一根因。优先回看8/29/60/623/5052/54的原始行→已有GIF→caption，不自动重生成缓存或改训练。原输入SHA与统计定义已保存，未复制原文件、未改模型/描述/cache、未新增训练编号，仍34条。
+
+**此前步骤已完成：按类别汇总全部文本。**用户先把范围收窄为“先按类别把所有的文本汇总”，随后自行运行并回传完整汇总文件，又明确要求检查类内/类间错误；后续审查授权与结果以上段为准。分组脚本本身仍只做整理：根入口 `group_ntu60_captions_by_class.py`、测试 `tests/test_group_ntu60_captions.py`，从现有v3缓存 `vlm_pilot/ntu60_xsub_clip_sentence_cache_v3/samples.json` 读取全部描述，按同一NPZ的y_train/原sample_index分成A001–A060，写到一个 `output_dir/ntu60_xsub_captions_by_class.txt`。保留原ID、全部人物槽的global及六local，类内按ID排序；显示0起点类别ID及官方类名。只读y_train、不解压x_train、不依赖Torch/GPU、不改原文本/cache、拒绝覆盖输出，要求完整原始行覆盖。完整单行命令见[文本README](/D:/program/MacDiff/tools/vlm_pilot/README.md)。4项合成集成/完整性测试通过，Python3.8语法与CLI核验通过；本地已收到真实文本，但真实NPZ/GIF仍缺。无新增训练编号。
+
+**第二对诊断更新，解释优先于下段第一对：**用户又回传T23 epoch399现场CLIP，seed699171498：[附件](/C:/Users/97537/.codex/attachments/6237e2cf-5cf7-4554-9fb2-af46ad459674/已粘贴的文本.txt)。train_27667/A008坐下描述屈膝/降低臀部，train_4325/A028电话描述抬右臂与头部；这次文本不同。CLIP cosine=.908754881→remap=.974887726（+.066132845），unit-L2=.427188762→.224108341（缩小47.5388%），原CLIP中更不相近的第二对经remap后反而比第一对更近。支持这对差异被remap压缩、相似度排序已改变，不能把上一对“变化小”泛化为整体几何保持，也未能确诊总体坍塌或旧KL组原因。用户问异类同描述：v2生成prompt不输入类别、仅骨架运动摘要，validator主要验证结构/人物/非空，accepted不等于动作准确；第一对敲键盘/推人均写行走仍须看原始GIF与global/local。CLIP现场与缓存吻合不验证骨架→文本正确，当前按原始sample_index读写未见直接错位证据，旧服务器产物尚未核验。详细比较、原因边界和SHA见关系方法文档“第二对实测”节。未改生成/缓存/模型或启动训练，仍34条训练结果。
+
+**最新诊断回传：**两样本脚本已在服务器 `skeleton_vlm` 环境现场CLIP推理＋T23 epoch399在线remap正常跑完，原输出见 [附件](/C:/Users/97537/.codex/attachments/c519670f-0d42-4264-b69a-c554f84161bd/已粘贴的文本.txt)。seed258876072，train_17540/类别29(A030敲键盘)与train_23232/类别51(A052推人)，两条global描述却都讲自然行走。CLIP pair cosine=.965108963→remap=.965999933，只增.000890970；现场CLIP与缓存逐维最大差≤3.815e-6。先核查这两条原始行/GIF/global及六部位文本，不由一对样本定总体坍塌、索引错位或语义保持；固定CLIP同样无法自动补回描述漏掉的主要动作。remap同一样本前后cos .22777/.27687是跨空间坐标变化，不直接证明语义破坏；单维−7在unit-RMS下合法。细节/官方类别来源/附件SHA保存在关系方法文档“服务器实测”节。此前macdiff环境traceback缺最后异常，未确定缺包或兼容性根因；切环境后本次已完成，不自动安装依赖或修改旧Torch autocast代码，FutureWarning非运行失败。真实用户运行不冒充此前跳过的单测输出；无新训练编号，仍34条。
+
+**本日后续新增请求已实现：**用户要求随机两个样本的CLIP/remap特征诊断。新增根入口 `diagnose_clip_remap_pair.py` 和 `tests/test_clip_remap_pair.py`；完整缓存/现场CLIP两种一行命令与输出定义见[关系方法文档的10月29日额外诊断](/D:/program/MacDiff/tools/MACDIFF_TEXT_RELATION.md)。每次OS新seed、有效person0中两个不同原始训练ID，打印train_<index>/sample_index、类别0/1起点ID、全局描述、CLIP与在线remap的首尾原值及abs、完整带符号cosine/L2及相似度变化。默认复用训练CLIP缓存；--clip-model用同一SHA本地CLIP重新编码并与缓存核对，--seed可复查。直接严格加载生产ResidualTextRemap的checkpoint权重，不构造encoder/decoder，不用EMA/平滑target/queue替代，不写诊断文件。没有remap的fixed_clip组明确拒绝。10项9通过/1本地缺Torch跳过；后续服务器现场CLIP已成功，见上方最新回传，端到端单测仍缺实际输出。本次仅额外诊断，不新增训练编号，仍34条结果。
+
+用户本轮明确要求“最佳no-share全3层＋新读取”的完整命令，同时提供新OTFM PT/LP要求分析。已完成两项，未启动任何训练。**本节覆盖下方摘要中“最近请求”、33条计数及新SNR OTFM未回传的旧状态；固定CLIP关系教师仍是另一项已准备方案，未被本组三层文本命令改写或取消。**
+
+- 新OTFM登记 **T34**，当前 **34条配置/成绩记录**。PT0–399/LP0–99完整连续有限；LP best **85.231683676%@71**、last85.031538116%、末20 **85.049126665±.075286871%**。
+- 对旧uniform T29：best **+.600436679pp**、末20 **+.536754015pp**，100轮LP全部更高；对原生dec3 T26仍低 **.479136318pp best/.396045600pp末20**，末20全部低。SNR中间比例实测400轮平均 **90.1815%**，支持新采样生效；并非只改了名字。新旧PT采样期望不同，loss下降37.4%不是同分布质量提升；T26历史AMP与新OTFM预期noAMP边界保留。
+- 最佳no-share三层＋新读取复用 `pretrain_madiff_text_global_local_decoder3.yaml`：native/T→S/S→T各3层、encoder8/256、remap2048、S→T512/none、text uni0、权重1/.1、七句v3/sample_target_blend、global/time调制＋六local attention；仍为原S→T diffusion，无固定CLIP KL/teacher/FM。
+- 命令用 **10331/10332**、独立 `output_dir/ntu60_xsub_noshare_globalmod_localattn_all_dec3_h512_remap2048_textuni0_noamp_seed0_20261029/{pt,lp}`，PT400/global64/lr.001→.0005/noAMP/seed0→原第8层LP100/global128/.1→0/checkpoint399；保留原6400读出。相对noAMP T23复跑只改读取方式，相对历史T23还含精度差异。CLI覆盖旧YAML默认输出，不需新配置/重建cache；新目标库配独立目录。
+- 完整一行命令保存在[当前计划顶部](/D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md:3)；新读取文本组尚无结果，不预编号。命令需同步当前text模型/main/engine/misc、YAML和依赖；不从头覆盖已有输出或复用旧库。
+- T34详细统计、原附件/SHA、完整性及比较在[Stage1结果顶部](/D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md:5)，[FM文档](/D:/program/MacDiff/tools/MACDIFF_FLOW_MATCHING.md:3)和总表已同步。实际服务器Namespace/源码与checkpoint身份仍缺；本次只解析日志和核对命令，未运行Torch/GPU/DDP或安装依赖。
+
+
+
+## 接手摘要：我们正在做什么
+
+用户在NTU60 XSub上研究MacDiff骨架自监督预训练，主要以骨架encoder冻结后的linear probe（LP）准确率评价效果。近期尝试了骨架EMA教师对比学习、后三层diffusion辅助监督，以及用文本与骨架各自的记忆库相似度分布做KL蒸馏。
+
+**最新明确选择：使用冻结的原始CLIP文本特征作为关系教师，整个删除T→S和remap。** 当前目标为：
+
+`L = L_native_diffusion + 0.02*L_skeleton_uniformity + 1e-4*L_InfoNCE + 0.1*KL(stopgrad(P_CLIP) || P_S)`
+
+上一轮助手曾建议“只换KL文本来源，保留T→S”；用户随后明确“换成clip固定特征就不用T到S了”，已按后者实现独立版本。旧remap/fullkey主线A及可选coarse教师实验保留作对照，旧入口的默认配置没有被偷偷改成新方法。用户本轮最后要求**给出一行PT&&LP命令，并把完整交接写进本文件**；该要求已落实，不应接着自动启动训练或新增消融。
+
+## 当前版本的完整定义
+
+| 项目 | 已实现的固定CLIP版本 |
+|---|---|
+| 模型 / 入口 | `model.transformer_macdiff_clip_relation.Transformer` / `main_pretrain_clip_relation.py` |
+| 配置 / 方法身份 | `config/ntu60_xsub_joint/pretrain_madiff_clip_relation_decoder3.yaml` / `fixed_clip_full_ema_gap_shared_queue_kl_v1` |
+| 骨架主干 | 原生encoder8层、dim256；原生MacDiff diffusion decoder3层、预测epsilon、inverse_cosine schedule；A归一化/person0 |
+| 学生关系query | 120帧、时间patch4×单关节，共750细token；随机mask90%后75可见token；第8层norm/GAP得到256维q |
+| 骨架key | 同一crop的完整原始骨架，750token全部进入EMA encoder，eval/no_grad，GAP/L2得到256维k；EMA=.999 |
+| InfoNCE | 当前完整k是正样本，历史骨架队列为负样本；温度.07、权重1e-4 |
+| 固定文本 | 现有七句v3缓存中person0的**全局句向量**512维，detach/L2；不经过remap/逐样本平滑，不是六部位均值，不在线运行CLIP |
+| 关系KL | 文本query对文本queue得到P_CLIP，骨架q对骨架queue得到P_S；两侧温度.1/.1，KL方向为文本→骨架，权重.1 |
+| 配对记忆库 | K65536；骨架bank同一buffer供InfoNCE和KL使用，另有配对文本bank；同sample_id、槽位、pointer；排除所有历史self副本 |
+| 状态更新 | 成功且完整optimizer step后配对all_gather/enqueue一次，再更新EMA一次；AMP跳步、不完整累积尾窗不提交；DDP buffers不靠自动广播同步 |
+| 文本训练分支 | 没有remap、T→S/S→T decoder、文本person/position embedding、文本projection或文本可训练参数；不建逐样本文本目标库 |
+| 数据读取 | 每批只读/传输全局文本；原完整缓存启动校验和mmap结构保留，不能说启动时完全不访问局部文件 |
+| LP | 原`main_linprobe.py`+`linprobe_madiff.yaml`；只用在线学生encoder第8层，完整输入，25关节×256=6400维；不融合teacher/文本/后三层 |
+| 日程 | PT400轮/双卡每卡32/总64、lr.001→.0005、warmup20、最后20轮floor、noAMP；LP100轮/每卡64/总128、lr.1→0、warmup0、最后10轮floor、dist_eval；seed0 |
+| 输出与端口 | 本文命令中的独立`cliprel...20261028/{pt,lp}`目录；PT10329、LP10330；LP读取本组checkpoint-399.pth |
+
+512维文本与256维骨架无须投影到同维：比较的是各自在相同K个样本上的关系概率。CLIP缓存里的RMS缩放不改变其L2归一化后的余弦结构。文本queue仍随样本FIFO入队，“固定特征”不表示停止更新队列。
+
+## 已完成的代码、记录与验证
+
+新增的4个文件：
+
+- [新模型](/D:/program/MacDiff/model/transformer_macdiff_clip_relation.py)：直接继承原生MacDiff，不先构造旧文本模型再把权重置零。
+- [新入口](/D:/program/MacDiff/main_pretrain_clip_relation.py)：固定CLIP协议与参数验证；拒绝非零T→S/S→T权重、跨方法resume和覆盖已有输出。
+- [新配置](/D:/program/MacDiff/config/ntu60_xsub_joint/pretrain_madiff_clip_relation_decoder3.yaml)：原生decoder3，现有v3缓存，独立输出目录。
+- [新增测试](/D:/program/MacDiff/tests/test_clip_relation.py)：11项，覆盖全局reader/engine路由、固定教师、精确目标、队列配对/时序、恢复与LP兼容等。
+
+修改的公共代码只有：
+
+- [engine_pretrain.py](/D:/program/MacDiff/engine_pretrain.py)：仅对`text_global_only=True`模型选择全局reader；其他文本模型保持旧路径。
+- [person_text_cache.py](/D:/program/MacDiff/util/person_text_cache.py)：新增`get_global_batch`，不读取局部token数组。
+
+服务器还须有此前当前版本的`model/transformer_macdiff_text_relation.py`（KL/gather）、`model/transformer_macdiff_text_relation_teacher.py`（完整key encoder/InfoNCE）、`main_pretrain_text_relation.py`（parser/resume定义）及其公共依赖。新模型只复用其定义，不构造旧remap/文本decoder。**不能只复制新YAML就运行，也不能省略新engine/cache修改。**
+
+验证结果（均来自上一轮实际执行；本轮交接不声称重新跑过GPU测试）：
+
+- 新增11项：**8通过、3因本地没有PyTorch跳过**。
+- 相关9模块共127项：**72通过、55缺Torch跳过**。
+- 通过的NumPy适配检查执行了生产forward和队列代码，验证固定全局CLIP来源、单次学生/完整key/原生decoder调用和精确loss；它们不能替代真实autograd。
+- 实际PT/LP parser配静态YAML子集核对了参数、总batch、端口目录及checkpoint-399衔接；本地没有实际PyYAML/Torch训练。
+- 新文件和公共修改通过Python3.8语法检查；diff空白检查通过。
+- 方法文档和实验计划已同步最新定义：[关系方法](/D:/program/MacDiff/tools/MACDIFF_TEXT_RELATION.md)、[Stage1计划](/D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md)。
+- 当前共有**33条配置/成绩记录**，不是33次完整独立PT；固定CLIP新组没有成绩，不预分配T34。结果表未因新方法而虚增实验结果。
+
+## 当前卡在哪里
+
+没有已定位但未修复的实现错误。尚未完成的是**真实服务器环境验证和实验结果**：
+
+1. 本地缺Torch/PyYAML/timm，也没有此次实际NPZ/cache/checkpoint；真实参数清单、反向传播、优化器→EMA更新、checkpoint→LP的3项Torch测试未执行。
+2. 未验证真实双卡DDP/NCCL；CPU/Torch单测通过也不能直接声称双卡正确。
+3. 用户没有回传新组Namespace、源码身份或日志，**不知道它是否启动、跑到哪、能否提升LP**；助手没有服务器SSH，也没有启动或停止任务。
+4. 旧remap组只收到epoch38/39片段，缺完整PT/LP成绩。文本teacher高熵不等于已经证实remap坍塌；固定CLIP能否改善关系结构仍待验证。
+
+## 下一步接手顺序
+
+1. 先确认用户当前诉求；若用户只问解释或发日志，直接处理，不自行发起训练/新矩阵。
+2. 若准备运行新组，由用户在服务器同步上述新4文件、公共engine/cache修改及已有依赖；保持现有CLIP缓存和数据。
+3. 在服务器现有macdiff环境先执行下方测试。若失败，按真实traceback修复；不要为了绕过错误删resume保护、恢复T→S/remap或改AMP/温度/损失定义。
+4. 由用户执行本文单行PT&&LP命令。已有log/checkpoint时按协议完整resume或另选未使用目录，不覆盖已有实验。
+5. 收到早期日志后先核对实际model/version、fixed_clip、CL/KL项、队列填充、自ID过滤、teacher entropy/温度及有限值。冷队列阶段KL=0、InfoNCE没有负样本时=0正常；总loss删除了旧T→S项，不能拿旧total=.0487要求新组相同。
+6. 如果固定CLIP分布仍平，优先对**相同样本和锚点**检查余弦跨度、top-k概率质量/熵；教师温度.1/.05/.04是后续候选，**尚未授权自动改当前实验**。不靠增大KL权重制造目标区分度。
+7. 收到完整LP后再统计best/last/末20均值与std，核对PT/LP实际身份与既有结果重复后决定编号；不得把文本来源变化的效果与删除T→S的效果分别归因。
+8. OPD/固定预训练encoder蒸馏等待用户参考文献；大patch真投影、motion差分/MCAM、局部KL、LP融合都不是本次已授权实现的下一步。
+
+## 最近结果与做出本次选择的依据
+
+| 实验/证据 | 当前可靠记录与边界 |
+|---|---|
+| 原生dec3 T26 | LP best85.710819994%；历史AMP等协议与新noAMP有差异 |
+| 文本dec3 T23 | best86.280931625%；文本dec5 T21 best86.220281456%；不能把不同配置best当随机重复 |
+| AA0/CL1e-4 T30、T31 | 用户确认两次各自从头PT→LP的LP best86.03/85.87，均值85.95%；口述，无逐epoch日志 |
+| AA0/CL1e-3 T32 | PT400完整，LP附件只有0–89；收到的best85.286268831%@72，不能写最终LP100成绩 |
+| 后三层diffusion T33 | 用户口述LP85.71%；best/last、实际版本/seed/完整日程未核验；与T26两位小数相同不等于精确持平 |
+| 旧remap关系主线A epoch38/39 | total及分项正常；teacher H=11.0899，K约65534.864的最大熵11.0903376，接近均匀；CL确实存在 |
+| 固定CLIP新组 | 已实现/给命令，尚无运行或LP结果 |
+
+旧remap片段的epoch38均值：native=.0207、T→S=.0259、uni=.0232、KL=.0062、CL=9.7559；加权合计.04865959≈打印total .0487。teacher entropy fraction实际约.9999605，四位小数显示1.0000；目标总体区分度弱，但不能确诊特征坍塌或唯一归因温度。K约65536时InfoNCE均匀参考约11.09，9.76不能按绝对值判失败。原附件与完整诊断见关系方法文档；不把旧组片段误当固定CLIP运行日志。
+
+## 踩过的坑：本次接手绝对不要再踩
+
+1. **最新方法必须无T→S/remap。**不拿下方历史“默认A保留T→S”覆盖用户最后选择；不把只设lambda=0却仍构造/计算的旧文本模型当新实现。
+2. **CL一直保留。**旧v1基类辅助函数返回0不代表v2/new实际没有InfoNCE；检查实际入口、子类覆盖及总loss。新固定CLIP配置CL权重仍1e-4，不擅自升1e-3。
+3. **固定CLIP queue不能与旧remap queue混用。**不跨方法resume，不用strict=False冒充完整PT恢复；新的模型名/参数身份/输出目录保护必须保留。原有sample_target_blend恢复仍须与模型checkpoint对应的目标库快照，新fixed_clip不需要目标库。
+4. **样本与人物必须正确配对。**原始dataset ID而非batch行号；骨架/文本同槽位同ID，过滤全部self副本；空person0不偷偷换person1；front/side不是两个人。
+5. **成功步时序不能改错。**队列存完整EMA key而非masked q；同批旧key提交后再EMA；跳步/累积尾窗不更新；两个队列不能独立打乱；不凭DDP buffer广播假设一致。
+6. **global的含义别混淆。**本次文本取一个全局句向量，六部位仅存在原缓存中；七句是全局+六部位，不是77个BPE。骨架KL只用可见token GAP256；LP6400是另一读出，不能临时加投影/缺失关节补齐/局部KL。
+7. **dec3/dec5始终指原生MacDiff decoder深度。**不要按S→T文本decoder深度分组，不把辅助方法混入原生/普通文本四组均值。
+8. **PT与LP分目录。**历史T14同目录覆盖过早期PT checkpoint；400轮用399、500轮用499。LP必须读取本组权重，不能复制旧目录/端口后漏改finetune。
+9. **归一化不会从checkpoint自动继承。**当前PT/LP用A的固定XYZ mean/var；feeder normalization=False并不关闭模型内部归一化。缓存RMS是逐向量尺度；不是每patch XYZ分别标准化。测过的新数据统计没有自动应用。
+10. **不要误判日志。**括号前是窗口中位数，括号内是epoch累计均值；不相加分项中位数验证total。mask*pred/target的整行0通常是可见位置被打印mask置零。小KL/低diffusion loss/有梯度不等于LP会提高，标量loss占比不等于梯度占比。
+11. **成绩证据要分层。**口述best/last未知不补猜；附件只90轮不写完整100轮；std末20轮不是跨seed方差；不同batch/AMP/floor/decoder不是随机重复。T20同一次PT的重复LP不新增独立PT编号。
+12. **后三层版本已经是完全共享norm/decoder。**v3第6/7/8层都用同一个原生LayerNorm及decoder，分别监督；LP只第8层。不再加两层辅助LN、三套decoder或LP融合，也不把85.71口述直接判成方法无效。
+13. **粗patch可选B只是均值合并近似。**3个相邻细时间embedding按同关节取均值后随机mask70%，不是ACA²Net独立大patch投影原样实现；motion差分和MCAM是更后一级候选，不能混进主线。
+14. **不要重生成已有描述/cache或改缓存身份文件。**缓存来源脚本SHA与manifest绑定；无关格式改动也可能破坏身份。保留metadata/sidecar/JSON结构。caption/render做过居中，不能假定文本能还原未呈现世界位移。
+15. **模型比较别靠印象。**原生MacDiff PT也利用局部可见tokens，并非只训练256全局向量；MAMP官方linprobe为GAP256，不是本仓库linprobe2的6400。
+16. **本地通过不等于真实Torch/GPU/DDP通过。**不要安装依赖或启动训练来补做未授权运行；服务器历史Python3.8/Torch1.8.1，避免引入仅新版语法/API。现有老测试有从tests顶层导入的情况，整合运行必要时把tests加入sys.path，别误判为生产回归。
+17. **保留工作区与用户产物。**不git clean/reset、删移artifact/cache/checkpoint、不commit/push、不清理未跟踪文件；本轮新文件还未跟踪，要同步它们。已有log/checkpoint/目标库拒绝覆盖是保护，不绕过。
+18. **不用旧计划自动续跑。**用户自行执行Linux命令；助手不推断服务器状态，不擅自启动/停止/监控训练，不创建额外日志副本或handoff备份，不因会话结束创建定时任务/新会话。
+
+## 环境与工作习惯
+
+本地工作区`D:/program/MacDiff`，Windows PowerShell；用户在Linux仓库（历史路径`/home/user9/public3/swr/MacDiff`）自行执行命令，助手没有SSH。历史训练环境conda macdiff / Python3.8 / Torch1.8.1+cu111 / 双RTX4090，当前实际环境以用户回传为准。数据为`../data/MAMP/ntu/NTU60_XSub.npz`，train40091/test16487；缓存为`vlm_pilot/ntu60_xsub_clip_sentence_cache_v3`。
+
+本地可用Python为`C:/Users/97537/.cache/codex-runtimes/codex-primary-runtime/dependencies/python/python.exe`（此前检查Python3.12、有NumPy、无Torch/PyYAML/timm），用-B避免新增pycache；不靠系统Python猜依赖。先看git status，保留当前未提交/未跟踪工作；本轮没有commit/push。禁止根据历史HEAD或旧“未提交”文字推断最新Git状态。
+
+用户偏好中文、直接动手、少反复确认；运行命令必须**单行Linux，不加cd，PT与LP用&&连接**。本地文件链接用绝对路径。优先更新已有文档，不为每次审查新建备份或复制附件。开始做工具操作前简要说明，长任务保持进展沟通。
+
+## 最新运行命令（从头PT → 第8层LP）
+
+先在服务器现有环境检查：
+
+```bash
+python -m unittest tests.test_clip_relation tests.test_text_relation tests.test_text_relation_teacher tests.test_pretrain_accumulation_policy -v
+```
+
+以下为用户本轮索要的完整一行；双卡0,1，端口10329/10330，未加cd，不带多余的两个文本diffusion权重0参数。需要先同步文件，数据/cache保持已有路径。**助手未执行这条训练命令。**
+
+```bash
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10329 main_pretrain_clip_relation.py --config config/ntu60_xsub_joint/pretrain_madiff_clip_relation_decoder3.yaml --relation_bank_size 65536 --lambda_contrastive 0.0001 --ema_momentum 0.999 --contrast_temperature 0.07 --lambda_relation 0.1 --relation_temperature_text 0.1 --relation_temperature_skeleton 0.1 --disable_amp --batch_size 32 --accum_iter 1 --epochs 400 --warmup_epochs 20 --min_lr_epochs 20 --lr 0.001 --min_lr 0.0005 --mask_ratio 0.9 --motion_aware_tau -1 --seed 0 --output_dir output_dir/ntu60_xsub_cliprel_fullkey_q65536_cl1e4_kl01_gap256_dec3_noamp_seed0_20261028/pt --log_dir output_dir/ntu60_xsub_cliprel_fullkey_q65536_cl1e4_kl01_gap256_dec3_noamp_seed0_20261028/pt/tensorboard && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10330 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_cliprel_fullkey_q65536_cl1e4_kl01_gap256_dec3_noamp_seed0_20261028/pt/checkpoint-399.pth --batch_size 64 --accum_iter 1 --epochs 100 --warmup_epochs 0 --min_lr_epochs 10 --lr 0.1 --min_lr 0 --seed 0 --dist_eval --output_dir output_dir/ntu60_xsub_cliprel_fullkey_q65536_cl1e4_kl01_gap256_dec3_noamp_seed0_20261028/lp --log_dir output_dir/ntu60_xsub_cliprel_fullkey_q65536_cl1e4_kl01_gap256_dec3_noamp_seed0_20261028/lp/tensorboard
+```
+
+主要记录入口：[关系方法与命令](/D:/program/MacDiff/tools/MACDIFF_TEXT_RELATION.md)、[实验结果总表](/D:/program/MacDiff/EXPERIMENT_RESULTS.md)、[Stage1结果](/D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md)、[Stage1计划](/D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md)、[多层监督](/D:/program/MacDiff/tools/MACDIFF_MULTILAYER_DIFFUSION.md)。
+
+## 历史逐轮记录（以下旧状态不能覆盖以上接手摘要）
+
+### 最新实现：2026-10-28固定CLIP关系教师，删除T→S/remap
+
+用户明确“换成clip固定特征就不用T到S了”。已实现独立模型`model/transformer_macdiff_clip_relation.py`、入口`main_pretrain_clip_relation.py`、配置`config/ntu60_xsub_joint/pretrain_madiff_clip_relation_decoder3.yaml`、测试`tests/test_clip_relation.py`；完整方法/同步文件/命令见[文档顶部](/D:/program/MacDiff/tools/MACDIFF_TEXT_RELATION.md:3)。这取代此前仅换KL来源却保留T→S的建议；旧remap主线A与配置作为控制保留。新组未启动、无新成绩ID，仍33条记录。
+
+新身份`fixed_clip_full_ema_gap_shared_queue_kl_v1`，直接继承原生MacDiff：S→S原生decoder3+uni.02、完整750token EMA key（.999）的InfoNCE（.07/1e-4）、固定原始CLIP全局句向量作teacher的KL（T/S温度.1/.1、权重.1）。学生10%可见75token/第8层GAP256；文本为现有v3缓存person0全局512维/L2，未经过remap/平滑，不是六部位平均。骨架一个65536 queue供CL与KL共用，配对CLIP queue同ID/槽位/指针；成功完整步提交后更新EMA，self副本全部排除。不存在remap、T→S/S→T decoder或文本可训练模块；非零文本diffusion权重直接拒绝。原生可训练参数应保持一致（实际Torch参数清单测试待服务器）。LP仍第8层完整骨架/6400维/原入口。
+
+公共改动仅`util/person_text_cache.py`新增get_global_batch，以及`engine_pretrain.py`对text_global_only模型选择全局reader；旧文本路径保持。新组fixed_clip模式不建立逐样本文本目标库，每步不读/传输局部句向量或更新remap；仍保留原完整缓存启动校验/mmap结构。新模型复用旧关系KL/gather和完整key encoder/InfoNCE函数，因此服务器相关旧文件须当前版本，但不会构造其文本模块。已有旧主线A运行日志仍是真实旧方案证据，不改名为固定CLIP结果；新组同时换teacher并去掉T→S，不能仅归因于文本来源。
+
+新11项8通过/3无Torch跳过；相关9模块127项72通过/55跳过。生产forward NumPy、全局cache/engine路由、精确loss、配对queue wrap/跳步/EMA时序、fixed不建目标库、旧方法resume隔离、实际PT/LP parser配静态YAML子集、checkpoint路径与Python3.8语法已核对。真实梯度/参数清单/EMA优化/checkpoint→LP的3项待服务器，未声称GPU/DDP通过，未安装依赖或启动训练。
+
+新PT400/总64/.001→.0005/warm20/floor20/noAMP/seed0→LP100/总128/.1→0/warm0/floor10/dist_eval；端口10329/10330，目录`output_dir/ntu60_xsub_cliprel_fullkey_q65536_cl1e4_kl01_gap256_dec3_noamp_seed0_20261028/{pt,lp}`，LP读本组checkpoint-399.pth。新入口拒绝旧remap resume/旧queue及改变方法定义，命令不再带lambda_text_to_skeleton或lambda_skeleton_to_text的0参数。原始CLIP结构是否更有信息仍需熵/近邻诊断与LP验证，未保证收益。
+
+### 最新日志诊断：2026-10-28主线A epoch38/39片段，teacher关系近乎均匀
+
+用户提供KL/fullkey主线A的控制台片段，79行、17条进度记录，epoch38 step160–625及epoch39 step0/40/80/120，含epoch38最终Averaged stats；原附件路径/SHA及详细计算见[方法文档顶部](/D:/program/MacDiff/tools/MACDIFF_TEXT_RELATION.md:3)。已见CL/KL实际运行指标，不再说没有任何KL训练日志。尚无KL LP成绩或完整PT/实际Namespace/服务器代码SHA，不新增成绩ID，不推断片段之后的进度。当前记录仍33条（含T33多层口述）。未改训练代码/温度/权重或启停训练。
+
+打印数值均有限、total配方在四位小数精度内吻合：epoch38均值S→S .0207、T→S .0259、uni .0232*.02、KL .0062*.1、CL9.7559*1e-4，合计.04865959 vs total .0487。InfoNCE确实存在，加权约.000976；K65536的均匀logits参考约11.09，CL9.76不能按绝对值判异常。满队列/valid_fraction1、非self锚点约65534.864；少于65536是self历史副本过滤。pred/target打印整行0来自原生mask乘法，不是坍塌证据。括号前是窗口中位数，括号内是epoch累计均值，不相加分项中位数验证total。
+
+**核心疑点：**teacher_entropy11.0899几乎等于ln(65534.864)=11.0903376；entropy_fraction实际约.9999605，四位小数显示1.0000。teacher相对均匀分布的KL约.000438 nats（均值/打印精度近似），关系区分度很弱；student_entropy11.0840也较高。KL=.0062很小不证明语义蒸馏成功，目标若近均匀可能主要拉平骨架关系；不能据熵确诊remap/骨架坍塌，也不能归因唯一温度。建议后续先对同样本/锚点比较CLIP→在线remap→平滑target→文本queue的方差/余弦分布和时滞，再离线扫teacher温度.1/.05/.04/保持student.1，看熵与top-k质量；不先盲目增大KL权重。ReSSL锐化可作参考，非当前跨模态方法已验证处方。
+
+此段epoch38约187.33s/.2992s每步，allocated12796.9MiB/reserved13426MiB；target读取.58s/更新2.05s占约1.4%。epoch39首步加载2.17s导致高ETA，后续回归约.30s。只记录这段实测，不外推整次训练时间/显存趋势，不把日志当本地Torch单测或真实DDP一致性验证。
+
+### 最新回传：2026-10-28后三层diffusion口述85.71%，T33；KL主线A保留InfoNCE
+
+用户口述“后三层diffusion的跑出来85.71”，登记T33，当前33条配置/成绩记录。先记LP分数85.71%，best/last、对应epoch、原始PT/LP日志和末20统计未提供；预期为此前共享norm/decoder的v3，但实际Namespace/服务器版本/seed/checkpoint加载仍待日志。与原生dec3 T26 best85.710819994%按两位小数相同，当前没有可见提升证据；不把口述两位小数当精确持平，不在best/last及AMP/noAMP差异未对齐时断言无效。不自动调权重/融合LP/重跑，T33不混入原生/文本四组均值。详见[Stage1最新](/D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md:5)、[总表](/D:/program/MacDiff/EXPERIMENT_RESULTS.md:5)、[多层文档顶部](/D:/program/MacDiff/tools/MACDIFF_MULTILAYER_DIFFUSION.md:3)。旧“多层无成绩/32条/不预登记T33”仅为历史状态。
+
+用户另问“KL为什么没有对比学习”，已回传其使用的主线A命令：main_pretrain_text_relation_teacher.py + pretrain_madiff_text_relation_teacher_decoder3.yaml、10325/10326、lambda_contrastive=.0001、lambda_skeleton_to_text=0。当前v2明确保留CL：teacher模型覆盖skeleton_auxiliary_loss，shared_queue_info_nce得到raw CL，乘1e-4作为auxiliary，由基类forward总loss加上；base v1的zero辅助函数不是v2实际调用。日志为train_loss_contrastive/train_loss_contrastive_weighted/contrast_positive_cosine。用户随后明确“我以为没有，是我理解错了”，无需排查日志故障或改权重。只确认命令与当前源码定义，未拿到服务器日志/源码，不猜运行进度，也不登记KL成绩。
 
 **2026-10-27最新解释更正：**用户追问一级为什么不像原论文实现、默认A现在是什么。已重新核对代码/原文：当前B只实现“3个细patch embedding均值合并＋随机70%”，是助手为保留EMA同形参数自行选的近似；不能当成用户所指的独立大patch投影已实现。真正12帧投影（36→256）与4帧学生投影（12→256）不能直接逐项EMA，需另定义其学习/初始化/更新；这不是EMA原则上不能搭配大patch。当前模型/配置未因本次解释更改。默认A仍是S→S diffusion/native dec3＋完整750token EMA key的全局InfoNCE＋独立T→S dec3训练remap＋全局文本关系KL；query75token GAP256，两个配对65536queue，LP仅学生第8层6400读出。不要把B近似的实现状态误写成原论文大patch已复现，也不要擅自把默认A换掉。
 

@@ -100,8 +100,12 @@ def train_one_epoch_macdiff(model: torch.nn.Module,
         text_kwargs = {}
         if text_features is not None:
             if hasattr(text_features, 'get_batch'):
-                arrays = text_features.get_batch(
-                    sample_indices.cpu().numpy(), one_person=model_without_ddp.one_person)
+                if getattr(model_without_ddp, 'text_global_only', False):
+                    arrays = text_features.get_global_batch(
+                        sample_indices.cpu().numpy(), one_person=model_without_ddp.one_person)
+                else:
+                    arrays = text_features.get_batch(
+                        sample_indices.cpu().numpy(), one_person=model_without_ddp.one_person)
                 if text_target_bank is not None:
                     target_read_start = time.perf_counter()
                     arrays.update(text_target_bank.get_batch(sample_indices.cpu().numpy(), arrays))

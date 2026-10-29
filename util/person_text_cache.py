@@ -15,6 +15,16 @@ class PersonTokenFeatureCache:
         # v2 stores BOS at slot 0 (masked); v3's slot 0 is the head sentence.
         self.position_offset = 1 if manifest.get('protocol') == 'macdiff_clip_sentence_cache_v3' else 0
 
+    def get_global_batch(self, indices, one_person=True):
+        """Read global sentence vectors only, without touching local token arrays."""
+        indices = np.asarray(indices)
+        if (indices.ndim != 1 or not len(indices) or indices.dtype.kind not in 'iu'
+                or np.any(indices < 0) or np.any(indices >= len(self.global_text))):
+            raise ValueError('Invalid raw training indices for text lookup')
+        people = 1 if one_person else 2
+        return dict(text_features=np.asarray(self.global_text[indices, :people],
+                    dtype=np.float32).reshape(len(indices) * people, self.global_text.shape[-1]))
+
     def get_batch(self, indices, one_person=True):
         indices = np.asarray(indices)
         if (indices.ndim != 1 or not len(indices) or indices.dtype.kind not in 'iu'

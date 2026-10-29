@@ -634,3 +634,23 @@ The root `index.html` shows every selected GIF beside its `y_train` class and
 person captions. Each sample subdirectory also contains `preview.gif`,
 `preview_middle.png`, `summary.txt`, and the complete `review.json`. The output
 directory must not already exist, which prevents accidental review overwrites.
+
+To collect all NTU60 XSub training captions by class into one text file, without
+similarity or duplicate statistics, run from the repository root:
+
+```bash
+python -B group_ntu60_captions_by_class.py --data-path ../data/MAMP/ntu/NTU60_XSub.npz --captions vlm_pilot/ntu60_xsub_clip_sentence_cache_v3/samples.json --output output_dir/ntu60_xsub_captions_by_class.txt
+```
+
+The 60 sections are ordered A001-A060 and include the zero-based class ID and
+official English class name. Samples within each section retain their original
+training indices; every supplied person slot and all global/six-local sentences
+are preserved. Descriptions are JSON-quoted, not rewritten. Only y_train is read
+from the NPZ; no skeleton decompression, Torch, CLIP, or GPU is needed. All raw
+training rows must be covered exactly once. Existing output files are refused.
+Original caption/cache/dataset files are never modified.
+
+This implements the user's narrowed 2026-10-29 request: grouping only. Four local
+synthetic tests pass, including raw-index alignment, all-person/text preservation,
+complete coverage and overwrite protection; the real server dataset/texts are
+not available in the local workspace, so the full report must be generated there.

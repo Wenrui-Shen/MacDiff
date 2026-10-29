@@ -1,5 +1,16 @@
 # 原生 MacDiff 的坐标空间 Optimal Transport Flow Matching 基线
 
+## 2026-10-29结果：新采样已生效，T34 LP best85.231683676%
+
+用户回传本页10月27日SNR采样对照的两份附件，PT400/LP100完整连续、数值有限，登记T34，当前34条配置/成绩记录。best **85.231683676%@71**、last85.031538116%、80–99 mean **85.049126665±.075286871%**。相对旧uniform T29 best **+.600436679pp**、末20 **+.536754015pp**，100个LP epoch全部更高。相对原生diffusion dec3 T26仍低 **.479136318pp best/.396045600pp末20**，末20全部较低；T26为历史AMP，同精度noAMP原生控制仍无新结果。
+
+采样指标400轮time均值=.501685468、SNR∈[.1,10]占比=.901815158（90.1815%，各epoch约89.5143%–90.6874%），符合新表90.2%预期。支持本次采用了新采样，不能从epoch JSON核验全部服务器实参。PT总loss=FM+.02uni，最大残差2.757428754e-9；末20total=.055657468372、velocity=.055065175240、uni=.029614657312，未见日志发散。LR与T29/T26/T22两阶段逐epoch一致，LP参数384060；峰allocated7025.704102MiB/reserved7688MiB，未给耗时。
+
+结果支持时间采样是有效调整方向，但尚无独立重复或完整源码/Namespace/checkpoint加载身份。新旧采样的velocity期望目标不同，低37.397945%的末20loss不能直接解释为同一评价分布上更好的重建；剩余差距还可能涉及同SNR下输入幅度与velocity/epsilon的时间权重差异。未由日志定位唯一原因、坍塌或decoder旁路，不自动再改loss/采样/AMP或启动训练。
+
+[完整比较和证据](/D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md:5)。原附件：[T34 PT](/C:/Users/97537/.codex/attachments/e9cf75ea-0c11-462b-80eb-fd9a0da5c22c/已粘贴的文本.txt)、[T34 LP](/C:/Users/97537/.codex/attachments/4232e20e-e9f1-4629-be21-202535cc0920/已粘贴的文本.txt)，SHA256分别为 `fb3c960a7adeaac55b4fd49fa3edf09f8797355584e829818a6b578a144cc30f` / `c9c6ec796a36b1c69235e39bb5fdd4763ceba3a9420804eccead3676d11fe924`。下方“新采样无成绩/不预编号”保留实现日期历史状态，以本节T34为准，旧T29仍属于uniform。
+
+
 ## 2026-10-27新增：Inverse Cosine信噪比映射，只改变OT时间采样
 
 用户已要求“改一个试试”。新配置为 [pretrain_madiff_flow_matching_inverse_cosine.yaml](/D:/program/MacDiff/config/ntu60_xsub_joint/pretrain_madiff_flow_matching_inverse_cosine.yaml)，仍走原FM入口和原encoder8/decoder3，方法路径版本仍为 `conditional_ot_noise_to_data_v2`，采样身份单独保存为 `flow_time_sampling=inverse_cosine_snr_v1`。旧配置和模型缺省仍为 `uniform`，T29成绩属于旧均匀采样，不能归给本次改动。本次无成绩、不预分配实验编号，助手未启动训练。

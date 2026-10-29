@@ -1,4 +1,33 @@
-# Stage1 文本实验待测变量与顺序（更新2026-10-27）
+# Stage1 文本实验待测变量与顺序（更新2026-10-29）
+
+## 2026-10-29：最佳no-share全3层＋新读取，完整PT&&LP命令
+
+用户明确要求这组命令。复用已实现的 `config/ntu60_xsub_joint/pretrain_madiff_text_global_local_decoder3.yaml`：最佳T23的native/T→S/S→T各3层、encoder8/256、remap2048、S→T512/none、七句v3/sample_target_blend、T→S=1/S→T=.1、text uni0/骨架uni.02、A/person0；T→S读取用 `global_mod_local_attention_v1`（global/time调制＋六local attention），保留现有S→T diffusion。不是固定CLIP关系KL组，也不接teacher/FM/新监督。相对已经安排的noAMP T23复跑，模型变量为读取方式；相对历史T23还涉及AMP精度协议差异。
+
+从头PT400/双卡每卡32/accum1/总64、lr.001/floor5e-4/warm20/末20floor/noAMP/seed0；LP100/每卡64/总128、lr.1/floor0/warm0/末10floor/dist_eval，只用第8层原6400维特征。使用独立20261029目录，端口10331/10332，LP读取本组checkpoint399。CLI覆盖既有YAML的旧默认输出路径，无需改YAML或重建CLIP缓存。新目标库随新PT目录创建，不复用旧库；已有产物时按完整恢复协议或另用未使用目录。
+
+服务器同步当前 `model/transformer_macdiff_text.py`、`main_pretrain.py`、`engine_pretrain.py`、`util/misc.py` 和上述YAML及其依赖，从Linux仓库根运行：
+
+```bash
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10331 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_text_global_local_decoder3.yaml --disable_amp --lambda_text_to_skeleton 1 --lambda_skeleton_to_text 0.1 --batch_size 32 --accum_iter 1 --epochs 400 --warmup_epochs 20 --min_lr_epochs 20 --lr 0.001 --min_lr 0.0005 --mask_ratio 0.9 --motion_aware_tau -1 --seed 0 --output_dir output_dir/ntu60_xsub_noshare_globalmod_localattn_all_dec3_h512_remap2048_textuni0_noamp_seed0_20261029/pt --log_dir output_dir/ntu60_xsub_noshare_globalmod_localattn_all_dec3_h512_remap2048_textuni0_noamp_seed0_20261029/pt/tensorboard && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10332 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_noshare_globalmod_localattn_all_dec3_h512_remap2048_textuni0_noamp_seed0_20261029/pt/checkpoint-399.pth --batch_size 64 --accum_iter 1 --epochs 100 --warmup_epochs 0 --min_lr_epochs 10 --lr 0.1 --min_lr 0 --seed 0 --dist_eval --output_dir output_dir/ntu60_xsub_noshare_globalmod_localattn_all_dec3_h512_remap2048_textuni0_noamp_seed0_20261029/lp --log_dir output_dir/ntu60_xsub_noshare_globalmod_localattn_all_dec3_h512_remap2048_textuni0_noamp_seed0_20261029/lp/tensorboard
+```
+
+本轮只给命令，助手未启动训练；尚无新读取三层组的结果，不预分配实验编号。该组与下方全5层新读取、旧读取T23复跑分别保留身份。
+
+同日新OTFM完整PT400/LP100已回传，登记T34，当前34条配置/成绩记录：best85.231683676%@71、last85.031538116%、80–99 mean85.049126665±.075286871%；对旧uniform T29 best+.600436679pp/末20+.536754015pp，100轮全部更高；对T26 best−.479136318pp/末20−.396045600pp。采样中间SNR比例实测90.1815%，支持新采样生效，仍未追平历史diffusion。详见[结果](/D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md:5)。下方“新SNR OTFM未回传/33条”等是历史状态，不再列作待跑。
+
+
+## 2026-10-28最新方案：固定CLIP关系KL，删除T→S/remap
+
+用户明确固定CLIP后不再需要T→S。独立新模型/入口/config已实现，定义与PT&&LP命令见[方法文档顶部](/D:/program/MacDiff/tools/MACDIFF_TEXT_RELATION.md:3)。目标为原生MacDiff decoder3 diffusion + .02uni + 1e-4完整EMA-key InfoNCE + .1全局CLIP关系KL。学生75可见token GAP256、完整EMA教师750token、共享骨架/配对固定CLIP队列65536、文本全局512维、两侧关系温度.1；不经过remap/逐样本平滑，不建文本decoder或目标库。LP仍第8层6400维。新组未启动/无LP成绩/不新增编号，仍33条记录。
+
+新入口`main_pretrain_clip_relation.py`，配置`pretrain_madiff_clip_relation_decoder3.yaml`，端口10329/10330、独立20261028/cliprel输出目录。旧remap+T→S主线A保留作对照；当前固定CLIP方案同时变更teacher来源并删除T→S，不把其潜在收益单独归因于来源。新11项8通过/3缺Torch跳过，相关127项72通过/55跳过，真实Torch/GPU/DDP待服务器。后文“默认主线A保留T→S”为旧方案历史定义，不能覆盖本段用户最新选择。
+
+## 2026-10-28结果更新：后三层85.71%，KL主线A仍有对比学习
+
+用户口述后三层diffusion成绩85.71%，登记T33，当前33条记录；best/last和原始日志未提供，先记口述LP分数。预期共享norm/同一decoder3/6-7-8分别监督→第8层LP；实际版本/seed/完整PT-LP日程未核验。数值与原生dec3 T26 best85.710819994%按两位小数相同，当前未见可见提升证据，不据此自动改权重/融合LP/重跑，不并入四组均值，详情见[结果记录](/D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md:5)。
+
+用户已回传主线A运行命令，含main_pretrain_text_relation_teacher.py、lambda_contrastive=.0001、完整key v2。CL确实计算并通过auxiliary进入total；lambda_skeleton_to_text=0只关闭旧S→T diffusion。用户随后确认是理解误会，无运行异常或KL新成绩，不改配置或启停训练。后文旧“多层待结果/32条/不预登记T33”为当时历史状态。
 
 **2026-10-27实现边界更正：**用户追问后重新明确：下方B已实现的是细patch embedding均值合并近似，不是原论文独立大patch投影。该近似是助手为保持EMA同形作的工程选择，不能作为用户要求的原论文式投影已经完成。真正12帧投影的初始化/学习/更新尚需定义；默认A继续完整EMA key＋InfoNCE＋T→S＋global关系KL，代码/默认配置未因解释更改。
 

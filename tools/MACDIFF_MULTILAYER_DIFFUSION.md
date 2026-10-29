@@ -1,6 +1,8 @@
 # MacDiff后三层完全共享norm和decoder的diffusion监督，第8层LP
 
-2026-10-27：用户进一步指出辅助LayerNorm也应共享，当前v3让encoder第6/7/8层复用**同一个原生最终LayerNorm（含weight/bias）和同一套MacDiff decoder**，做三次前向、分别计算噪声损失，LP只读第8层。v1独立decoder、v2共享decoder但额外保留两层辅助norm均为此前设计，不作为v3的完整resume。当前没有收到本方法训练结果，不预登记新成绩ID。固定预训练encoder蒸馏等待用户参考文献。
+**2026-10-28结果更新：**用户口述“后三层diffusion跑出来85.71”，登记T33，先记LP分数85.71%。best/last口径及原始PT/LP日志未提供，epoch/末20统计不补填。预期为下方v3方法/命令，实际运行身份仍待日志核对。与历史原生dec3 T26 best85.710819994%在两位小数上相同，目前没有可见提升证据；口径、精度和AMP/noAMP边界未对齐，不能据此证明方法等效或无效。完整记录见[Stage1最新T33](/D:/program/MacDiff/STAGE1_EXPERIMENT_RESULTS.md:5)。本次只记录结果，未改代码/权重/LP读出或启动训练。
+
+2026-10-27：用户进一步指出辅助LayerNorm也应共享，当前v3让encoder第6/7/8层复用**同一个原生最终LayerNorm（含weight/bias）和同一套MacDiff decoder**，做三次前向、分别计算噪声损失，LP只读第8层。v1独立decoder、v2共享decoder但额外保留两层辅助norm均为此前设计，不作为v3的完整resume。当时未收到本方法结果；最新口述成绩见顶部。固定预训练encoder蒸馏等待用户参考文献。
 
 ## 模型与损失
 

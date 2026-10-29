@@ -1,6 +1,60 @@
 # Stage1 实验汇总
 
-更新日期：2026-10-23；10月7日汇总保留为历史快照。数据集为NTU60 XSub，评价为只输入骨架的linear probe。汇总所有本地已保存的Stage1数值成绩、定性反馈、未完成评价和计划；保留 [总审计](D:/program/MacDiff/EXPERIMENT_RESULTS.md) 的实验ID。
+更新日期：2026-10-29；10月7日汇总保留为历史快照。数据集为NTU60 XSub，评价为只输入骨架的linear probe。汇总所有本地已保存的Stage1数值成绩、定性反馈、未完成评价和计划；保留 [总审计](D:/program/MacDiff/EXPERIMENT_RESULTS.md) 的实验ID。
+
+## 2026-10-29：Inverse Cosine SNR采样OTFM完整回传，T34
+
+用户明确本次两份附件为新OTFM，登记T34，当前共**34条配置/成绩记录**。预期对应10月27日的 `inverse_cosine_snr_v1` 单因素时间采样对照：原OT条件路径/速度目标、sigma_min=1e-4、encoder8/native decoder3、A/person0、PT400/global64/floor5e-4/noAMP/seed0→原第8层LP100/global128/floor0/checkpoint399。实际Namespace、服务器源码/数据/checkpoint SHA及LP加载输出未提供；不从epoch JSON补齐所有实参。此组单列FM，不并入原生/文本四组均值。
+
+### 完整性、采样与目标核验
+
+直接解析原附件：PT0–399/LP0–99各400/100条，epoch唯一连续、所有数值有限，LP可训练参数全程384060。PT400轮与LP100轮LR分别与T29、T26、T22逐项完全相同。总loss满足 `FM+.02*uniformity`，最大绝对残差2.757428754e-9。
+
+新日志全部400轮的 `train_time_mean` 平均0.501685468，`train_snr_middle_fraction` 平均0.901815158（**90.1815%**），后者各epoch范围0.895142772–0.906874002；与新采样表90.2%预期一致，明显不同于旧uniform的约51.95%理论比例。支持新采样已生效，不是证明服务器全部定义已核验。
+
+### LP比较
+
+| 指标 | T29旧uniform OTFM | T34新SNR采样OTFM | T26原生diffusion dec3 |
+|---|---:|---:|---:|
+| best (%) | 84.631246997 @90 | **85.231683676 @71** | 85.710819994 @73 |
+| last (%) | 84.588791878 | 85.031538116 | 85.419699192 |
+| epoch80–99 mean (%) | 84.512372650 | **85.049126665** | 85.445172265 |
+| epoch80–99 population std (pp) | 0.055134978 | 0.075286871 | 0.054504224 |
+| epoch80–99 train CE | 0.315357905005 | 0.180525480303 | 0.352072116944 |
+| epoch80–99 test CE | 4.322367658325 | 4.674421139989 | 4.627313369447 |
+
+相对T29：best **+0.600436679pp**、last +0.442746238pp、末20均值 **+0.536754015pp**；100个LP epoch全部更高，末20也全部更高。这是整条LP曲线的改善，不只是一次峰值。按给定协议是只改时间采样的单次正向观察，尚无独立重复或完整服务器身份核验，不能宣称稳定因果收益。
+
+相对T26：best **-0.479136318pp**、末20均值 **-0.396045600pp**；100轮29高/71低、末20全部低。相对T22 best -0.230470636pp、末20 -0.342673447pp，末20同样全部低。匹配系数SNR后追回部分差距，仍未追平历史原生diffusion。T22/T26为历史AMP协议；已安排的同精度原生dec3 noAMP组仍无结果，不把剩余差距全部归为FM方法。
+
+LP末20的train CE从T29的.31536降至.18053，test CE则从4.32237升至4.67442；top1同时改善，说明CE与准确率并不单调对应。不能仅凭训练CE下降认定表示改善，也不能凭测试CE升高确诊encoder过拟合或坍塌。没有logits/梯度/特征方差来定位该现象。末20std是同一次LP的轮间波动，不是跨seed方差。
+
+### PT与结论边界
+
+末20 total=0.055657468372、velocity=0.055065175240、uniformity=0.029614657312；末轮total=0.055259707083，也是本次最低epoch均值。velocity较T29末20低37.397945%，但采样分布改变了期望目标，不能把此差值当相同评价集上的去噪改善幅度，也不与原生epsilon loss直接比较。日志未见发散；没有microstep细节，不补推每步行为。峰allocated7025.704102MiB/reserved7688MiB，与T29记录基本相同；无耗时字段，不给吞吐结论。
+
+当前最有支持的解释是：时间/噪声难度分布是此前掉点的一个有效调整方向；它没有消除FM与原diffusion的全部差异。即使系数SNR相同，OT输入幅度与原扩散不同；在同一OT路径上 `epsilon_hat=x_t-t*v_hat`、`epsilon_error²=t²*velocity_error²`，无权velocity目标仍有不同时间权重。以上是残余差距的候选机制，不能由汇总日志定位唯一原因或认定decoder旁路。优先使用已安排的同精度原生对照；如继续诊断，利用现有checkpoint固定batch/t/noise/mask分桶比较条件置零/打乱与encoder梯度。没有自动改采样、损失、AMP或启动新训练。
+
+原附件：[T34 PT](/C:/Users/97537/.codex/attachments/e9cf75ea-0c11-462b-80eb-fd9a0da5c22c/已粘贴的文本.txt)、[T34 LP](/C:/Users/97537/.codex/attachments/4232e20e-e9f1-4629-be21-202535cc0920/已粘贴的文本.txt)。SHA256：PT=`fb3c960a7adeaac55b4fd49fa3edf09f8797355584e829818a6b578a144cc30f`；LP=`c9c6ec796a36b1c69235e39bb5fdd4763ceba3a9420804eccead3676d11fe924`。本次重读T29/T26/T22的原附件共同计算；不复制日志或新建归档目录。用户另索要最佳no-share全3层＋新读取命令，已用既有YAML给出，见[当前计划](/D:/program/MacDiff/tools/vlm_pilot/STAGE1_TEXT_EXPERIMENT_PLAN.md:3)，该文本组未回传结果，不预编号。
+
+
+## 2026-10-28：后三层diffusion口述LP成绩85.71%，T33
+
+用户回报“后三层diffusion的跑出来85.71”，新增T33，当前共**33条配置/成绩记录**，不等于33次完整独立PT。此前“多层尚无成绩/不预登记T33”的文字为对应日期历史状态，本节覆盖其当前状态。原始PT/LP日志未提供，best/last口径、epoch、末20均值、重复次数、实际Namespace/seed/服务器版本/checkpoint加载均不补猜。
+
+| 项目 | 已知/预期定义 |
+|---|---|
+| 用户口述LP分数 | **85.71%**，两位小数；best/last待确认 |
+| 方法身份 | 预期last3_shared_norm_decoder_final_layer_lp_v3，依据此前下发命令，未由新日志验证 |
+| 预期预训练 | encoder8/256，第6/7/8层共享原self.norm及同一原生MacDiff decoder3，分别前向 |
+| 预期目标 | L8+.1*(L6+L7)/2+.02*uni8；同t/epsilon/mask/condition dropout |
+| 预期评价 | 原main_linprobe.py，仅第8层linprobe2/6400维，不融合 |
+| 预期协议 | PT400/总batch64/floor5e-4/noAMP/seed0→LP100/总128/floor0；实际完整轮数未核验 |
+| 原始日志/末20统计 | 未提供 |
+
+历史原生dec3 T26的LP best为85.710819994%，按两位小数也为85.71。只能先记录本次口述成绩与该参考近似；不能把两位小数推成精确持平，也不能在best/last口径、AMP/noAMP差异及单次重复未控制时证明多层监督无效。当前没有新增可见提升证据，不据此自动改辅助权重、融合LP或重跑。T33为独立多层辅助方法，**不并入此前原生/文本四组均值**。代码/命令及版本定义见[多层方法文档](/D:/program/MacDiff/tools/MACDIFF_MULTILAYER_DIFFUSION.md)。
+
+同日KL对比学习核对：用户回传主线A完整key v2的10325/10326命令，明确lambda_contrastive=.0001、lambda_skeleton_to_text=0。前者是InfoNCE，后者只禁用旧S→T diffusion。v2覆盖基类的zero辅助方法，计算并返回加权CL，再由基类forward加到total；日志字段为train_loss_contrastive/train_loss_contrastive_weighted。用户随后确认是理解误会，未报告运行异常或KL新分数；不改变训练配置，不由启动命令反推服务器源码或运行进度。
 
 ## 2026-10-27：teacher AA0、CL=1e-3回传T32，PT400/LP附件仅0–89
 
