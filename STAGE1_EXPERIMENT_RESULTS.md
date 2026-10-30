@@ -1,6 +1,27 @@
 # Stage1 实验汇总
 
-更新日期：2026-10-29；10月7日汇总保留为历史快照。数据集为NTU60 XSub，评价为只输入骨架的linear probe。汇总所有本地已保存的Stage1数值成绩、定性反馈、未完成评价和计划；保留 [总审计](D:/program/MacDiff/EXPERIMENT_RESULTS.md) 的实验ID。
+更新日期：2026-10-30；10月7日汇总保留为历史快照。数据集为NTU60 XSub，评价为只输入骨架的linear probe。汇总所有本地已保存的Stage1数值成绩、定性反馈、未完成评价和计划；保留 [总审计](D:/program/MacDiff/EXPERIMENT_RESULTS.md) 的实验ID。
+
+## 2026-10-30：随机学生普通蒸馏checkpoint-140，阶段性LP完整回传
+
+用户明确本次为此前checkpoint-140的LP。对应旧400轮日程（match200/ramp40），checkpoint epoch从0计数，因此完成141轮且全程lambda=1；**本条单列为普通蒸馏学生的阶段读出，尚未登记新实验ID，不能当作新100轮/snapshot10/lambda1.25外推试验的结果。** 学生随机初始化，教师为纯原生T20 checkpoint399，encoder8/dim256逐层表示MSE；无文本或原生diffusion decoder损失。预期PT每卡128/双卡global256、warmup20、lr.001/min_lr.0005、noAMP、A/person0；LP100/每卡128/global256、lr.1/min_lr0、seed0。上述运行身份依据用户说明和已给命令，JSON无Namespace/权重加载路径/服务器源码或checkpoint SHA。
+
+完整epoch0–99连续唯一、全部数值有限，可训练参数始终384060，epoch90–99 LR为0。直接重读本次原日志与T20保存的lp1.jsonl计算：
+
+| 指标 | T20原生教师历史LP | 普通蒸馏学生checkpoint-140 | 学生减教师 |
+|---|---:|---:|---:|
+| best (%) | 86.001940813 @95 | 86.074721030 @73 | +.072780217 pp |
+| last (%) | 85.783600214 | 86.001940826 | +.218340611 pp |
+| epoch80–99 mean (%) | 85.850315396 | 86.009218846 | +.158903450 pp |
+| epoch80–99 population std (pp) | .072069144 | .032298707 | — |
+| epoch80–99 train CE | .402430325676 | .176710370336 | — |
+| epoch80–99 test CE | 4.493198760020 | 2.232693104827 | — |
+
+按相同LP epoch序号参照，100轮80高/20低，末20为19高/1低，因此末段表现并非只有一个偶然best。**这仍不是同协议净收益：T20历史LP每卡64/global128，本次按给定命令每卡128/global256，局部BN、每轮优化更新数等不同。** 没有独立重复，末20std只是同一次LP的轮间波动，不能证明跨seed稳定超越；CE更低也不足以单独确认校准提升。
+
+当前支持的结论：随机学生仅用普通表示蒸馏，其完整骨架输入下的LP已达到教师历史水平；高训练cos没有伴随明显下游性能损失。该结果不检验外推，也不能证明snapshot10或teacher-full候选有效。新100轮直接外推仍待实际结果，继续保留单教师当前方案，不自动实施完整教师或SCD异构分支。
+
+原附件：[学生checkpoint-140 LP](/C:/Users/ruiz1/.codex/attachments/2a89c35c-c350-489e-9ab5-19b8e810a48a/已粘贴的文本.txt)，20117 bytes，SHA256=`f8a0cea6425886b672706d410a354f6a5e025b209839d4c8a056a3ad3004f897`。教师参照：[T20保存日志](/D:/Program/NEW/MacDiff/handoff_artifacts/official_dualgpu_results_20261013/lp1.jsonl)。
 
 ## 2026-10-29：Inverse Cosine SNR采样OTFM完整回传，T34
 

@@ -1,6 +1,54 @@
-# MacDiff 会话交接（更新2026-10-29）
+# MacDiff 会话交接（更新2026-10-30）
 
-**本文件开头的10月29日“接手更新”优先，其后的10月28日“接手摘要”保留方法定义；后面的“历史逐轮记录”仅供追溯。历史中的“当前/默认/最新/下一步”、成绩数量、端口和未完成状态可能已经过时，不能覆盖最新更新。固定CLIP版本仍未收到启动或训练结果；新SNR采样OTFM已回传T34。**
+**本文件开头的10月30日“接手更新”优先。当前先测试纯骨架固定教师的学生快照外推；10月29日及以前的文本/CLIP/OTFM记录保留作历史，不覆盖用户本次选择。历史中的“当前/默认/最新/下一步”、成绩数量、端口和未完成状态可能已经过时，不能覆盖最新更新。**
+
+## 2026-10-30接手更新：先测试10轮快照直接外推；checkpoint-140的LP已回传
+
+**用户最新决定：先测试当前外推版本，把“教师完整可见”及SCD异构教师的讨论记录为后续候选，暂不实现。** 旧400轮组的checkpoint-140已回传完整LP100日志：best86.074721030%@73、last86.001940826%、末20均值86.009218846%/population std .032298707pp。该checkpoint尚未进入外推，是普通蒸馏的阶段读出，不能记成新100轮外推结果。新100轮试验已实现并给出命令，尚未收到其实际启动或结果确认；不推断服务器上的其他任务状态。
+
+### 当前已实现的100轮试验
+
+- 模型：`model/transformer_macdiff_encoder_direction_distill.py`；通过`model/__init__.py`导入注册，补上了此前`import_class`找不到新子模块的遗漏。
+- 配置：`config/ntu60_xsub_joint/pretrain_madiff_encoder_direction_distill_ep100_snap10_jump125.yaml`。旧400轮配置`pretrain_madiff_encoder_direction_distill.yaml`保留，不用新配置覆盖旧实验。
+- 固定教师T：纯原生MacDiff的T20 PT `output_dir/native_official_dec5_ep400_bs32_seed0_20261012/pt/checkpoint-399.pth`。历史LP best86.001940813%@95，末20均值85.850315396%；其历史LP每卡64，不等同于当前LP每卡128的协议。没有文本/CLIP教师，没有外部B/checkpoint-300。
+- 学生S：随机初始化的同架构encoder8层/dim256。仅训练encoder；无原生diffusion decoder、uniformity、文本、InfoNCE或OSE损失。
+- epoch从0计数：0–9普通表示蒸馏、lambda=1；epoch10第一批更新前复制当前学生为A并永久冻结；10–99直接lambda=1.25，没有渐变。配置`match_epochs:10`、`ramp_epochs:1`、`lambda_max:1.25`；方法版本`native_t20_random_student_phase_anchor_v1`。
+- 当前S/T/A均接收同一增强视图和同一组75个可见token（120帧、t_patch4、25关节共750token，mask90%）。T/A都是eval/no_grad，只有S更新；A不是每步更新的EMA。人物只取person0，使用原生归一化A。
+- 8层监督：前7个block输出和第8层final LayerNorm输出各一项。目标`h*=h_T+(lambda-1)*(h_T-h_A)`，总loss为8层平均的维度/token/batch均值MSE，再除以lambda平方。T/A权重随普通checkpoint保存；正常resume恢复A。
+- 训练：PT100、warmup10、最后10轮LR floor，双卡每卡128/accum1/global256，lr1e-3/min_lr5e-4、wd.05、noAMP、seed0。LP100、每卡128/global256、lr.1/min_lr0、warmup0、最后10轮floor、seed0、dist_eval，读取本组checkpoint-99。
+- 新输出根：`output_dir/ntu60_xsub_native_t20_encoder_direction_distill_ep100_snap10_jump125_bs128_seed0_20261030`；PT/LP端口10336/10337。必须从头训练，不可直接把旧epoch140 checkpoint改为match_epochs10续训：旧checkpoint尚无阶段快照，又会跳过冻结点。
+- 验证范围：实际调度函数的epoch0/9=1、10/11/99=1.25已核对；Python3.8语法和diff空白检查通过。未新增兼容层或无关测试，未在本地启动训练；本地没有PyTorch和真实教师checkpoint。
+
+完整单行PT→LP命令（已给用户）：
+
+```bash
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10336 main_pretrain.py --config config/ntu60_xsub_joint/pretrain_madiff_encoder_direction_distill_ep100_snap10_jump125.yaml --disable_amp --batch_size 128 --accum_iter 1 --epochs 100 --warmup_epochs 10 --min_lr_epochs 10 --lr 0.001 --min_lr 5e-4 --weight_decay 0.05 --mask_ratio 0.9 --motion_aware_tau -1 --seed 0 --output_dir output_dir/ntu60_xsub_native_t20_encoder_direction_distill_ep100_snap10_jump125_bs128_seed0_20261030/pt --log_dir output_dir/ntu60_xsub_native_t20_encoder_direction_distill_ep100_snap10_jump125_bs128_seed0_20261030/pt/tensorboard && OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10337 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_native_t20_encoder_direction_distill_ep100_snap10_jump125_bs128_seed0_20261030/pt/checkpoint-99.pth --batch_size 128 --accum_iter 1 --epochs 100 --warmup_epochs 0 --min_lr_epochs 10 --lr 0.1 --min_lr 0 --weight_decay 0 --seed 0 --dist_eval --output_dir output_dir/ntu60_xsub_native_t20_encoder_direction_distill_ep100_snap10_jump125_bs128_seed0_20261030/lp --log_dir output_dir/ntu60_xsub_native_t20_encoder_direction_distill_ep100_snap10_jump125_bs128_seed0_20261030/lp/tensorboard
+```
+
+### 旧400轮组与已回传的LP140
+
+- 原配置`pretrain_madiff_encoder_direction_distill.yaml`仍为PT400、warmup20、match200、ramp40、lambda_max1.25；已按用户选择将PT min_lr从1e-5改为5e-4，PT每卡batch32改为128，LP命令也改为每卡128。旧输出根`output_dir/ntu60_xsub_native_t20_encoder_direction_distill_bs128_seed0_20261030`。
+- 用户已提供该组训练日志：`C:/Users/ruiz1/.codex/attachments/bdf7bc99-415c-46d5-9650-79068f9cc8b7/已粘贴的文本.txt`。完整epoch0–148连续，149只有前段；每轮156步，lambda全为1，峰allocated2181.1MiB。epoch均值：0 MSE2.6986/cos.0865；19 .1342/.9508；100 .0119/.9946；148 .0043/.9975。没有报错或明显震荡。这仅说明训练表示在对齐，不证明LP或外推收益；cos是最后层对应token的余弦，MSE是8层均值，不能混为同一指标。
+- checkpoint-140尚未经过外推，LP评价的是普通蒸馏得到的学生（checkpoint epoch从0计数，对应完成141轮）。本次用户已回传完整epoch0–99，连续唯一、所有数值有限，n_parameters全程384060。输出`.../lp_ep140_bs128`，端口10335；保持独立目录，不覆盖最终LP。
+- 原LP附件：`C:/Users/ruiz1/.codex/attachments/2a89c35c-c350-489e-9ab5-19b8e810a48a/已粘贴的文本.txt`，20117 bytes，SHA256=`f8a0cea6425886b672706d410a354f6a5e025b209839d4c8a056a3ad3004f897`。best86.074721030%@73；last86.001940826%；epoch80–99 mean86.009218846%、population std .032298707pp、范围85.923095605–86.062590996%。末20 train CE=.176710370336、test CE=2.232693104827；epoch90–99 LR均0。
+- 对T20历史教师：best+.072780217pp、last+.218340611pp、末20mean+.158903450pp；按相同epoch序号比较，100轮80高/20低，末20为19高/1低。这是数值参照，不是同协议净收益：教师历史LP每卡64/global128，本次按给定命令每卡128/global256，优化更新数和局部BN等不同；本次JSON无Namespace/实际checkpoint路径/源码或checkpoint SHA，身份来自用户说明和已给命令。末20std不代表跨seed方差；两侧CE差异也不能单独证明校准改善。结论是纯蒸馏学生的完整输入LP已保住教师历史水平，高训练cos没有伴随明显下游性能丢失；尚无外推有效性的结果。
+
+已给出的LP140命令：
+
+```bash
+OMP_NUM_THREADS=1 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.launch --nproc_per_node=2 --master_port=10335 main_linprobe.py --config config/ntu60_xsub_joint/linprobe_madiff.yaml --finetune output_dir/ntu60_xsub_native_t20_encoder_direction_distill_bs128_seed0_20261030/pt/checkpoint-140.pth --batch_size 128 --accum_iter 1 --epochs 100 --warmup_epochs 0 --min_lr_epochs 10 --lr 0.1 --min_lr 0 --weight_decay 0 --seed 0 --dist_eval --output_dir output_dir/ntu60_xsub_native_t20_encoder_direction_distill_bs128_seed0_20261030/lp_ep140_bs128 --log_dir output_dir/ntu60_xsub_native_t20_encoder_direction_distill_bs128_seed0_20261030/lp_ep140_bs128/tensorboard
+```
+
+### 仅记录的后续候选：完整可见教师与异构教师（均未实现）
+
+1. 教师和学生可以有输入信息差。候选：S看75个可见token，T/A看同一crop的完整750token；T/A必须先完整前向，再逐层按学生ids_keep选出对应75个输出位置。当前代码先gather再encoder，尚不支持此候选，不能把只改mask参数当作已实现。
+2. 若要清楚区分模型变化与输入信息变化，外推残差用`T(full)-A(full)`，学生回归`[T(full)+.25*(T(full)-A(full))][ids_keep]`。`T(full)-A(masked)`数学上也可训练，但混入并放大可见性差异，不能单独解释为模型能力方向。SCD最终关系监督也不能与MacDiff原始隐藏状态直接混减。
+3. 该跨可见性方案中，即使冻结时S/A参数相同，`S(masked)`也不等于`A(full)`，因此当前同输入设置下的lambda平方loss缩放连续性不再保证。90%mask可能丢失不可推断动作信息；loss不一定趋零，是否有效须看LP。教师完整可见不是能力提升的保证。
+4. 异构候选：冻结自监督SCD（GCN+Transformer），只监督最终特征或样本关系；可选用SCD的`concat(vt,vs)`，不能把CL投影向量默认当分类logits。同架构独立教师也不保证隐藏坐标对齐，不直接平均多个原始hidden states。
+5. SCD并非从未见mask：原论文与本地feeder均有结构化空间/时间置零mask，但不同于MacDiff删除90%token。教师可保持完整输入；若学生masked预测full教师，困难在学生的信息不足。更干净的候选是共享学生权重，保留原masked分支做MacDiff方向loss，额外full学生分支做SCD最终输出蒸馏；会增加完整750-token学生的前后向开销。
+6. 接异构教师前需统一时间crop和人物可见性，并保持各自预训练归一化。本地SCD使用64帧、两个人物槽，当前MacDiff为120帧/person0；不能无处理直接接。异构教师使用NTU标签训练会改变自监督协议，不能把标签迁移结果当纯无标签收益。
+
+参考原文RIDE是500训练steps、3%学习率warmup、固定lambda1.25，学生从预训练base初始化，教师与base同上下文计算残差；我们的随机学生阶段快照是改造方案，不是严格原文复现。LP140已回传且仅支持普通蒸馏的阶段结果，接下来接收单教师外推试验的实际日志和LP；不要自动实施本节候选、启动训练或编造新实验成绩。
 
 ## 2026-10-29接手更新：三层最佳no-share＋新读取命令；新OTFM结果T34
 

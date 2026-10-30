@@ -1,0 +1,66 @@
+# Random student matches native T20 for epochs 0-9.  At the start of epoch 10,
+# freeze the current student and switch directly to lambda=1.25 through epoch 99.
+feeder: feeder.feeder_ntu.Feeder
+train_feeder_args:
+  data_path: ../data/MAMP/ntu/NTU60_XSub.npz
+  split: train
+  window_size: 120
+  p_interval: [0.5, 1]
+  normalization: False
+  random_rot: False
+  flip: False
+  motion_noise: 0
+  impulse_noise: 0
+  joint_noise: [1, 0.005]
+  frame_noise: [0, 0]
+  vel: False
+  bone: False
+
+model: model.transformer_macdiff_encoder_direction_distill.Transformer
+model_args:
+  dim_in: 3
+  dim_feat: 256
+  dim_t_embed: 64
+  depth: 8
+  decoder_depth: 5
+  num_heads: 8
+  mlp_ratio: 4
+  num_frames: 120
+  num_joints: 25
+  patch_size: 1
+  t_patch_size: 4
+  qkv_bias: True
+  qk_scale: null
+  drop_rate: 0.
+  attn_drop_rate: 0.
+  drop_path_rate: 0.
+  diff_prediction: noise
+  diff_steps: 1000
+  diff_noise_schedule: [inverse_cosine, 1]
+  lambda_loss_uni: 0.02
+  layer_mask_ratio: 0.
+  uncond_ratio: 0.1
+  input_mean: [-0.0058, -0.1333, -0.0246]
+  input_var: [0.0206, 0.0805, 0.0218]
+  one_person: True
+  self_shift: False
+  teacher_checkpoint: output_dir/native_official_dec5_ep400_bs32_seed0_20261012/pt/checkpoint-399.pth
+  match_epochs: 10
+  ramp_epochs: 1
+  lambda_max: 1.25
+  direction_distill_version: native_t20_random_student_phase_anchor_v1
+
+epochs: 100
+warmup_epochs: 10
+min_lr_epochs: 10
+batch_size: 128
+accum_iter: 1
+lr: 1.e-3
+min_lr: 5.e-4
+weight_decay: 0.05
+mask_ratio: 0.9
+motion_aware_tau: -1
+enable_amp: false
+seed: 0
+output_dir: output_dir/ntu60_xsub_native_t20_encoder_direction_distill_ep100_snap10_jump125_bs128_seed0_20261030/pt
+log_dir: output_dir/ntu60_xsub_native_t20_encoder_direction_distill_ep100_snap10_jump125_bs128_seed0_20261030/pt/tensorboard
