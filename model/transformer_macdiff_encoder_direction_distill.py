@@ -1,9 +1,10 @@
 """Staged representation distillation from a fixed native MacDiff encoder.
 
 The online encoder is randomly initialized and first matches a frozen teacher.
-At the phase boundary, its current encoder is frozen as an internal anchor.
+At a configured epoch, its current encoder is frozen as an internal anchor.
 Training then extrapolates beyond the teacher along the anchor-to-teacher
 representation residual.  No external base checkpoint is used.
+The teacher can use the full sequence while supervising visible student positions.
 """
 import math
 
@@ -48,19 +49,24 @@ class FixedLayerEncoder(MomentumSkeletonEncoder):
     """Frozen native encoder returning one representation per encoder layer."""
 
     @torch.no_grad()
-    def forward_layers(self, skeleton, ids_keep):
+    def forward_layers(self, skeleton, ids_keep, full_visible=False):
         hidden = self.joints_embed(skeleton)
         batch, temporal, joints, width = hidden.shape
         hidden = hidden + self.pos_embed[:, :, :joints] + self.temp_embed[:, :temporal]
         hidden = hidden.reshape(batch, temporal * joints, width)
-        hidden = torch.gather(
-            hidden, 1, ids_keep.unsqueeze(-1).expand(-1, -1, width))
+        index = ids_keep.unsqueeze(-1).expand(-1, -1, width)
+        if not full_visible:
+            hidden = torch.gather(hidden, 1, index)
         features = []
         for block in self.blocks[:-1]:
             hidden = block(hidden)
-            features.append(hidden)
+            # Select supervision without shortening the next teacher layer's input.
+            features.append(
+                torch.gather(hidden, 1, index) if full_visible else hidden)
         hidden = self.blocks[-1](hidden)
-        features.append(self.norm(hidden))
+        hidden = self.norm(hidden)
+        features.append(
+            torch.gather(hidden, 1, index) if full_visible else hidden)
         return features
 
 
@@ -70,6 +76,8 @@ class Transformer(NativeTransformer):
 
     def __init__(self, teacher_checkpoint,
                  match_epochs=200, ramp_epochs=40, lambda_max=1.25,
+                 snapshot_epoch=None,
+                 teacher_full_visible=False,
                  direction_distill_version=METHOD_VERSION, **kwargs):
         if direction_distill_version != METHOD_VERSION:
             raise ValueError('Unsupported encoder direction-distillation version')
@@ -79,6 +87,11 @@ class Transformer(NativeTransformer):
             raise ValueError('teacher_checkpoint is required')
         if isinstance(match_epochs, bool) or not isinstance(match_epochs, int) or match_epochs < 0:
             raise ValueError('match_epochs must be a non-negative integer')
+        if snapshot_epoch is None:
+            snapshot_epoch = match_epochs
+        if (isinstance(snapshot_epoch, bool) or not isinstance(snapshot_epoch, int)
+                or not 0 <= snapshot_epoch <= match_epochs):
+            raise ValueError('snapshot_epoch must be an integer in [0, match_epochs]')
         if isinstance(ramp_epochs, bool) or not isinstance(ramp_epochs, int) or ramp_epochs <= 0:
             raise ValueError('ramp_epochs must be a positive integer')
         if (isinstance(lambda_max, bool) or not isinstance(lambda_max, (int, float))
@@ -100,7 +113,9 @@ class Transformer(NativeTransformer):
         self.anchor_encoder.eval()
 
         self.teacher_checkpoint = str(teacher_checkpoint)
+        self.teacher_full_visible = teacher_full_visible
         self.match_epochs = int(match_epochs)
+        self.snapshot_epoch = int(snapshot_epoch)
         self.ramp_epochs = int(ramp_epochs)
         self.lambda_max = float(lambda_max)
         self.direction_distill_version = direction_distill_version
@@ -108,9 +123,12 @@ class Transformer(NativeTransformer):
 
         print(
             'Encoder direction distillation: random student; teacher={}; '
-            'snapshot student at epoch {}; cosine ramp for {} epochs, then lambda={}'
-            .format(self.teacher_checkpoint, self.match_epochs,
+            'snapshot student at epoch {}; start extrapolation at epoch {}; '
+            'ramp for {} epoch(s), then lambda={}'
+            .format(self.teacher_checkpoint, self.snapshot_epoch, self.match_epochs,
                     self.ramp_epochs, self.lambda_max))
+        if self.teacher_full_visible:
+            print('Teacher context: full sequence; supervise only visible student positions')
 
     def train(self, mode=True):
         super().train(mode)
@@ -122,7 +140,7 @@ class Transformer(NativeTransformer):
     def update_diffusion_sampler(self, epoch, total_epoch):
         del total_epoch
         self.current_epoch = int(epoch)
-        if self.current_epoch == self.match_epochs:
+        if self.current_epoch == self.snapshot_epoch:
             self.anchor_encoder.update_from(self, 0.0)
             self.anchor_encoder.eval()
             print('Frozen student encoder snapshot at epoch {}'.format(
@@ -148,7 +166,7 @@ class Transformer(NativeTransformer):
         if enable_ose:
             raise ValueError('Encoder direction distillation does not use OSE')
         if motion_aware_tau > 0:
-            raise ValueError('Encoder direction distillation uses shared random masking')
+            raise ValueError('Encoder direction distillation uses random student masking')
         if not 0.0 < mask_ratio < 1.0:
             raise ValueError('mask_ratio must be in (0, 1)')
         if source.ndim != 5 or source.shape != source_aug.shape:
@@ -159,7 +177,8 @@ class Transformer(NativeTransformer):
 
         student_features, mask, ids_keep = self._student_layers(augmented, mask_ratio)
         with torch.no_grad():
-            teacher_features = self.teacher_encoder.forward_layers(augmented, ids_keep)
+            teacher_features = self.teacher_encoder.forward_layers(
+                augmented, ids_keep, full_visible=self.teacher_full_visible)
 
         coefficient = staged_lambda(
             self.current_epoch, self.match_epochs, self.ramp_epochs, self.lambda_max)
@@ -167,7 +186,8 @@ class Transformer(NativeTransformer):
             targets = teacher_features
         else:
             with torch.no_grad():
-                anchor_features = self.anchor_encoder.forward_layers(augmented, ids_keep)
+                anchor_features = self.anchor_encoder.forward_layers(
+                    augmented, ids_keep, full_visible=self.teacher_full_visible)
                 targets = [
                     teacher + (coefficient - 1.0) * (teacher - anchor)
                     for teacher, anchor in zip(teacher_features, anchor_features)
